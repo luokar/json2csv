@@ -1118,7 +1118,7 @@ function resolveModeForPath(path: string, config: MappingConfig) {
   const pathMatch = Object.entries(
     config.pathModes ?? {},
   ).reduce<PathMatch | null>((bestMatch, [candidatePath, mode]) => {
-    if (!doesPathMatch(path, candidatePath)) {
+    if (!doesPathExactlyMatch(path, candidatePath)) {
       return bestMatch
     }
 
@@ -1149,6 +1149,10 @@ function shouldDropPath(path: string, rules: string[]) {
 
 function doesAnyPathMatch(path: string, rules: string[]) {
   return rules.some((rule) => doesPathMatch(path, rule))
+}
+
+function doesPathExactlyMatch(path: string, rule: string) {
+  return normalizeRulePath(path) === normalizeRulePath(rule)
 }
 
 function doesPathMatch(path: string, rule: string) {

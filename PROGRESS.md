@@ -11,6 +11,7 @@
 - The roadmap milestone for a structured per-path planner is now implemented with UI in [src/components/path-planner.tsx](/Users/mac/work/json2csv/src/components/path-planner.tsx) and helper logic in [src/lib/path-planner.ts](/Users/mac/work/json2csv/src/lib/path-planner.ts).
 - Structural provenance is now tracked during projection in [src/lib/mapping-engine.ts](/Users/mac/work/json2csv/src/lib/mapping-engine.ts), and regroup keys are surfaced in the sidecar UI in [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx).
 - Indexed pivot columns for non-row-expanding arrays are now implemented in [src/lib/mapping-engine.ts](/Users/mac/work/json2csv/src/lib/mapping-engine.ts) and exposed through the config form in [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx).
+- A deeper engine regression matrix now covers nested arrays, `strict_leaf`, and override precedence in [src/lib/mapping-engine.matrix.test.ts](/Users/mac/work/json2csv/src/lib/mapping-engine.matrix.test.ts).
 
 ## Important findings
 
@@ -21,6 +22,7 @@
 - `parallel` cannot be modeled as repeated cross-products. It must zip against shared parent context, otherwise sibling arrays multiply incorrectly.
 - A full header scan is required for heterogeneous objects if the output schema must stay stable.
 - Key collision repair must be deterministic because separators like `_` collapse flat and nested names into the same header space.
+- `pathModes` need exact-path matching. If they cascade to descendant arrays, users lose the ability to control nested arrays independently. Subtree semantics remain appropriate for `stringifyPaths` and `dropPaths`.
 
 ## What is implemented
 
@@ -34,9 +36,9 @@
   - `stringify`
   - `strict_leaf` currently behaves as "stringify arrays unless explicitly overridden"
 - Path-specific overrides:
-  - `pathModes`
-  - `stringifyPaths`
-  - `dropPaths`
+  - `pathModes` as exact-path flatten overrides
+  - `stringifyPaths` as subtree stringify rules
+  - `dropPaths` as subtree exclusion rules
 - Header policies:
   - `full_scan`
   - `sampled_scan`
@@ -120,6 +122,11 @@
   - indexed pivot columns can be enabled through the config form
 - JSON input helper coverage in [src/lib/json-input.test.ts](/Users/mac/work/json2csv/src/lib/json-input.test.ts)
 - Planner helper coverage in [src/lib/path-planner.test.ts](/Users/mac/work/json2csv/src/lib/path-planner.test.ts)
+- Deep engine matrix coverage in [src/lib/mapping-engine.matrix.test.ts](/Users/mac/work/json2csv/src/lib/mapping-engine.matrix.test.ts)
+  - deep nested arrays under `strict_leaf`
+  - explicit deep-path expansion overrides
+  - longest-match path override precedence
+  - `stringifyPaths` precedence over row-expanding path modes
 - Engine coverage expanded with:
   - explicit header whitelist behavior
   - empty array behavior
@@ -149,8 +156,49 @@ The Vite build still emits the existing chunk-size warning for the main bundle.
 
 ## Recommended next steps
 
-1. Add a larger test matrix for deep nested arrays, strict-leaf edge cases, and path-specific override interactions.
-2. Decide whether this app should stay browser-only or add a worker/streaming path for large payloads.
-3. Consider a dedicated explicit-header editor so whitelist mode is as usable as the new path planner.
-4. Decide whether regroup metadata should also be exportable as a separate sidecar file instead of only appearing in the in-app schema panel.
-5. Decide whether pivoted columns need richer header naming controls beyond the current indexed path format.
+1. Decide whether this app should stay browser-only or add a worker/streaming path for large payloads.
+2. Consider a dedicated explicit-header editor so whitelist mode is as usable as the new path planner.
+3. Decide whether regroup metadata should also be exportable as a separate sidecar file instead of only appearing in the in-app schema panel.
+4. Decide whether pivoted columns need richer header naming controls beyond the current indexed path format.
+5. Start the schema-drift workflow work so batch conversions can produce stable professional-grade outputs.
+
+## Professional-Grade Roadmap
+
+This app is now beyond the “toy converter” stage, but becoming a professional-grade utility requires more workflow and post-conversion tooling around the core projection engine.
+
+### Schema inference and evolution
+
+- Versioned master-header snapshots across batches of files
+- Strict schema mode that fails on unseen keys after the initial scan
+- Lax schema mode that appends newly discovered columns during batch processing
+- Type statistics and coercion summaries per column after conversion
+
+### Advanced relational mapping
+
+- Relational split export that writes multiple linked CSVs instead of one bloated flat table
+- Auto-generated parent and foreign keys for nested child tables
+- Heuristics that detect one-to-many branches and recommend splitting them into secondary tables
+
+### Visual mapping and interaction
+
+- Interactive header renaming before export
+- Tree-based path blacklist and whitelist controls
+- Focused preview modes for the first few rows so users can compare `parallel`, `cross_product`, and normalized layouts safely
+
+### Data cleaning and transformation
+
+- Formula columns derived from projected fields
+- Lookup-table replacement for IDs and coded values
+- Conditional row filtering during export
+- De-duplication based on user-specified keys
+
+### Performance and large-data handling
+
+- Chunked streaming for payloads larger than memory
+- Direct `.json.gz` input and `.csv.gz` output support
+- Cloud-native sources and sinks such as S3 or API streams
+
+### Output specialization
+
+- CSV dialect presets for Excel, Google Sheets, PostgreSQL `COPY`, and Pandas workflows
+- UTF-8 BOM control for Excel compatibility

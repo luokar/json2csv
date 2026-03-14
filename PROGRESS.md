@@ -12,6 +12,10 @@
 - Structural provenance is now tracked during projection in [src/lib/mapping-engine.ts](/Users/mac/work/json2csv/src/lib/mapping-engine.ts), and regroup keys are surfaced in the sidecar UI in [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx).
 - Indexed pivot columns for non-row-expanding arrays are now implemented in [src/lib/mapping-engine.ts](/Users/mac/work/json2csv/src/lib/mapping-engine.ts) and exposed through the config form in [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx).
 - A deeper engine regression matrix now covers nested arrays, `strict_leaf`, and override precedence in [src/lib/mapping-engine.matrix.test.ts](/Users/mac/work/json2csv/src/lib/mapping-engine.matrix.test.ts).
+- Batch schema snapshots, strict/lax drift handling, and master-header evolution are now implemented in [src/lib/schema-batch.ts](/Users/mac/work/json2csv/src/lib/schema-batch.ts).
+- Type drift summaries are now derived in [src/lib/mapping-engine.ts](/Users/mac/work/json2csv/src/lib/mapping-engine.ts) and surfaced in the sidecar UI in [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx).
+- Worker-backed live projection is now implemented through [src/hooks/use-projection-preview.ts](/Users/mac/work/json2csv/src/hooks/use-projection-preview.ts), [src/lib/projection.ts](/Users/mac/work/json2csv/src/lib/projection.ts), and [src/workers/projection-worker.ts](/Users/mac/work/json2csv/src/workers/projection-worker.ts).
+- Large live previews are now bounded in [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx) with row and text preview limits so the playground stays responsive under heavier inputs.
 
 ## Important findings
 
@@ -23,6 +27,8 @@
 - A full header scan is required for heterogeneous objects if the output schema must stay stable.
 - Key collision repair must be deterministic because separators like `_` collapse flat and nested names into the same header space.
 - `pathModes` need exact-path matching. If they cascade to descendant arrays, users lose the ability to control nested arrays independently. Subtree semantics remain appropriate for `stringifyPaths` and `dropPaths`.
+- Explicit header mode should follow the user-provided whitelist order literally. Snapshot replay is only stable if header order is not re-derived from per-file discovery order.
+- Client-side responsiveness collapses quickly if parsing, path inspection, row projection, table rendering, CSV rendering, and duplicate raw JSON previews all happen on the main render path. The app needs bounded previews plus background computation, not just faster conversion code.
 
 ## What is implemented
 
@@ -65,11 +71,20 @@
 - Type mismatch handling:
   - `coerce`
   - `split`
+- Type drift reporting:
+  - per-column observed type distribution
+  - dominant kind detection
+  - coercion-to-string summaries when mixed types stay in one CSV column
 - Sidecar schema output with:
   - header
   - source path
   - detected kinds
   - nullable flag
+- Batch schema evolution:
+  - master-header snapshots with deterministic versions
+  - strict mode that fails files introducing unseen output headers
+  - lax mode that appends new headers in discovery order
+  - header reservation to keep collision repair stable across files
 
 ### UI capabilities
 
@@ -85,10 +100,14 @@
 - Config toggle for indexed pivot columns when arrays should stay in the current row
 - Sortable preview table using TanStack Table
 - CSV output panel
+- Bounded CSV preview instead of rendering arbitrarily large text blobs inline
 - Sidecar schema panel
 - Sidecar regroup keys derived from structural provenance
-- Source JSON panel
+- Sidecar type drift report for mixed columns
+- Compact custom-source summary instead of duplicating the full custom payload in a second textarea
+- Bounded sample-source preview
 - Dexie-backed saved presets
+- Background preview refresh indicator while a worker recomputes the projection
 
 ### Planner capabilities
 
@@ -111,6 +130,14 @@
 - Path-specific `mode: stringify` rules can pivot arrays of scalars or objects into indexed columns
 - Explicit `stringifyPaths` rules still win over pivoting and emit raw JSON strings instead
 
+### Performance capabilities
+
+- Background parse / inspect / project pipeline for live previews
+- Dedicated worker bundle for browser projection work
+- Deterministic main-thread fallback used by tests and non-worker environments
+- Row preview limits so TanStack Table only renders a bounded slice
+- Text preview limits for CSV and source payload cards
+
 ### Test coverage
 
 - App integration coverage in [src/App.test.tsx](/Users/mac/work/json2csv/src/App.test.tsx)
@@ -121,20 +148,30 @@
   - regroup keys are rendered in the sidecar schema card
   - indexed pivot columns can be enabled through the config form
 - JSON input helper coverage in [src/lib/json-input.test.ts](/Users/mac/work/json2csv/src/lib/json-input.test.ts)
+- Projection pipeline coverage in [src/lib/projection.test.ts](/Users/mac/work/json2csv/src/lib/projection.test.ts)
+- Preview helper coverage in [src/lib/preview.test.ts](/Users/mac/work/json2csv/src/lib/preview.test.ts)
 - Planner helper coverage in [src/lib/path-planner.test.ts](/Users/mac/work/json2csv/src/lib/path-planner.test.ts)
 - Deep engine matrix coverage in [src/lib/mapping-engine.matrix.test.ts](/Users/mac/work/json2csv/src/lib/mapping-engine.matrix.test.ts)
   - deep nested arrays under `strict_leaf`
   - explicit deep-path expansion overrides
   - longest-match path override precedence
   - `stringifyPaths` precedence over row-expanding path modes
+- Batch schema workflow coverage in [src/lib/schema-batch.test.ts](/Users/mac/work/json2csv/src/lib/schema-batch.test.ts)
+  - lax master-header growth
+  - strict schema drift failure
+  - stable collision handling across files under a shared snapshot
 - Engine coverage expanded with:
   - explicit header whitelist behavior
+  - explicit whitelist order preservation
   - empty array behavior
   - owner-aware placeholder blanking
   - per-row lineage metadata
   - regroup key emission for repeated branches
   - indexed pivot columns for non-row-expanding arrays
   - distinction between `pathModes.stringify` pivoting and `stringifyPaths` JSON-string output
+  - per-column type statistics and coercion summaries
+- App integration coverage now also checks mixed-column reporting in [src/App.test.tsx](/Users/mac/work/json2csv/src/App.test.tsx)
+- App integration coverage now also checks compact custom-source rendering in [src/App.test.tsx](/Users/mac/work/json2csv/src/App.test.tsx)
 
 ## Verification
 
@@ -153,14 +190,16 @@ The Vite build still emits the existing chunk-size warning for the main bundle.
 - Header `explicit` mode assumes header names or source paths are provided directly. There is still no rich whitelist editor yet.
 - There is no streaming parser yet. Large-file support is still an open problem.
 - Uploaded and pasted JSON are handled in-memory on the client. There is no worker split, incremental parsing, or file-size guardrail yet.
+- The worker path keeps the UI responsive, but it is still not a true streaming converter. Full JSON parse and full CSV materialization still happen in memory inside the worker.
+- The new schema snapshot workflow is library-level only. There is still no batch conversion UI or persisted snapshot management flow in the app.
 
 ## Recommended next steps
 
-1. Decide whether this app should stay browser-only or add a worker/streaming path for large payloads.
+1. Build the next layer after the worker preview path: real streaming conversion or chunked worker progress instead of all-at-once in-memory projection.
 2. Consider a dedicated explicit-header editor so whitelist mode is as usable as the new path planner.
 3. Decide whether regroup metadata should also be exportable as a separate sidecar file instead of only appearing in the in-app schema panel.
 4. Decide whether pivoted columns need richer header naming controls beyond the current indexed path format.
-5. Start the schema-drift workflow work so batch conversions can produce stable professional-grade outputs.
+5. Decide whether the next milestone is persisted schema snapshots in Dexie or the first relational split export path.
 
 ## Professional-Grade Roadmap
 

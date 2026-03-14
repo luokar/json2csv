@@ -25,10 +25,16 @@ import {
   type ReactNode,
   startTransition,
   useDeferredValue,
+  useEffect,
+  useRef,
   useState,
 } from 'react'
 import { type UseFormRegisterReturn, useForm } from 'react-hook-form'
 import { z } from 'zod'
+import {
+  BufferedJsonEditor,
+  type BufferedJsonEditorHandle,
+} from '@/components/buffered-json-editor'
 import { PathPlanner } from '@/components/path-planner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -51,6 +57,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
+import { useProjectionPreview } from '@/hooks/use-projection-preview'
 import {
   createPreset,
   listPresets,
@@ -64,15 +71,14 @@ import {
 } from '@/lib/json-input'
 import {
   booleanRepresentations,
+  type ColumnTypeReport,
   collisionStrategies,
-  convertJsonToCsvTable,
   createMappingConfig,
   dateFormats,
   defaultMappingConfig,
   emptyArrayBehaviors,
   flattenModes,
   headerPolicies,
-  inspectMappingPaths,
   type MappingConfig,
   type MappingResult,
   missingKeyStrategies,
@@ -85,6 +91,7 @@ import {
   plannerRulesFromConfig,
   plannerRulesToConfig,
 } from '@/lib/path-planner'
+import { createRowPreview, createTextPreview } from '@/lib/preview'
 import { cn } from '@/lib/utils'
 import { useWorkbenchStore } from '@/store/use-workbench-store'
 
@@ -104,6 +111,10 @@ const defaultRootPaths: Record<string, string> = {
   donuts: '$.items.item[*]',
   heterogeneous: '$.records[*]',
 }
+
+const csvPreviewCharacterLimit = 18_000
+const rowPreviewLimit = 100
+const sampleSourcePreviewCharacterLimit = 12_000
 
 const converterFormSchema = z.object({
   presetName: z
@@ -174,6 +185,10 @@ function App() {
   const deferredSearch = useDeferredValue(search)
   const [plannerRules, setPlannerRules] = useState<PlannerRule[]>([])
   const [sorting, setSorting] = useState<SortingState>([])
+  const [committedCustomJson, setCommittedCustomJson] = useState(
+    defaultFormValues.customJson,
+  )
+  const customJsonEditorRef = useRef<BufferedJsonEditorHandle | null>(null)
 
   const { data: presets = [], isLoading: isPresetsLoading } = useQuery({
     queryKey: ['presets'],
@@ -185,33 +200,46 @@ function App() {
     defaultValues: defaultFormValues,
   })
 
+  useEffect(() => {
+    form.register('customJson')
+  }, [form])
+
   const watchedValues = form.watch()
-  const activeSample = getSampleById(watchedValues.sampleId)
-  const parsedCustomInput =
-    watchedValues.sourceMode === 'custom'
-      ? parseJsonInput(watchedValues.customJson)
-      : null
-  const parsedValues = converterFormSchema.safeParse(watchedValues)
-  const activeInput =
-    watchedValues.sourceMode === 'custom'
-      ? parsedCustomInput?.value
-      : activeSample?.json
-  const discoveredPaths =
-    activeInput === undefined
-      ? []
-      : inspectMappingPaths(activeInput, watchedValues.rootPath)
+  const liveValues = {
+    ...watchedValues,
+    customJson: committedCustomJson,
+  }
+  const activeSample = getSampleById(liveValues.sampleId)
+  const parsedValues = converterFormSchema.safeParse(liveValues)
   const activeConfig = parsedValues.success
     ? toMappingConfig(parsedValues.data, plannerRules)
     : undefined
-  const conversionResult =
-    parsedValues.success && activeInput !== undefined
-      ? convertJsonToCsvTable(activeInput, activeConfig)
-      : null
+  const projection = useProjectionPreview(
+    {
+      config: activeConfig,
+      customJson: liveValues.customJson,
+      rootPath: liveValues.rootPath,
+      sampleJson: activeSample.json,
+      sourceMode: liveValues.sourceMode,
+    },
+    activeConfig ? JSON.stringify(activeConfig) : 'invalid-config',
+  )
+  const discoveredPaths = projection.discoveredPaths
+  const conversionResult = projection.conversionResult
 
   const filteredRecords = filterRecords(conversionResult, deferredSearch)
+  const previewRows = createRowPreview(filteredRecords, rowPreviewLimit)
+  const csvPreview = createTextPreview(
+    conversionResult?.csv ?? 'No CSV generated.',
+    csvPreviewCharacterLimit,
+  )
+  const sampleSourcePreview = createTextPreview(
+    stringifyJsonInput(activeSample.json),
+    sampleSourcePreviewCharacterLimit,
+  )
   const columns = buildPreviewColumns(conversionResult)
   const table = useReactTable({
-    data: filteredRecords,
+    data: previewRows.rows,
     columns,
     state: {
       sorting,
@@ -250,8 +278,33 @@ function App() {
     },
   })
 
+  function commitCustomJson(nextText: string) {
+    startTransition(() => {
+      setCommittedCustomJson(nextText)
+    })
+  }
+
+  function replaceCustomJson(nextText: string) {
+    setCommittedCustomJson(nextText)
+    form.setValue('customJson', nextText, { shouldValidate: true })
+  }
+
+  function flushCustomJson() {
+    const latestText =
+      customJsonEditorRef.current?.flush() ?? committedCustomJson
+
+    if (latestText !== committedCustomJson) {
+      setCommittedCustomJson(latestText)
+    }
+
+    form.setValue('customJson', latestText, { shouldValidate: true })
+
+    return latestText
+  }
+
   function loadPreset(preset: SavedPreset) {
     form.reset(toFormValues(preset))
+    setCommittedCustomJson(preset.customJson ?? '')
     setPlannerRules(plannerRulesFromConfig(preset.config))
     savePresetMutation.reset()
 
@@ -278,11 +331,12 @@ function App() {
   }
 
   function handleSourceModeChange(sourceMode: SourceMode) {
+    flushCustomJson()
     form.setValue('sourceMode', sourceMode, { shouldValidate: true })
     form.setValue(
       'rootPath',
       sourceMode === 'sample'
-        ? (defaultRootPaths[watchedValues.sampleId] ?? '$')
+        ? (defaultRootPaths[liveValues.sampleId] ?? '$')
         : '$',
       { shouldValidate: true },
     )
@@ -303,7 +357,7 @@ function App() {
     const text = await file.text()
 
     form.setValue('sourceMode', 'custom', { shouldValidate: true })
-    form.setValue('customJson', text, { shouldValidate: true })
+    replaceCustomJson(text)
     form.setValue('rootPath', '$', { shouldValidate: true })
     form.setValue('presetName', `${stripFileExtension(file.name)} export`, {
       shouldValidate: true,
@@ -318,9 +372,7 @@ function App() {
 
   function handleLoadSampleIntoEditor() {
     form.setValue('sourceMode', 'custom', { shouldValidate: true })
-    form.setValue('customJson', stringifyJsonInput(activeSample.json), {
-      shouldValidate: true,
-    })
+    replaceCustomJson(stringifyJsonInput(activeSample.json))
     form.setValue('rootPath', defaultRootPaths[activeSample.id] ?? '$', {
       shouldValidate: true,
     })
@@ -332,30 +384,30 @@ function App() {
   }
 
   function handleFormatCustomJson() {
-    const formatted = formatJsonInput(form.getValues('customJson'))
+    const formatted = formatJsonInput(flushCustomJson())
 
     if (!formatted.formattedText) {
       return
     }
 
-    form.setValue('customJson', formatted.formattedText, {
-      shouldValidate: true,
-    })
+    replaceCustomJson(formatted.formattedText)
   }
 
-  const previewJson =
-    watchedValues.sourceMode === 'custom'
-      ? watchedValues.customJson
-      : stringifyJsonInput(activeSample.json)
   const configErrors = [
     ...(parsedValues.success
       ? []
       : parsedValues.error.issues.map((issue) => issue.message)),
-    ...(parsedCustomInput?.error ? [parsedCustomInput.error] : []),
   ]
   const activePreset =
     presets.find((preset) => preset.id === selectedPresetId) ?? null
-  const canSavePreset = parsedValues.success && activeInput !== undefined
+  const canSavePreset =
+    parsedValues.success &&
+    (liveValues.sourceMode === 'sample' ||
+      (!projection.isProjecting && projection.parseError === null))
+  const mixedTypeReports =
+    conversionResult?.schema.typeReports.filter(
+      (report) => report.typeBreakdown.length > 1,
+    ) ?? []
 
   return (
     <div className="relative isolate min-h-screen overflow-hidden">
@@ -399,9 +451,15 @@ function App() {
 
           <Card className="bg-white/75">
             <CardHeader>
-              <CardTitle>Current projection</CardTitle>
+              <div className="flex items-center justify-between gap-3">
+                <CardTitle>Current projection</CardTitle>
+                {projection.isProjecting ? (
+                  <Badge variant="secondary">Updating preview</Badge>
+                ) : null}
+              </div>
               <CardDescription>
                 These numbers update live as you change the mapping policy.
+                Heavy parsing and projection now run off the main render path.
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 sm:grid-cols-3">
@@ -446,9 +504,14 @@ function App() {
             <CardContent className="space-y-6">
               <form
                 className="space-y-4"
-                onSubmit={form.handleSubmit((values) =>
-                  savePresetMutation.mutate(values),
-                )}
+                onSubmit={form.handleSubmit((values) => {
+                  const latestCustomJson = flushCustomJson()
+
+                  savePresetMutation.mutate({
+                    ...values,
+                    customJson: latestCustomJson,
+                  })
+                })}
               >
                 <div className="space-y-2">
                   <Label htmlFor="preset-name">Preset name</Label>
@@ -470,7 +533,7 @@ function App() {
                         key={option.value}
                         type="button"
                         variant={
-                          watchedValues.sourceMode === option.value
+                          liveValues.sourceMode === option.value
                             ? 'default'
                             : 'outline'
                         }
@@ -486,13 +549,13 @@ function App() {
                   </p>
                 </div>
 
-                {watchedValues.sourceMode === 'sample' ? (
+                {liveValues.sourceMode === 'sample' ? (
                   <div className="space-y-2">
                     <Label htmlFor="sample-id">Sample dataset</Label>
                     <select
                       id="sample-id"
                       className="flex h-11 w-full rounded-2xl border border-input bg-background/80 px-4 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
-                      value={watchedValues.sampleId}
+                      value={liveValues.sampleId}
                       onChange={(event) =>
                         handleSampleChange(event.target.value)
                       }
@@ -542,20 +605,26 @@ function App() {
 
                     <div className="space-y-2">
                       <Label htmlFor="custom-json">Custom JSON</Label>
-                      <Textarea
+                      <BufferedJsonEditor
+                        ref={customJsonEditorRef}
                         id="custom-json"
                         placeholder='{"records": [{"id": "1", "email": "user@example.com"}]}'
                         className="min-h-[18rem] font-mono text-xs"
-                        {...form.register('customJson')}
+                        value={committedCustomJson}
+                        onCommit={commitCustomJson}
                       />
                       <p className="text-sm text-muted-foreground">
                         Custom input stays local to this browser. If you save a
                         preset in custom mode, the raw JSON is stored locally in
                         IndexedDB with it.
                       </p>
-                      {parsedCustomInput?.error ? (
+                      {projection.parseError ? (
                         <p className="text-sm text-destructive">
-                          Invalid JSON: {parsedCustomInput.error}
+                          Invalid JSON: {projection.parseError}
+                        </p>
+                      ) : projection.isProjecting ? (
+                        <p className="text-sm text-muted-foreground">
+                          Parsing and rebuilding the preview in the background.
                         </p>
                       ) : (
                         <p className="text-sm text-muted-foreground">
@@ -730,7 +799,7 @@ function App() {
                 </div>
 
                 <PathPlanner
-                  defaultMode={watchedValues.flattenMode}
+                  defaultMode={liveValues.flattenMode}
                   rules={plannerRules}
                   suggestions={discoveredPaths}
                   onChange={setPlannerRules}
@@ -766,6 +835,7 @@ function App() {
                     variant="outline"
                     onClick={() => {
                       form.reset(defaultFormValues)
+                      setCommittedCustomJson(defaultFormValues.customJson)
                       setPlannerRules([])
                       savePresetMutation.reset()
                       startTransition(() => {
@@ -874,7 +944,7 @@ function App() {
                   <div className="flex flex-wrap gap-2">
                     <Badge variant="outline">
                       {describeActiveSource(
-                        watchedValues.sourceMode,
+                        liveValues.sourceMode,
                         activeSample.title,
                       )}
                     </Badge>
@@ -884,6 +954,11 @@ function App() {
                     <Badge variant="secondary">
                       {conversionResult?.headers.length ?? 0} columns
                     </Badge>
+                    {previewRows.truncated ? (
+                      <Badge variant="secondary">
+                        Showing first {rowPreviewLimit} rows
+                      </Badge>
+                    ) : null}
                   </div>
                 </div>
 
@@ -911,7 +986,7 @@ function App() {
                 <Table>
                   <TableCaption>
                     {conversionResult
-                      ? `Root path ${conversionResult.config.rootPath || '$'} with ${conversionResult.config.flattenMode} mode.`
+                      ? `${previewRows.truncated ? `Showing ${rowPreviewLimit} of ${filteredRecords.length} filtered rows. ` : ''}Root path ${conversionResult.config.rootPath || '$'} with ${conversionResult.config.flattenMode} mode.`
                       : 'Fix the current form errors to generate a preview.'}
                   </TableCaption>
                   <TableHeader>
@@ -972,14 +1047,22 @@ function App() {
                     CSV output
                   </CardTitle>
                   <CardDescription>
-                    The emitted CSV reflects the same live mapping configuration
-                    shown above.
+                    This is a bounded preview of the emitted CSV so large
+                    conversions do not lock the page.
                   </CardDescription>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="space-y-3">
+                  {csvPreview.truncated ? (
+                    <div className="rounded-[20px] border border-border/70 bg-background/80 p-4 text-sm text-muted-foreground">
+                      Showing the first{' '}
+                      {csvPreviewCharacterLimit.toLocaleString()} characters.{' '}
+                      {csvPreview.omittedCharacters.toLocaleString()} more
+                      characters are hidden from the live preview.
+                    </div>
+                  ) : null}
                   <Textarea
                     readOnly
-                    value={conversionResult?.csv ?? 'No CSV generated.'}
+                    value={csvPreview.text}
                     className="min-h-[22rem] font-mono text-xs"
                   />
                 </CardContent>
@@ -1013,6 +1096,39 @@ function App() {
                       which structural branches actually define row identity in
                       the current projection.
                     </p>
+                  </div>
+
+                  <div className="rounded-[24px] border border-border/70 bg-background/80 p-4">
+                    <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                      Type drift report
+                    </p>
+
+                    {mixedTypeReports.length > 0 ? (
+                      <div className="mt-3 space-y-3">
+                        {mixedTypeReports.map((report) => (
+                          <div key={report.header}>
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="font-semibold text-foreground">
+                                {report.header}
+                              </p>
+                              {report.coercedTo ? (
+                                <Badge variant="secondary">
+                                  Coerced to {report.coercedTo}
+                                </Badge>
+                              ) : null}
+                            </div>
+                            <p className="mt-2 text-sm text-muted-foreground">
+                              {formatTypeReport(report)}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-3 text-sm text-muted-foreground">
+                        No mixed-type columns detected in the current
+                        projection.
+                      </p>
+                    )}
                   </div>
 
                   {conversionResult?.schema.columns.map((column) => (
@@ -1054,17 +1170,48 @@ function App() {
                   Source input
                 </CardTitle>
                 <CardDescription>
-                  {watchedValues.sourceMode === 'custom'
-                    ? 'Raw custom JSON text used for the current projection.'
+                  {liveValues.sourceMode === 'custom'
+                    ? 'Custom JSON is edited above. This card stays compact to avoid duplicating large payloads.'
                     : 'Bundled sample JSON from the local playground catalog.'}
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <Textarea
-                  readOnly
-                  value={previewJson}
-                  className="min-h-[22rem] font-mono text-xs"
-                />
+                {liveValues.sourceMode === 'custom' ? (
+                  <div className="rounded-[24px] border border-border/70 bg-background/80 p-4">
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant="outline">
+                        {committedCustomJson.length.toLocaleString()} chars
+                      </Badge>
+                      <Badge variant="outline">
+                        Root {liveValues.rootPath || '$'}
+                      </Badge>
+                      {projection.isProjecting ? (
+                        <Badge variant="secondary">Preview rebuilding</Badge>
+                      ) : null}
+                    </div>
+                    <p className="mt-3 text-sm text-muted-foreground">
+                      The editable JSON stays in the upper editor. The duplicate
+                      raw preview has been removed so large payloads do not
+                      force another oversized textarea render on every
+                      interaction.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {sampleSourcePreview.truncated ? (
+                      <div className="rounded-[20px] border border-border/70 bg-background/80 p-4 text-sm text-muted-foreground">
+                        Showing the first{' '}
+                        {sampleSourcePreviewCharacterLimit.toLocaleString()}{' '}
+                        characters of the sample source preview.
+                      </div>
+                    ) : null}
+                    <Textarea
+                      readOnly
+                      value={sampleSourcePreview.text}
+                      className="min-h-[22rem] font-mono text-xs"
+                    />
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -1211,6 +1358,16 @@ function stripFileExtension(fileName: string) {
 
 function describeConfig(config: MappingConfig) {
   return `${toTitleCase(config.flattenMode)} / ${config.headerPolicy.replaceAll('_', ' ')} / ${config.delimiter === '\t' ? 'tab' : config.delimiter}`
+}
+
+function formatTypeReport(report: ColumnTypeReport) {
+  return report.typeBreakdown
+    .map((entry) => `${formatPercent(entry.percentage)} ${entry.kind}`)
+    .join(' / ')
+}
+
+function formatPercent(value: number) {
+  return Number.isInteger(value) ? `${value}%` : `${value.toFixed(1)}%`
 }
 
 function toTitleCase(value: string) {

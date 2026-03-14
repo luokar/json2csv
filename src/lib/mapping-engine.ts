@@ -58,6 +58,11 @@ export interface MappingConfig {
   headerPolicy: HeaderPolicy
   headerSampleSize: number
   headerWhitelist?: string[]
+  headerAliases?: Record<string, string>
+  reservedColumns?: Array<{
+    header: string
+    sourcePath: string
+  }>
   strictNaming: boolean
   collisionStrategy: CollisionStrategy
   booleanRepresentation: BooleanRepresentation
@@ -77,9 +82,27 @@ export interface ColumnSchema {
   nullable: boolean
 }
 
+export interface ColumnTypeBreakdown {
+  count: number
+  kind: ValueKind
+  percentage: number
+}
+
+export interface ColumnTypeReport {
+  coercedTo: 'string' | null
+  dominantKind: ValueKind | null
+  exportHeaders: string[]
+  header: string
+  missingCount: number
+  observedCount: number
+  sourcePath: string
+  typeBreakdown: ColumnTypeBreakdown[]
+}
+
 export interface MappingSchema {
   columns: ColumnSchema[]
   primaryKeys: string[]
+  typeReports: ColumnTypeReport[]
 }
 
 export interface MappingResult {
@@ -165,6 +188,8 @@ export const defaultMappingConfig: MappingConfig = {
   headerPolicy: 'full_scan',
   headerSampleSize: 25,
   headerWhitelist: [],
+  headerAliases: {},
+  reservedColumns: [],
   strictNaming: true,
   collisionStrategy: 'rename_duplicate',
   booleanRepresentation: 'true_false',
@@ -189,6 +214,12 @@ export function createMappingConfig(
     },
     headerWhitelist:
       overrides.headerWhitelist ?? defaultMappingConfig.headerWhitelist,
+    headerAliases: {
+      ...defaultMappingConfig.headerAliases,
+      ...overrides.headerAliases,
+    },
+    reservedColumns:
+      overrides.reservedColumns ?? defaultMappingConfig.reservedColumns,
     dropPaths: overrides.dropPaths ?? defaultMappingConfig.dropPaths,
     stringifyPaths:
       overrides.stringifyPaths ?? defaultMappingConfig.stringifyPaths,
@@ -200,11 +231,7 @@ export function convertJsonToCsvTable(
   overrides: Partial<MappingConfig> = {},
 ): MappingResult {
   const config = createMappingConfig(overrides)
-  const registry: ColumnRegistry = {
-    headers: [],
-    headerByPath: new Map<string, string>(),
-    pathByHeader: new Map<string, string>(),
-  }
+  const registry = createColumnRegistry(config)
   const context: EngineContext = {
     config,
     registry,
@@ -230,15 +257,19 @@ export function convertJsonToCsvTable(
   )
   const renderedRows = renderedGroups.flat()
   const renderedRawRows = renderedRows.map((row) => ({ ...row.data }))
+  const sourceRegistry = cloneColumnRegistry(registry)
   const splitRows = applyTypeMismatchStrategy(renderedRawRows, registry, config)
   const selectedHeaders = selectHeaders(splitRows, registry, config)
   const records = renderRecords(splitRows, selectedHeaders, config)
   const csv = toCsv(selectedHeaders, records, config)
   const schema = buildSchema(
+    renderedRawRows,
     splitRows,
     selectedHeaders,
+    sourceRegistry,
     registry,
     projectedRows,
+    config,
   )
 
   return {
@@ -279,6 +310,50 @@ export function inspectMappingPaths(input: unknown, rootPath?: string) {
       (left, right) =>
         left.depth - right.depth || left.path.localeCompare(right.path),
     ) satisfies InspectedPath[]
+}
+
+function createColumnRegistry(config: MappingConfig): ColumnRegistry {
+  const registry: ColumnRegistry = {
+    headers: [],
+    headerByPath: new Map<string, string>(),
+    pathByHeader: new Map<string, string>(),
+  }
+
+  for (const column of config.reservedColumns ?? []) {
+    const sourcePath = normalizeSourcePath(column.sourcePath)
+
+    if (!column.header || !sourcePath) {
+      continue
+    }
+
+    registry.pathByHeader.set(column.header, sourcePath)
+  }
+
+  for (const [sourcePath, header] of Object.entries(
+    config.headerAliases ?? {},
+  )) {
+    const normalizedPath = normalizeSourcePath(sourcePath)
+
+    if (!normalizedPath || !header) {
+      continue
+    }
+
+    registry.headerByPath.set(normalizedPath, header)
+
+    if (!registry.pathByHeader.has(header)) {
+      registry.pathByHeader.set(header, normalizedPath)
+    }
+  }
+
+  return registry
+}
+
+function cloneColumnRegistry(registry: ColumnRegistry): ColumnRegistry {
+  return {
+    headers: [...registry.headers],
+    headerByPath: new Map(registry.headerByPath),
+    pathByHeader: new Map(registry.pathByHeader),
+  }
 }
 
 function createEmptyRow(initial: Partial<ProjectedRow> = {}): ProjectedRow {
@@ -799,28 +874,22 @@ function selectHeaders(
 
   const whitelisted = new Set(headerWhitelist)
 
-  const orderedHeaders = registry.headers.filter((header) => {
-    if (config.headerPolicy === 'explicit') {
-      return (
-        whitelisted.has(header) ||
-        whitelisted.has(registry.pathByHeader.get(header) ?? '')
+  if (config.headerPolicy === 'explicit') {
+    return headerWhitelist
+      .map((header) => resolveExplicitHeader(header, registry))
+      .filter(
+        (header, index, headers) =>
+          header.length > 0 && headers.indexOf(header) === index,
       )
-    }
+  }
 
+  const orderedHeaders = registry.headers.filter((header) => {
     if (config.onMissingKey === 'include') {
       return encounteredHeaders.has(header) || whitelisted.has(header)
     }
 
     return encounteredHeaders.has(header)
   })
-
-  if (config.headerPolicy === 'explicit') {
-    const missingExplicitHeaders = headerWhitelist.filter(
-      (header) => !orderedHeaders.includes(header),
-    )
-
-    return [...orderedHeaders, ...missingExplicitHeaders]
-  }
 
   if (config.onMissingKey === 'include') {
     return [
@@ -849,10 +918,13 @@ function renderRecords(
 }
 
 function buildSchema(
+  sourceRows: Array<Record<string, ScalarValue>>,
   rows: Array<Record<string, ScalarValue>>,
   headers: string[],
+  sourceRegistry: ColumnRegistry,
   registry: ColumnRegistry,
   projectedRows: ProjectedRow[],
+  config: MappingConfig,
 ): MappingSchema {
   const kindsByHeader = inferKindsByHeader(rows)
 
@@ -866,7 +938,95 @@ function buildSchema(
       ),
     })),
     primaryKeys: collectPrimaryKeys(projectedRows),
+    typeReports: buildTypeReports(sourceRows, sourceRegistry, registry, config),
   }
+}
+
+function buildTypeReports(
+  rows: Array<Record<string, ScalarValue>>,
+  sourceRegistry: ColumnRegistry,
+  finalRegistry: ColumnRegistry,
+  config: MappingConfig,
+) {
+  const encounteredHeaders = sourceRegistry.headers.filter((header) =>
+    rows.some((row) => header in row),
+  )
+
+  return encounteredHeaders.map((header) => {
+    const sourcePath = sourceRegistry.pathByHeader.get(header) ?? header
+    const counts = new Map<ValueKind, number>()
+    let missingCount = 0
+
+    for (const row of rows) {
+      const value = row[header]
+
+      if (value === null || value === undefined) {
+        missingCount += 1
+        continue
+      }
+
+      const kind = detectValueKind(value)
+      counts.set(kind, (counts.get(kind) ?? 0) + 1)
+    }
+
+    const observedCount = [...counts.values()].reduce(
+      (total, count) => total + count,
+      0,
+    )
+    const typeBreakdown = [...counts.entries()]
+      .sort(
+        ([leftKind, leftCount], [rightKind, rightCount]) =>
+          rightCount - leftCount || compareValueKinds(leftKind, rightKind),
+      )
+      .map(([kind, count]) => ({
+        count,
+        kind,
+        percentage:
+          observedCount === 0
+            ? 0
+            : roundToSingleDecimal((count / observedCount) * 100),
+      }))
+
+    return {
+      coercedTo:
+        config.onTypeMismatch === 'coerce' && typeBreakdown.length > 1
+          ? 'string'
+          : null,
+      dominantKind: typeBreakdown[0]?.kind ?? null,
+      exportHeaders: findHeadersForSourcePath(sourcePath, finalRegistry),
+      header,
+      missingCount,
+      observedCount,
+      sourcePath,
+      typeBreakdown,
+    } satisfies ColumnTypeReport
+  })
+}
+
+function resolveExplicitHeader(reference: string, registry: ColumnRegistry) {
+  const normalizedReference = reference.trim()
+
+  if (!normalizedReference) {
+    return ''
+  }
+
+  if (registry.pathByHeader.has(normalizedReference)) {
+    return normalizedReference
+  }
+
+  const sourcePathMatch = findHeadersForSourcePath(
+    normalizedReference,
+    registry,
+  )[0]
+
+  return sourcePathMatch ?? normalizedReference
+}
+
+function findHeadersForSourcePath(path: string, registry: ColumnRegistry) {
+  return [...registry.pathByHeader.entries()]
+    .filter(([, sourcePath]) => sourcePath === path)
+    .map(([header]) => header)
+    .filter((header, index, headers) => headers.indexOf(header) === index)
 }
 
 function collectPrimaryKeys(rows: ProjectedRow[]) {
@@ -1064,6 +1224,10 @@ function comparePrimaryKeys(left: string, right: string) {
   return getPathDepth(left) - getPathDepth(right) || left.localeCompare(right)
 }
 
+function roundToSingleDecimal(value: number) {
+  return Math.round(value * 10) / 10
+}
+
 function getPathDepth(path: string) {
   if (path === '$') {
     return 0
@@ -1081,6 +1245,10 @@ function resolveHeader(pathSegments: string[], context: EngineContext) {
   const existingHeader = context.registry.headerByPath.get(canonicalPath)
 
   if (existingHeader) {
+    if (!context.registry.headers.includes(existingHeader)) {
+      context.registry.headers.push(existingHeader)
+    }
+
     return existingHeader
   }
 
@@ -1174,6 +1342,10 @@ function normalizeRulePath(path: string) {
     .split('.')
     .filter((segment) => segment.length > 0 && !/^\d+$/.test(segment))
     .join('.')
+}
+
+function normalizeSourcePath(path: string) {
+  return normalizeRulePath(path) || (path === 'column0' ? 'column0' : '')
 }
 
 function selectRootNodes(input: unknown, rootPath?: string) {

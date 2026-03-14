@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { vi } from 'vitest'
 
 import App from '@/App'
+import { bufferedJsonCommitDelayMs } from '@/components/buffered-json-editor'
 import { AppProviders } from '@/providers/app-providers'
 
 describe('App', () => {
@@ -92,8 +93,46 @@ describe('App', () => {
 
     await user.click(screen.getByRole('button', { name: /custom json/i }))
 
-    expect(screen.getByText(/invalid json:/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /save preset/i })).toBeDisabled()
+    await waitFor(() => {
+      expect(screen.getByText(/invalid json:/i)).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: /save preset/i }),
+      ).toBeDisabled()
+    })
+  })
+
+  it('buffers custom json projection updates until the commit delay elapses', async () => {
+    vi.useFakeTimers()
+
+    const user = userEvent.setup({
+      advanceTimers: vi.advanceTimersByTime,
+    })
+
+    try {
+      render(
+        <AppProviders>
+          <App />
+        </AppProviders>,
+      )
+
+      await user.click(screen.getByRole('button', { name: /custom json/i }))
+
+      const editor = screen.getByLabelText(/custom json/i)
+
+      fireEvent.change(editor, {
+        target: { value: '{"id":"1","email":"one@example.com"}' },
+      })
+
+      expect(screen.getByText(/invalid json:/i)).toBeInTheDocument()
+
+      vi.advanceTimersByTime(bufferedJsonCommitDelayMs)
+
+      await waitFor(() => {
+        expect(screen.getByText(/parsed successfully/i)).toBeInTheDocument()
+      })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('adds a discovered path rule and updates the live projection', async () => {
@@ -157,6 +196,46 @@ describe('App', () => {
       expect(buttonLabels).toContain('tags[0]')
       expect(buttonLabels).toContain('tags[1]')
       expect(buttonLabels).not.toContain('tags')
+    })
+  })
+
+  it('shows a type drift summary for mixed columns in the sidecar schema', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <AppProviders>
+        <App />
+      </AppProviders>,
+    )
+
+    await user.selectOptions(
+      screen.getByLabelText(/sample dataset/i),
+      'heterogeneous',
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText(/type drift report/i)).toBeInTheDocument()
+      expect(screen.getByText(/coerced to string/i)).toBeInTheDocument()
+      expect(screen.getByText(/50% string \/ 50% number/i)).toBeInTheDocument()
+    })
+  })
+
+  it('keeps the source panel compact in custom mode to avoid duplicate payload renders', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <AppProviders>
+        <App />
+      </AppProviders>,
+    )
+
+    await user.click(screen.getByRole('button', { name: /custom json/i }))
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/duplicate raw preview has been removed/i),
+      ).toBeInTheDocument()
+      expect(screen.getByText(/chars/i)).toBeInTheDocument()
     })
   })
 })

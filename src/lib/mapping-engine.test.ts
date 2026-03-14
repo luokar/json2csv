@@ -156,6 +156,50 @@ describe('mapping engine', () => {
     )
   })
 
+  it('emits type statistics and coercion summaries for mixed columns', () => {
+    const result = convertJsonToCsvTable(
+      {
+        records: [
+          { id: 'a1', price: 10 },
+          { id: 'a2', price: 12.5 },
+          { id: 'a3', price: 'N/A' },
+          { id: 'a4' },
+        ],
+      },
+      {
+        rootPath: '$.records[*]',
+        flattenMode: 'stringify',
+        onTypeMismatch: 'coerce',
+      },
+    )
+
+    const priceReport = result.schema.typeReports.find(
+      (report) => report.header === 'price',
+    )
+
+    expect(priceReport).toMatchObject({
+      coercedTo: 'string',
+      dominantKind: 'number',
+      exportHeaders: ['price'],
+      header: 'price',
+      missingCount: 1,
+      observedCount: 3,
+      sourcePath: 'price',
+    })
+    expect(priceReport?.typeBreakdown).toEqual([
+      expect.objectContaining({
+        count: 2,
+        kind: 'number',
+      }),
+      expect.objectContaining({
+        count: 1,
+        kind: 'string',
+      }),
+    ])
+    expect(priceReport?.typeBreakdown[0]?.percentage).toBeCloseTo(66.7, 1)
+    expect(priceReport?.typeBreakdown[1]?.percentage).toBeCloseTo(33.3, 1)
+  })
+
   it('replaces repeated parent values when placeholder strategy is empty', () => {
     const result = convertJsonToCsvTable(
       {
@@ -276,7 +320,7 @@ describe('mapping engine', () => {
       headerWhitelist: ['id', 'notes.source', 'price'],
     })
 
-    expect(result.headers).toEqual(['id', 'price', 'notes.source'])
+    expect(result.headers).toEqual(['id', 'notes.source', 'price'])
   })
 
   it('can skip or keep rows when arrays are empty', () => {

@@ -1,10 +1,4 @@
-import {
-  forwardRef,
-  useEffect,
-  useImperativeHandle,
-  useRef,
-  useState,
-} from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 
 import { Textarea } from '@/components/ui/textarea'
 
@@ -19,6 +13,7 @@ interface BufferedJsonEditorProps
   > {
   commitDelay?: number
   onCommit: (nextValue: string) => void
+  onDirtyChange?: (isDirty: boolean) => void
   value: string
 }
 
@@ -28,12 +23,20 @@ export const BufferedJsonEditor = forwardRef<
   BufferedJsonEditorHandle,
   BufferedJsonEditorProps
 >(function BufferedJsonEditor(
-  { commitDelay = bufferedJsonCommitDelayMs, onCommit, value, ...props },
+  {
+    commitDelay = bufferedJsonCommitDelayMs,
+    onCommit,
+    onDirtyChange,
+    value,
+    ...props
+  },
   ref,
 ) {
-  const [draft, setDraft] = useState(value)
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const draftRef = useRef(value)
   const committedValueRef = useRef(value)
+  const dirtyRef = useRef(false)
+  const manualCommitUntilBlurRef = useRef(false)
   const timeoutIdRef = useRef<number | null>(null)
 
   function clearPendingCommit() {
@@ -47,12 +50,20 @@ export const BufferedJsonEditor = forwardRef<
 
   function commit(nextValue = draftRef.current) {
     clearPendingCommit()
+    manualCommitUntilBlurRef.current = false
 
     if (nextValue === committedValueRef.current) {
+      if (dirtyRef.current) {
+        dirtyRef.current = false
+        onDirtyChange?.(false)
+      }
+
       return nextValue
     }
 
     committedValueRef.current = nextValue
+    dirtyRef.current = false
+    onDirtyChange?.(false)
     onCommit(nextValue)
 
     return nextValue
@@ -65,34 +76,66 @@ export const BufferedJsonEditor = forwardRef<
   }))
 
   useEffect(() => {
-    clearPendingCommit()
+    if (timeoutIdRef.current !== null) {
+      window.clearTimeout(timeoutIdRef.current)
+      timeoutIdRef.current = null
+    }
+
     committedValueRef.current = value
     draftRef.current = value
-    setDraft(value)
-  }, [value])
+    dirtyRef.current = false
+    manualCommitUntilBlurRef.current = false
+    onDirtyChange?.(false)
+
+    if (textareaRef.current && textareaRef.current.value !== value) {
+      textareaRef.current.value = value
+    }
+  }, [onDirtyChange, value])
 
   useEffect(
     () => () => {
-      clearPendingCommit()
+      if (timeoutIdRef.current !== null) {
+        window.clearTimeout(timeoutIdRef.current)
+        timeoutIdRef.current = null
+      }
     },
     [],
   )
 
   return (
     <Textarea
+      ref={textareaRef}
       {...props}
-      value={draft}
+      defaultValue={value}
       onBlur={() => {
         commit()
       }}
       onChange={(event) => {
+        const previousValue = draftRef.current
         const nextValue = event.target.value
+        const nativeInputEvent = event.nativeEvent as InputEvent | undefined
+        const isBulkEdit =
+          nativeInputEvent?.inputType === 'insertFromPaste' ||
+          nativeInputEvent?.inputType === 'insertFromDrop' ||
+          Math.abs(nextValue.length - previousValue.length) > 1
 
         draftRef.current = nextValue
-        setDraft(nextValue)
         clearPendingCommit()
 
-        if (nextValue === committedValueRef.current) {
+        const isDirty = nextValue !== committedValueRef.current
+
+        if (dirtyRef.current !== isDirty) {
+          dirtyRef.current = isDirty
+          onDirtyChange?.(isDirty)
+        }
+
+        if (!isDirty) {
+          manualCommitUntilBlurRef.current = false
+          return
+        }
+
+        if (manualCommitUntilBlurRef.current || isBulkEdit) {
+          manualCommitUntilBlurRef.current = true
           return
         }
 

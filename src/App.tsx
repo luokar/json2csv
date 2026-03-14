@@ -188,6 +188,7 @@ function App() {
   const [committedCustomJson, setCommittedCustomJson] = useState(
     defaultFormValues.customJson,
   )
+  const [isCustomJsonDirty, setIsCustomJsonDirty] = useState(false)
   const customJsonEditorRef = useRef<BufferedJsonEditorHandle | null>(null)
 
   const { data: presets = [], isLoading: isPresetsLoading } = useQuery({
@@ -286,6 +287,7 @@ function App() {
 
   function replaceCustomJson(nextText: string) {
     setCommittedCustomJson(nextText)
+    setIsCustomJsonDirty(false)
     form.setValue('customJson', nextText, { shouldValidate: true })
   }
 
@@ -297,6 +299,7 @@ function App() {
       setCommittedCustomJson(latestText)
     }
 
+    setIsCustomJsonDirty(false)
     form.setValue('customJson', latestText, { shouldValidate: true })
 
     return latestText
@@ -305,6 +308,7 @@ function App() {
   function loadPreset(preset: SavedPreset) {
     form.reset(toFormValues(preset))
     setCommittedCustomJson(preset.customJson ?? '')
+    setIsCustomJsonDirty(false)
     setPlannerRules(plannerRulesFromConfig(preset.config))
     savePresetMutation.reset()
 
@@ -612,13 +616,20 @@ function App() {
                         className="min-h-[18rem] font-mono text-xs"
                         value={committedCustomJson}
                         onCommit={commitCustomJson}
+                        onDirtyChange={setIsCustomJsonDirty}
                       />
                       <p className="text-sm text-muted-foreground">
                         Custom input stays local to this browser. If you save a
                         preset in custom mode, the raw JSON is stored locally in
                         IndexedDB with it.
                       </p>
-                      {projection.parseError ? (
+                      {isCustomJsonDirty ? (
+                        <p className="text-sm text-muted-foreground">
+                          Preview is paused while this draft has unapplied
+                          changes. Click outside the editor, use Format JSON, or
+                          save the preset to apply it.
+                        </p>
+                      ) : projection.parseError ? (
                         <p className="text-sm text-destructive">
                           Invalid JSON: {projection.parseError}
                         </p>
@@ -836,6 +847,7 @@ function App() {
                     onClick={() => {
                       form.reset(defaultFormValues)
                       setCommittedCustomJson(defaultFormValues.customJson)
+                      setIsCustomJsonDirty(false)
                       setPlannerRules([])
                       savePresetMutation.reset()
                       startTransition(() => {
@@ -1185,6 +1197,9 @@ function App() {
                       <Badge variant="outline">
                         Root {liveValues.rootPath || '$'}
                       </Badge>
+                      {isCustomJsonDirty ? (
+                        <Badge variant="secondary">Draft pending</Badge>
+                      ) : null}
                       {projection.isProjecting ? (
                         <Badge variant="secondary">Preview rebuilding</Badge>
                       ) : null}

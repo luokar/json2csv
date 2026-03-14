@@ -3,7 +3,6 @@ import userEvent from '@testing-library/user-event'
 import { vi } from 'vitest'
 
 import App from '@/App'
-import { bufferedJsonCommitDelayMs } from '@/components/buffered-json-editor'
 import { AppProviders } from '@/providers/app-providers'
 
 describe('App', () => {
@@ -101,38 +100,35 @@ describe('App', () => {
     })
   })
 
-  it('buffers custom json projection updates until the commit delay elapses', async () => {
-    vi.useFakeTimers()
+  it('flushes buffered custom json on blur and updates the preview', async () => {
+    const user = userEvent.setup()
 
-    const user = userEvent.setup({
-      advanceTimers: vi.advanceTimersByTime,
+    render(
+      <AppProviders>
+        <App />
+      </AppProviders>,
+    )
+
+    await user.click(screen.getByRole('button', { name: /custom json/i }))
+
+    const editor = screen.getByLabelText(/custom json/i)
+
+    fireEvent.change(editor, {
+      target: { value: '{"id":"1","email":"one@example.com"}' },
     })
 
-    try {
-      render(
-        <AppProviders>
-          <App />
-        </AppProviders>,
-      )
+    expect(
+      screen.getByText(/preview is paused while this draft/i),
+    ).toBeInTheDocument()
 
-      await user.click(screen.getByRole('button', { name: /custom json/i }))
+    fireEvent.blur(editor)
 
-      const editor = screen.getByLabelText(/custom json/i)
-
-      fireEvent.change(editor, {
-        target: { value: '{"id":"1","email":"one@example.com"}' },
-      })
-
-      expect(screen.getByText(/invalid json:/i)).toBeInTheDocument()
-
-      vi.advanceTimersByTime(bufferedJsonCommitDelayMs)
-
-      await waitFor(() => {
-        expect(screen.getByText(/parsed successfully/i)).toBeInTheDocument()
-      })
-    } finally {
-      vi.useRealTimers()
-    }
+    await waitFor(() => {
+      expect(screen.getByText(/parsed successfully/i)).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: /^email$/i }),
+      ).toBeInTheDocument()
+    })
   })
 
   it('adds a discovered path rule and updates the live projection', async () => {

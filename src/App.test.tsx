@@ -23,6 +23,7 @@ describe('App', () => {
     expect(
       screen.getByText(/dexie stores the entire mapping config/i),
     ).toBeInTheDocument()
+    expect(screen.getAllByText(/regroup keys/i)).toHaveLength(2)
     expect(
       await screen.findByRole('button', { name: /^id$/i }),
     ).toBeInTheDocument()

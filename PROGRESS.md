@@ -9,6 +9,7 @@
 - Engine coverage lives in [src/lib/mapping-engine.test.ts](/Users/mac/work/json2csv/src/lib/mapping-engine.test.ts).
 - Real JSON input is supported through paste and `.json` upload, with helper logic in [src/lib/json-input.ts](/Users/mac/work/json2csv/src/lib/json-input.ts).
 - The roadmap milestone for a structured per-path planner is now implemented with UI in [src/components/path-planner.tsx](/Users/mac/work/json2csv/src/components/path-planner.tsx) and helper logic in [src/lib/path-planner.ts](/Users/mac/work/json2csv/src/lib/path-planner.ts).
+- Structural provenance is now tracked during projection in [src/lib/mapping-engine.ts](/Users/mac/work/json2csv/src/lib/mapping-engine.ts), and regroup keys are surfaced in the sidecar UI in [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx).
 
 ## Important findings
 
@@ -50,6 +51,10 @@
   - `repeat`
   - `empty`
   - `custom`
+- Structural provenance:
+  - per-row lineage metadata
+  - exact owner-aware placeholder blanking
+  - regroup key emission from observed row lineage
 - Type mismatch handling:
   - `coerce`
   - `split`
@@ -73,6 +78,7 @@
 - Sortable preview table using TanStack Table
 - CSV output panel
 - Sidecar schema panel
+- Sidecar regroup keys derived from structural provenance
 - Source JSON panel
 - Dexie-backed saved presets
 
@@ -85,6 +91,12 @@
   - be stringified
   - be dropped
 
+### Provenance capabilities
+
+- Every projected row now carries lineage metadata for the structural branches that produced it
+- Placeholder strategies compare per-cell structural owners against the previous row instead of blanking all repeatable fields heuristically
+- The sidecar schema now emits regroup keys relative to the selected root path so downstream consumers can reason about row identity
+
 ### Test coverage
 
 - App integration coverage in [src/App.test.tsx](/Users/mac/work/json2csv/src/App.test.tsx)
@@ -92,11 +104,15 @@
   - custom upload flow
   - invalid custom JSON state
   - discovered-path planner interaction updates the live projection
+  - regroup keys are rendered in the sidecar schema card
 - JSON input helper coverage in [src/lib/json-input.test.ts](/Users/mac/work/json2csv/src/lib/json-input.test.ts)
 - Planner helper coverage in [src/lib/path-planner.test.ts](/Users/mac/work/json2csv/src/lib/path-planner.test.ts)
 - Engine coverage expanded with:
   - explicit header whitelist behavior
   - empty array behavior
+  - owner-aware placeholder blanking
+  - per-row lineage metadata
+  - regroup key emission for repeated branches
 
 ## Verification
 
@@ -112,18 +128,16 @@ The Vite build still emits the existing chunk-size warning for the main bundle.
 
 - `arrayIndexSuffix` is exposed in config storage/UI, but it is not yet meaningfully applied during projection.
 - The JSONPath support is intentionally narrow. It does not support filters, recursive descent, unions, or advanced selectors.
-- Placeholder behavior is practical but not fully provenance-aware. It blanks repeatable context fields after row expansion, but it is not yet a formal parent/child lineage model.
 - `strict_leaf` is currently implemented as a conservative array-stringify policy, not a complete leaf-only planner.
 - Header `explicit` mode assumes header names or source paths are provided directly. There is still no rich whitelist editor yet.
 - There is no streaming parser yet. Large-file support is still an open problem.
-- No `primary_key` regrouping metadata is emitted yet for recursive explosions.
 - No pivot-to-columns feature exists yet.
 - Uploaded and pasted JSON are handled in-memory on the client. There is no worker split, incremental parsing, or file-size guardrail yet.
 
 ## Recommended next steps
 
-1. Track structural provenance during projection so placeholder behavior and regrouping metadata become exact instead of heuristic.
-2. Implement `arrayIndexSuffix` and pivot-to-columns for non-row-expanding arrays.
-3. Add a larger test matrix for deep nested arrays, strict-leaf edge cases, and path-specific override interactions.
-4. Decide whether this app should stay browser-only or add a worker/streaming path for large payloads.
-5. Consider a dedicated explicit-header editor so whitelist mode is as usable as the new path planner.
+1. Implement `arrayIndexSuffix` and pivot-to-columns for non-row-expanding arrays.
+2. Add a larger test matrix for deep nested arrays, strict-leaf edge cases, and path-specific override interactions.
+3. Decide whether this app should stay browser-only or add a worker/streaming path for large payloads.
+4. Consider a dedicated explicit-header editor so whitelist mode is as usable as the new path planner.
+5. Decide whether regroup metadata should also be exportable as a separate sidecar file instead of only appearing in the in-app schema panel.

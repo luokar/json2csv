@@ -124,6 +124,97 @@ describe('mapping engine', () => {
 
     expect(result.records[0].orderId).toBe('100')
     expect(result.records[1].orderId).toBe('')
+    expect(result.records[1]['items.sku']).toBe('B')
+    expect(result.schema.primaryKeys).toEqual(['$', 'items'])
+  })
+
+  it('tracks structural lineage for exact placeholder behavior in cross-products', () => {
+    const result = convertJsonToCsvTable(
+      {
+        orders: [
+          {
+            orderId: '100',
+            items: [{ sku: 'A' }, { sku: 'B' }],
+            discounts: [{ code: 'X' }, { code: 'Y' }],
+          },
+        ],
+      },
+      createMappingConfig({
+        rootPath: '$.orders[*]',
+        flattenMode: 'cross_product',
+        placeholderStrategy: 'empty',
+      }),
+    )
+
+    expect(result.records).toEqual([
+      {
+        'discounts.code': 'X',
+        'items.sku': 'A',
+        orderId: '100',
+      },
+      {
+        'discounts.code': 'Y',
+        'items.sku': '',
+        orderId: '',
+      },
+      {
+        'discounts.code': 'X',
+        'items.sku': 'B',
+        orderId: '',
+      },
+      {
+        'discounts.code': 'Y',
+        'items.sku': '',
+        orderId: '',
+      },
+    ])
+
+    expect(result.rowProvenance).toEqual([
+      {
+        lineage: [
+          { index: 0, path: '$' },
+          { index: 0, path: 'discounts' },
+          { index: 0, path: 'items' },
+        ],
+      },
+      {
+        lineage: [
+          { index: 0, path: '$' },
+          { index: 1, path: 'discounts' },
+          { index: 0, path: 'items' },
+        ],
+      },
+      {
+        lineage: [
+          { index: 0, path: '$' },
+          { index: 0, path: 'discounts' },
+          { index: 1, path: 'items' },
+        ],
+      },
+      {
+        lineage: [
+          { index: 0, path: '$' },
+          { index: 1, path: 'discounts' },
+          { index: 1, path: 'items' },
+        ],
+      },
+    ])
+
+    expect(result.schema.primaryKeys).toEqual(['$', 'discounts', 'items'])
+  })
+
+  it('emits regroup keys for repeated donut branches', () => {
+    const result = convertJsonToCsvTable(donutSample, {
+      rootPath: '$.items.item[*]',
+      flattenMode: 'cross_product',
+      headerPolicy: 'full_scan',
+    })
+
+    expect(result.schema.primaryKeys).toEqual([
+      '$',
+      'topping',
+      'batters.batter',
+    ])
   })
 
   it('respects explicit header whitelists', () => {

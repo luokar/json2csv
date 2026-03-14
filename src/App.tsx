@@ -992,11 +992,29 @@ function App() {
                     Sidecar schema
                   </CardTitle>
                   <CardDescription>
-                    Headers, source paths, and detected value kinds for the
-                    generated columns.
+                    Headers, source paths, detected value kinds, and regroup
+                    keys derived from structural provenance.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
+                  <div className="rounded-[24px] border border-border/70 bg-background/80 p-4">
+                    <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                      Regroup keys
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {conversionResult?.schema.primaryKeys.map((key) => (
+                        <Badge key={key} variant="outline">
+                          {key}
+                        </Badge>
+                      ))}
+                    </div>
+                    <p className="mt-3 text-sm text-muted-foreground">
+                      Keys are relative to the selected root path. They show
+                      which structural branches actually define row identity in
+                      the current projection.
+                    </p>
+                  </div>
+
                   {conversionResult?.schema.columns.map((column) => (
                     <div
                       key={column.header}

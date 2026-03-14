@@ -88,8 +88,18 @@ export interface MappingResult {
   headers: string[]
   rawRows: Array<Record<string, ScalarValue>>
   records: Array<Record<string, string>>
+  rowProvenance: RowProvenance[]
   rowCount: number
   schema: MappingSchema
+}
+
+export interface RowLineageSegment {
+  index: number
+  path: string
+}
+
+export interface RowProvenance {
+  lineage: RowLineageSegment[]
 }
 
 export interface InspectedPath {
@@ -101,7 +111,19 @@ export interface InspectedPath {
 
 interface ProjectedRow {
   data: Record<string, ScalarValue>
-  repeatableKeys: Set<string>
+  lineage: Record<string, ProvenanceSegment>
+  owners: Record<string, CellOwner>
+}
+
+interface CellOwner {
+  path: string
+  token: string
+}
+
+interface ProvenanceSegment {
+  index: number
+  path: string
+  token: string
 }
 
 interface ColumnRegistry {
@@ -113,6 +135,11 @@ interface ColumnRegistry {
 interface EngineContext {
   config: MappingConfig
   registry: ColumnRegistry
+}
+
+interface TraversalState {
+  activeOwner: CellOwner
+  lineage: Record<string, ProvenanceSegment>
 }
 
 interface PathMatch {
@@ -184,19 +211,35 @@ export function convertJsonToCsvTable(
   }
 
   const rootNodes = selectRootNodes(input, config.rootPath)
-  const projectedGroups = rootNodes.map((rootNode) =>
-    appendNodeToRows([createEmptyRow()], rootNode, [], context, 0),
-  )
+  const projectedGroups = rootNodes.map((rootNode, rootIndex) => {
+    const traversalState = createRootTraversalState(rootIndex)
 
+    return appendNodeToRows(
+      [createEmptyRow({ lineage: traversalState.lineage })],
+      rootNode,
+      [],
+      context,
+      0,
+      traversalState,
+    )
+  })
+
+  const projectedRows = projectedGroups.flat()
   const renderedGroups = projectedGroups.map((rows) =>
     applyPlaceholderStrategy(rows, config),
   )
-  const renderedRawRows = renderedGroups.flat().map((row) => ({ ...row.data }))
+  const renderedRows = renderedGroups.flat()
+  const renderedRawRows = renderedRows.map((row) => ({ ...row.data }))
   const splitRows = applyTypeMismatchStrategy(renderedRawRows, registry, config)
   const selectedHeaders = selectHeaders(splitRows, registry, config)
   const records = renderRecords(splitRows, selectedHeaders, config)
   const csv = toCsv(selectedHeaders, records, config)
-  const schema = buildSchema(splitRows, selectedHeaders, registry, config)
+  const schema = buildSchema(
+    splitRows,
+    selectedHeaders,
+    registry,
+    projectedRows,
+  )
 
   return {
     config,
@@ -204,7 +247,8 @@ export function convertJsonToCsvTable(
     headers: selectedHeaders,
     rawRows: splitRows,
     records,
-    rowCount: renderedGroups.flat().length,
+    rowCount: renderedRows.length,
+    rowProvenance: renderedRows.map(toRowProvenance),
     schema,
   }
 }
@@ -237,10 +281,67 @@ export function inspectMappingPaths(input: unknown, rootPath?: string) {
     ) satisfies InspectedPath[]
 }
 
-function createEmptyRow(): ProjectedRow {
+function createEmptyRow(initial: Partial<ProjectedRow> = {}): ProjectedRow {
   return {
-    data: {},
-    repeatableKeys: new Set<string>(),
+    data: initial.data ?? {},
+    lineage: initial.lineage ?? {},
+    owners: initial.owners ?? {},
+  }
+}
+
+function createRootTraversalState(rootIndex: number): TraversalState {
+  const rootSegment = createProvenanceSegment('$', rootIndex)
+
+  return {
+    activeOwner: {
+      path: rootSegment.path,
+      token: rootSegment.token,
+    },
+    lineage: {
+      [rootSegment.path]: rootSegment,
+    },
+  }
+}
+
+function extendTraversalState(
+  traversalState: TraversalState,
+  pathSegments: string[],
+  index: number,
+): TraversalState {
+  const path = normalizeRulePath(pathSegments.join('.')) || '$'
+  const segment = createProvenanceSegment(path, index)
+
+  return {
+    activeOwner: {
+      path: segment.path,
+      token: segment.token,
+    },
+    lineage: {
+      ...traversalState.lineage,
+      [segment.path]: segment,
+    },
+  }
+}
+
+function createProvenanceSegment(
+  path: string,
+  index: number,
+): ProvenanceSegment {
+  return {
+    index,
+    path,
+    token: `${path}[${index}]`,
+  }
+}
+
+function toRowProvenance(row: ProjectedRow): RowProvenance {
+  return {
+    lineage: Object.values(row.lineage)
+      .sort(compareLineageSegments)
+      .map((segment) => ({
+        index: segment.index,
+        path: segment.path,
+      })),
   }
 }
 
@@ -250,6 +351,7 @@ function appendNodeToRows(
   pathSegments: string[],
   context: EngineContext,
   depth: number,
+  traversalState: TraversalState,
 ): ProjectedRow[] {
   if (depth > context.config.maxDepth) {
     return appendScalarToRows(
@@ -257,6 +359,7 @@ function appendNodeToRows(
       pathSegments,
       '[Max depth reached]',
       context,
+      traversalState,
     )
   }
 
@@ -271,7 +374,14 @@ function appendNodeToRows(
   }
 
   if (Array.isArray(value)) {
-    return appendArrayToRows(rows, value, pathSegments, context, depth + 1)
+    return appendArrayToRows(
+      rows,
+      value,
+      pathSegments,
+      context,
+      depth + 1,
+      traversalState,
+    )
   }
 
   if (isPlainObject(value)) {
@@ -281,6 +391,7 @@ function appendNodeToRows(
         pathSegments,
         JSON.stringify(value),
         context,
+        traversalState,
       )
     }
 
@@ -293,6 +404,7 @@ function appendNodeToRows(
         [...pathSegments, key],
         context,
         depth + 1,
+        traversalState,
       )
 
       if (nextRows.length === 0) {
@@ -303,7 +415,13 @@ function appendNodeToRows(
     return nextRows
   }
 
-  return appendScalarToRows(rows, pathSegments, value as ScalarValue, context)
+  return appendScalarToRows(
+    rows,
+    pathSegments,
+    value as ScalarValue,
+    context,
+    traversalState,
+  )
 }
 
 function appendArrayToRows(
@@ -312,6 +430,7 @@ function appendArrayToRows(
   pathSegments: string[],
   context: EngineContext,
   depth: number,
+  traversalState: TraversalState,
 ): ProjectedRow[] {
   const normalizedPath = normalizeRulePath(pathSegments.join('.'))
 
@@ -321,6 +440,7 @@ function appendArrayToRows(
       pathSegments,
       JSON.stringify(values),
       context,
+      traversalState,
     )
   }
 
@@ -328,15 +448,22 @@ function appendArrayToRows(
     return context.config.emptyArrayBehavior === 'skip_row' ? [] : rows
   }
 
-  const elementRows = values.map((value) =>
-    appendNodeToRows(
-      [createEmptyRow()],
+  const elementRows = values.map((value, index) => {
+    const nextTraversalState = extendTraversalState(
+      traversalState,
+      pathSegments,
+      index,
+    )
+
+    return appendNodeToRows(
+      [createEmptyRow({ lineage: nextTraversalState.lineage })],
       value,
       pathSegments,
       context,
       depth + 1,
-    ),
-  )
+      nextTraversalState,
+    )
+  })
   const mode = resolveModeForPath(normalizedPath, context.config)
 
   return mode === 'cross_product'
@@ -349,6 +476,7 @@ function appendScalarToRows(
   pathSegments: string[],
   value: ScalarValue,
   context: EngineContext,
+  traversalState: TraversalState,
 ): ProjectedRow[] {
   const header = resolveHeader(pathSegments, context)
 
@@ -357,7 +485,14 @@ function appendScalarToRows(
       ...row.data,
       [header]: value,
     },
-    repeatableKeys: new Set([...row.repeatableKeys, header]),
+    lineage: {
+      ...row.lineage,
+      ...traversalState.lineage,
+    },
+    owners: {
+      ...row.owners,
+      [header]: traversalState.activeOwner,
+    },
   }))
 }
 
@@ -393,7 +528,14 @@ function mergeRows(left: ProjectedRow, right: ProjectedRow): ProjectedRow {
       ...left.data,
       ...right.data,
     },
-    repeatableKeys: new Set([...left.repeatableKeys, ...right.repeatableKeys]),
+    lineage: {
+      ...left.lineage,
+      ...right.lineage,
+    },
+    owners: {
+      ...left.owners,
+      ...right.owners,
+    },
   }
 }
 
@@ -403,27 +545,40 @@ function deriveSharedContextRow(rows: ProjectedRow[]) {
   }
 
   const sharedData: Record<string, ScalarValue> = {}
-  const sharedRepeatableKeys = new Set(rows[0].repeatableKeys)
+  const sharedOwners: Record<string, CellOwner> = {}
+  const sharedLineage: Record<string, ProvenanceSegment> = {}
   const [firstRow, ...remainingRows] = rows
 
   for (const [key, value] of Object.entries(firstRow.data)) {
-    const matchesAllRows = remainingRows.every((row) => row.data[key] === value)
+    const owner = firstRow.owners[key]
+    const matchesAllRows = remainingRows.every(
+      (row) =>
+        row.data[key] === value &&
+        row.owners[key] !== undefined &&
+        row.owners[key].token === owner?.token,
+    )
 
     if (matchesAllRows) {
       sharedData[key] = value
+      if (owner) {
+        sharedOwners[key] = owner
+      }
     }
   }
 
-  for (const key of sharedRepeatableKeys) {
-    if (!remainingRows.every((row) => row.repeatableKeys.has(key))) {
-      sharedRepeatableKeys.delete(key)
+  for (const [path, segment] of Object.entries(firstRow.lineage)) {
+    if (
+      remainingRows.every((row) => row.lineage[path]?.token === segment.token)
+    ) {
+      sharedLineage[path] = segment
     }
   }
 
-  return {
+  return createEmptyRow({
     data: sharedData,
-    repeatableKeys: sharedRepeatableKeys,
-  }
+    lineage: sharedLineage,
+    owners: sharedOwners,
+  })
 }
 
 function applyPlaceholderStrategy(
@@ -444,17 +599,25 @@ function applyPlaceholderStrategy(
       return row
     }
 
+    const previousRow = rows[index - 1]
     const nextData = { ...row.data }
 
-    for (const key of row.repeatableKeys) {
-      if (key in nextData) {
-        nextData[key] = placeholder
+    for (const [header, owner] of Object.entries(row.owners)) {
+      const previousOwner = previousRow.owners[header]
+
+      if (
+        previousOwner?.token === owner.token &&
+        previousRow.data[header] === row.data[header] &&
+        header in nextData
+      ) {
+        nextData[header] = placeholder
       }
     }
 
     return {
       data: nextData,
-      repeatableKeys: row.repeatableKeys,
+      lineage: row.lineage,
+      owners: row.owners,
     }
   })
 }
@@ -598,7 +761,7 @@ function buildSchema(
   rows: Array<Record<string, ScalarValue>>,
   headers: string[],
   registry: ColumnRegistry,
-  config: MappingConfig,
+  projectedRows: ProjectedRow[],
 ): MappingSchema {
   const kindsByHeader = inferKindsByHeader(rows)
 
@@ -611,8 +774,24 @@ function buildSchema(
         (row) => row[header] === null || row[header] === undefined,
       ),
     })),
-    primaryKeys: config.rootPath ? [config.rootPath] : ['$'],
+    primaryKeys: collectPrimaryKeys(projectedRows),
   }
+}
+
+function collectPrimaryKeys(rows: ProjectedRow[]) {
+  const primaryKeys = new Set<string>()
+
+  for (const row of rows) {
+    for (const path of Object.keys(row.lineage)) {
+      primaryKeys.add(path)
+    }
+  }
+
+  if (primaryKeys.size === 0) {
+    primaryKeys.add('$')
+  }
+
+  return [...primaryKeys].sort(comparePrimaryKeys)
 }
 
 function toCsv(
@@ -781,6 +960,25 @@ function compareValueKinds(left: ValueKind, right: ValueKind) {
   ]
 
   return order.indexOf(left) - order.indexOf(right)
+}
+
+function compareLineageSegments(
+  left: ProvenanceSegment,
+  right: ProvenanceSegment,
+) {
+  return comparePrimaryKeys(left.path, right.path) || left.index - right.index
+}
+
+function comparePrimaryKeys(left: string, right: string) {
+  return getPathDepth(left) - getPathDepth(right) || left.localeCompare(right)
+}
+
+function getPathDepth(path: string) {
+  if (path === '$') {
+    return 0
+  }
+
+  return path.split('.').length
 }
 
 function looksLikeIsoDate(value: string) {

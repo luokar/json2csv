@@ -746,7 +746,7 @@ function App() {
                     registration={form.register('strictNaming')}
                   />
                   <ToggleField
-                    label="Index suffix"
+                    label="Indexed pivot columns"
                     registration={form.register('arrayIndexSuffix')}
                   />
                 </div>

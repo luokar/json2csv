@@ -323,6 +323,39 @@ function extendTraversalState(
   }
 }
 
+function createPivotTraversalState(
+  traversalState: TraversalState,
+  pathSegments: string[],
+): TraversalState {
+  const ownerPath = pathSegments.join('.') || 'column0'
+
+  return {
+    activeOwner: {
+      path: ownerPath,
+      token: ownerPath,
+    },
+    lineage: traversalState.lineage,
+  }
+}
+
+function createIndexedPathSegments(
+  pathSegments: string[],
+  index: number,
+  arrayIndexSuffix: boolean,
+) {
+  if (pathSegments.length === 0) {
+    return arrayIndexSuffix ? [`column0[${index}]`] : ['column0', `${index}`]
+  }
+
+  if (!arrayIndexSuffix) {
+    return [...pathSegments, `${index}`]
+  }
+
+  return pathSegments.map((segment, segmentIndex) =>
+    segmentIndex === pathSegments.length - 1 ? `${segment}[${index}]` : segment,
+  )
+}
+
 function createProvenanceSegment(
   path: string,
   index: number,
@@ -444,6 +477,27 @@ function appendArrayToRows(
     )
   }
 
+  const mode = resolveModeForPath(normalizedPath, context.config)
+
+  if (mode === 'stringify') {
+    return context.config.arrayIndexSuffix
+      ? appendPivotedArrayToRows(
+          rows,
+          values,
+          pathSegments,
+          context,
+          depth,
+          traversalState,
+        )
+      : appendScalarToRows(
+          rows,
+          pathSegments,
+          JSON.stringify(values),
+          context,
+          traversalState,
+        )
+  }
+
   if (values.length === 0) {
     return context.config.emptyArrayBehavior === 'skip_row' ? [] : rows
   }
@@ -464,11 +518,48 @@ function appendArrayToRows(
       nextTraversalState,
     )
   })
-  const mode = resolveModeForPath(normalizedPath, context.config)
 
   return mode === 'cross_product'
     ? combineByCrossProduct(rows, elementRows)
     : combineByParallel(rows, elementRows)
+}
+
+function appendPivotedArrayToRows(
+  rows: ProjectedRow[],
+  values: unknown[],
+  pathSegments: string[],
+  context: EngineContext,
+  depth: number,
+  traversalState: TraversalState,
+) {
+  if (values.length === 0) {
+    return context.config.emptyArrayBehavior === 'skip_row' ? [] : rows
+  }
+
+  let nextRows = rows
+
+  for (const [index, value] of values.entries()) {
+    const indexedPathSegments = createIndexedPathSegments(
+      pathSegments,
+      index,
+      context.config.arrayIndexSuffix,
+    )
+    const nextTraversalState = createPivotTraversalState(
+      traversalState,
+      indexedPathSegments,
+    )
+
+    nextRows = appendNodeToRows(
+      nextRows,
+      value,
+      indexedPathSegments,
+      context,
+      depth + 1,
+      nextTraversalState,
+    )
+  }
+
+  return nextRows
 }
 
 function appendScalarToRows(
@@ -1072,7 +1163,13 @@ function doesPathMatch(path: string, rule: string) {
 }
 
 function normalizeRulePath(path: string) {
-  return path.replace(/^\$\.?/, '').replace(/\[\*\]/g, '')
+  return path
+    .replace(/^\$\.?/, '')
+    .replace(/\[\*\]/g, '')
+    .replace(/\[\d+\]/g, '')
+    .split('.')
+    .filter((segment) => segment.length > 0 && !/^\d+$/.test(segment))
+    .join('.')
 }
 
 function selectRootNodes(input: unknown, rootPath?: string) {

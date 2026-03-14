@@ -123,4 +123,40 @@ describe('App', () => {
     expect(screen.getByLabelText(/planner path 1/i)).toHaveValue('topping')
     expect(screen.getByLabelText(/planner action 1/i)).toHaveValue('stringify')
   })
+
+  it('pivots arrays into indexed columns from the config form', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <AppProviders>
+        <App />
+      </AppProviders>,
+    )
+
+    await user.selectOptions(
+      screen.getByLabelText(/sample dataset/i),
+      'heterogeneous',
+    )
+    await user.selectOptions(
+      screen.getByLabelText(/flatten mode/i),
+      'stringify',
+    )
+
+    const indexedPivotToggle = screen.getByLabelText(/indexed pivot columns/i)
+    await user.click(indexedPivotToggle)
+
+    await waitFor(() => {
+      expect(indexedPivotToggle).toBeChecked()
+    })
+
+    await waitFor(() => {
+      const buttonLabels = screen
+        .getAllByRole('button')
+        .map((button) => button.textContent?.trim())
+
+      expect(buttonLabels).toContain('tags[0]')
+      expect(buttonLabels).toContain('tags[1]')
+      expect(buttonLabels).not.toContain('tags')
+    })
+  })
 })

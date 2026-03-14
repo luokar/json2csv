@@ -10,6 +10,7 @@
 - Real JSON input is supported through paste and `.json` upload, with helper logic in [src/lib/json-input.ts](/Users/mac/work/json2csv/src/lib/json-input.ts).
 - The roadmap milestone for a structured per-path planner is now implemented with UI in [src/components/path-planner.tsx](/Users/mac/work/json2csv/src/components/path-planner.tsx) and helper logic in [src/lib/path-planner.ts](/Users/mac/work/json2csv/src/lib/path-planner.ts).
 - Structural provenance is now tracked during projection in [src/lib/mapping-engine.ts](/Users/mac/work/json2csv/src/lib/mapping-engine.ts), and regroup keys are surfaced in the sidecar UI in [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx).
+- Indexed pivot columns for non-row-expanding arrays are now implemented in [src/lib/mapping-engine.ts](/Users/mac/work/json2csv/src/lib/mapping-engine.ts) and exposed through the config form in [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx).
 
 ## Important findings
 
@@ -47,6 +48,10 @@
   - quote-all
   - boolean rendering
   - simple ISO date normalization to `YYYY-MM-DD`
+- Non-row-expanding arrays:
+  - explicit `stringifyPaths` still force JSON-string output
+  - `stringify` mode now keeps arrays in the same row
+  - `arrayIndexSuffix` pivots those arrays into indexed columns such as `tags[0]` or `items[0].sku`
 - Placeholder handling:
   - `repeat`
   - `empty`
@@ -75,6 +80,7 @@
 - Live config form using React Hook Form + Zod
 - Structured path planner for per-path mode, stringify, and drop rules
 - Discovered path suggestions driven by live input inspection under the selected root path
+- Config toggle for indexed pivot columns when arrays should stay in the current row
 - Sortable preview table using TanStack Table
 - CSV output panel
 - Sidecar schema panel
@@ -97,6 +103,12 @@
 - Placeholder strategies compare per-cell structural owners against the previous row instead of blanking all repeatable fields heuristically
 - The sidecar schema now emits regroup keys relative to the selected root path so downstream consumers can reason about row identity
 
+### Pivot capabilities
+
+- Global `stringify` mode no longer row-expands arrays by accident; it keeps them in the current row
+- Path-specific `mode: stringify` rules can pivot arrays of scalars or objects into indexed columns
+- Explicit `stringifyPaths` rules still win over pivoting and emit raw JSON strings instead
+
 ### Test coverage
 
 - App integration coverage in [src/App.test.tsx](/Users/mac/work/json2csv/src/App.test.tsx)
@@ -105,6 +117,7 @@
   - invalid custom JSON state
   - discovered-path planner interaction updates the live projection
   - regroup keys are rendered in the sidecar schema card
+  - indexed pivot columns can be enabled through the config form
 - JSON input helper coverage in [src/lib/json-input.test.ts](/Users/mac/work/json2csv/src/lib/json-input.test.ts)
 - Planner helper coverage in [src/lib/path-planner.test.ts](/Users/mac/work/json2csv/src/lib/path-planner.test.ts)
 - Engine coverage expanded with:
@@ -113,6 +126,8 @@
   - owner-aware placeholder blanking
   - per-row lineage metadata
   - regroup key emission for repeated branches
+  - indexed pivot columns for non-row-expanding arrays
+  - distinction between `pathModes.stringify` pivoting and `stringifyPaths` JSON-string output
 
 ## Verification
 
@@ -126,18 +141,16 @@ The Vite build still emits the existing chunk-size warning for the main bundle.
 
 ## Known gaps
 
-- `arrayIndexSuffix` is exposed in config storage/UI, but it is not yet meaningfully applied during projection.
 - The JSONPath support is intentionally narrow. It does not support filters, recursive descent, unions, or advanced selectors.
 - `strict_leaf` is currently implemented as a conservative array-stringify policy, not a complete leaf-only planner.
 - Header `explicit` mode assumes header names or source paths are provided directly. There is still no rich whitelist editor yet.
 - There is no streaming parser yet. Large-file support is still an open problem.
-- No pivot-to-columns feature exists yet.
 - Uploaded and pasted JSON are handled in-memory on the client. There is no worker split, incremental parsing, or file-size guardrail yet.
 
 ## Recommended next steps
 
-1. Implement `arrayIndexSuffix` and pivot-to-columns for non-row-expanding arrays.
-2. Add a larger test matrix for deep nested arrays, strict-leaf edge cases, and path-specific override interactions.
-3. Decide whether this app should stay browser-only or add a worker/streaming path for large payloads.
-4. Consider a dedicated explicit-header editor so whitelist mode is as usable as the new path planner.
-5. Decide whether regroup metadata should also be exportable as a separate sidecar file instead of only appearing in the in-app schema panel.
+1. Add a larger test matrix for deep nested arrays, strict-leaf edge cases, and path-specific override interactions.
+2. Decide whether this app should stay browser-only or add a worker/streaming path for large payloads.
+3. Consider a dedicated explicit-header editor so whitelist mode is as usable as the new path planner.
+4. Decide whether regroup metadata should also be exportable as a separate sidecar file instead of only appearing in the in-app schema panel.
+5. Decide whether pivoted columns need richer header naming controls beyond the current indexed path format.

@@ -67,6 +67,7 @@ describe('mapping engine', () => {
       onMissingKey: 'include',
     })
 
+    expect(result.rowCount).toBe(3)
     expect(result.headers).toEqual(
       expect.arrayContaining([
         'active',
@@ -78,6 +79,56 @@ describe('mapping engine', () => {
       ]),
     )
     expect(result.records[1]['notes.source']).toBe('manual')
+    expect(result.records[2].tags).toContain('stable')
+  })
+
+  it('pivots non-row-expanding arrays into indexed columns when enabled', () => {
+    const result = convertJsonToCsvTable(heterogeneousSample, {
+      rootPath: '$.records[*]',
+      flattenMode: 'stringify',
+      arrayIndexSuffix: true,
+      onMissingKey: 'include',
+    })
+
+    expect(result.rowCount).toBe(3)
+    expect(result.headers).toEqual(
+      expect.arrayContaining(['id', 'tags[0]', 'tags[1]']),
+    )
+    expect(result.records[2]['tags[0]']).toBe('fast')
+    expect(result.records[2]['tags[1]']).toBe('stable')
+    expect(result.schema.primaryKeys).toEqual(['$'])
+  })
+
+  it('pivots path-specific stringify mode without forcing json strings', () => {
+    const result = convertJsonToCsvTable(donutSample, {
+      rootPath: '$.items.item[*]',
+      flattenMode: 'parallel',
+      arrayIndexSuffix: true,
+      pathModes: {
+        topping: 'stringify',
+      },
+    })
+
+    expect(result.rowCount).toBe(5)
+    expect(result.headers).toEqual(
+      expect.arrayContaining(['topping[0].type', 'topping[6].type']),
+    )
+    expect(result.records[0]['topping[0].type']).toBe('None')
+    expect(result.records[0]['topping[6].type']).toBe('Maple')
+  })
+
+  it('keeps forced stringify paths as json strings even with indexed pivoting', () => {
+    const result = convertJsonToCsvTable(donutSample, {
+      rootPath: '$.items.item[*]',
+      flattenMode: 'parallel',
+      arrayIndexSuffix: true,
+      stringifyPaths: ['topping'],
+    })
+
+    expect(result.rowCount).toBe(5)
+    expect(result.headers).toContain('topping')
+    expect(result.headers).not.toContain('topping[0].type')
+    expect(result.records[0].topping).toContain('Powdered Sugar')
   })
 
   it('renames colliding headers when strict naming is enabled', () => {

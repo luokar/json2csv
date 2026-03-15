@@ -250,6 +250,29 @@ describe('App', () => {
     })
   })
 
+  it('filters the row preview without disturbing the broader workbench shell', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <AppProviders>
+        <App />
+      </AppProviders>,
+    )
+
+    const rowPreviewTable = await screen.findAllByRole('table')
+    const filterInput = screen.getByLabelText(/filter visible csv rows/i)
+
+    await user.type(filterInput, 'Maple')
+
+    await waitFor(() => {
+      expect(within(rowPreviewTable[0]).getByText(/maple/i)).toBeInTheDocument()
+      expect(within(rowPreviewTable[0]).queryByText(/glazed/i)).toBeNull()
+      expect(screen.getByLabelText(/preset name/i)).toHaveValue(
+        'Donut relational export',
+      )
+    })
+  })
+
   it('accepts uploaded custom json and projects it with the chosen root path', async () => {
     const user = userEvent.setup()
 

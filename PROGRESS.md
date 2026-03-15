@@ -25,6 +25,8 @@
 - Hang diagnosis is now fail-fast instead of post-mortem only. [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx) publishes lightweight transition diagnostics through the visible card in `?debug=hangs`, `window.__json2csvWorkbenchTransition`, and the `json2csv:workbench-transition` browser event so `queued`, `applying`, `projecting`, `settled`, and `timed-out` phases are inspectable before a browser stall turns opaque.
 - The hang audit is now persistent and more actionable. [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx) now `flushSync`s the suspended-workbench guard before risky state swaps, waits an extra paint before applying them, and records recovered transitions, long tasks, and paint gaps through [src/lib/hang-audit.ts](/Users/mac/work/json2csv/src/lib/hang-audit.ts) so `?debug=hangs` can explain the last risky action even after a reload.
 - The hang audit now also records an `Intent armed` breadcrumb before heavy guarded actions begin. [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx) and [src/lib/hang-audit.ts](/Users/mac/work/json2csv/src/lib/hang-audit.ts) persist that pre-transition intent immediately, then clear it once `queued` transition diagnostics take over. This closes the gap where a browser could freeze before the transition phase itself had been written anywhere recoverable.
+- The row-preview filter path is now isolated from the rest of the app shell. [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx) moved the filter input, deferred query, and TanStack Table sorting into a dedicated row-preview component, and [src/store/use-workbench-store.ts](/Users/mac/work/json2csv/src/store/use-workbench-store.ts) no longer stores global search text. Typing into `Filter visible CSV rows` now updates only the preview card instead of rerendering the entire workbench.
+- Chrome trace-driven flicker cleanup is now in place. [src/index.css](/Users/mac/work/json2csv/src/index.css) dropped the network font import in favor of local font stacks, and [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx) now animates the projection progress bar with `transform: scaleX(...)` instead of `width`. A follow-up Chrome trace no longer reported the font downloads or width animation as CLS culprits.
 - Chrome MCP verification now confirms the guarded transition model is holding for the previously frozen paths. In `?debug=hangs`, both `Custom JSON -> Load active sample` and `Custom JSON -> Reset defaults` settle without a browser stall and immediately publish transition plus long-task evidence into `window.__json2csvHangAudit`.
 - Explicit header mapping and renaming are now implemented through [src/components/header-mapper.tsx](/Users/mac/work/json2csv/src/components/header-mapper.tsx) and [src/lib/header-mapper.ts](/Users/mac/work/json2csv/src/lib/header-mapper.ts), with preset round-tripping wired through [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx).
 - Relational split preview is now implemented through [src/lib/relational-split.ts](/Users/mac/work/json2csv/src/lib/relational-split.ts), worker-backed projection in [src/lib/projection.ts](/Users/mac/work/json2csv/src/lib/projection.ts), and linked-table UI in [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx).
@@ -203,6 +205,8 @@
 - Guarded workbench transitions for reset, load-sample, import, preset load, source switching, and committed custom rebuilds, staged through `requestAnimationFrame` plus `setTimeout` so the heavy workbench collapses before risky state applies
 - Fail-fast transition diagnostics with a watchdog timeout, visible DOM copy, global window state, and browser events for `queued`, `applying`, `projecting`, `settled`, and `timed-out` phases
 - Pre-transition `Intent armed` audit entries plus reload recovery when a hang lands before the guarded transition can publish its own phase
+- Localized row-preview filter state so filter keystrokes no longer rerender the entire converter shell
+- Removed network font loading and width-based progress animation from the startup path to reduce visible flicker and compositing work
 - Row preview limits so TanStack Table only renders a bounded slice
 - Text preview limits for CSV and source payload cards
 
@@ -219,6 +223,7 @@
   - `Load active sample` and `Reset defaults` keep the workbench collapsed during the guarded transition instead of restoring the heavy preview surface too early
   - `?debug=hangs` publishes transition diagnostics onto `window.__json2csvWorkbenchTransition`
   - `?debug=hangs` now records pre-transition `Intent armed` breadcrumbs and recovers unresolved intent after reload
+  - row-preview filtering still narrows the visible table after the filter state was localized out of the top-level app shell
   - importing a keyed-object JSON file auto-applies the smarter `$.data.*` transform instead of leaving the payload at a noisy top-level root
   - smart-detect applies `$.data.*`-style keyed-map suggestions and renames the synthetic entry-key header in the live preview
   - smart-detect also preserves complex multi-collection roots by keeping `$` and switching flatten mode to `stringify`

@@ -123,6 +123,7 @@ import type {
   ProjectionProgress,
 } from '@/lib/projection'
 import {
+  type ProjectionConversionResult,
   projectionFlatCsvPreviewCharacterLimit,
   projectionFlatRowPreviewLimit,
   projectionRelationalCsvPreviewCharacterLimit,
@@ -286,18 +287,14 @@ function App() {
   const isJsdomEnvironment =
     typeof navigator !== 'undefined' && /jsdom/i.test(navigator.userAgent)
   const queryClient = useQueryClient()
-  const search = useWorkbenchStore((state) => state.search)
   const selectedPresetId = useWorkbenchStore((state) => state.selectedPresetId)
-  const setSearch = useWorkbenchStore((state) => state.setSearch)
   const selectPreset = useWorkbenchStore((state) => state.selectPreset)
-  const deferredSearch = useDeferredValue(search)
   const [headerRules, setHeaderRules] = useState<HeaderRule[]>([])
   const [plannerRules, setPlannerRules] = useState<PlannerRule[]>([])
   const [smartDetectFeedback, setSmartDetectFeedback] =
     useState<SmartDetectFeedback | null>(null)
   const [selectedRelationalTableName, setSelectedRelationalTableName] =
     useState('root')
-  const [sorting, setSorting] = useState<SortingState>([])
   const [committedCustomJson, setCommittedCustomJson] = useState(
     defaultFormValues.customJson,
   )
@@ -613,10 +610,6 @@ function App() {
     streamingFlatPreview?.previewRecords ?? conversionResult?.records ?? []
   const flatRowCount =
     streamingFlatPreview?.rowCount ?? conversionResult?.rowCount ?? 0
-  const hasBoundedFlatPreview =
-    !isStreamingFlatPreview &&
-    conversionResult !== null &&
-    conversionResult.rowCount > conversionResult.records.length
   const flatCsvSource =
     isStreamingFlatPreview && activeConfig
       ? toCsv(flatHeaders, flatRecords, activeConfig)
@@ -625,18 +618,6 @@ function App() {
     isStreamingFlatPreview || conversionResult
       ? flatRowCount + (flatHeaders.length > 0 ? 1 : 0)
       : 0
-  const filteredRecords = filterRecords(
-    flatHeaders,
-    flatRecords,
-    deferredSearch,
-  )
-  const previewRows = createRowPreview(
-    filteredRecords,
-    projectionFlatRowPreviewLimit,
-  )
-  const flatPreviewRowsTruncated = isStreamingFlatPreview
-    ? flatRowCount > flatRecords.length
-    : previewRows.truncated || hasBoundedFlatPreview
   const csvPreview =
     isStreamingFlatPreview && activeConfig
       ? createTextPreview(flatCsvSource, projectionFlatCsvPreviewCharacterLimit)
@@ -671,17 +652,6 @@ function App() {
     text: 'No relational tables generated.',
     truncated: false,
   }
-  const columns = buildPreviewColumns(flatHeaders)
-  const table = useReactTable({
-    data: previewRows.rows,
-    columns,
-    state: {
-      sorting,
-    },
-    onSortingChange: setSorting,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-  })
 
   useEffect(() => {
     const tableNames = relationalSplitResult?.tables.map(
@@ -1695,8 +1665,10 @@ function App() {
                   </div>
                   <div className="h-2 rounded-full bg-secondary/70">
                     <div
-                      className="h-full rounded-full bg-primary transition-[width] duration-200"
-                      style={{ width: `${projection.progress.percent}%` }}
+                      className="h-full origin-left rounded-full bg-primary transition-transform duration-200 will-change-transform"
+                      style={{
+                        transform: `scaleX(${Math.max(0, Math.min(projection.progress.percent, 100)) / 100})`,
+                      }}
                     />
                   </div>
                 </div>
@@ -2479,123 +2451,17 @@ function App() {
             </Card>
           ) : (
             <div className="grid gap-6">
-              <Card className="overflow-hidden bg-white/82 backdrop-blur-sm">
-                <CardHeader className="gap-4 border-b border-border/70">
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                    <div>
-                      <CardTitle className="flex items-center gap-2">
-                        <TableProperties className="size-5 text-primary" />
-                        Row preview
-                      </CardTitle>
-                      <CardDescription>
-                        TanStack Table renders the projected rows from the
-                        current mapping config.
-                      </CardDescription>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      <Badge variant="outline">
-                        {describeActiveSource(
-                          liveValues.sourceMode,
-                          activeSample.title,
-                        )}
-                      </Badge>
-                      <Badge variant="secondary">{flatRowCount} rows</Badge>
-                      <Badge variant="secondary">
-                        {flatHeaders.length} columns
-                      </Badge>
-                      {isStreamingFlatPreview ? (
-                        <Badge variant="secondary">Streaming preview</Badge>
-                      ) : null}
-                      {isStreamingFlatPreview ? (
-                        <Badge variant="outline">
-                          {formatStreamingRootProgress(streamingFlatPreview)}
-                        </Badge>
-                      ) : null}
-                      {flatPreviewRowsTruncated ? (
-                        <Badge variant="secondary">
-                          Showing first {projectionFlatRowPreviewLimit} rows
-                        </Badge>
-                      ) : null}
-                    </div>
-                  </div>
-
-                  <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-center">
-                    <div className="relative">
-                      <Search className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-muted-foreground" />
-                      <Input
-                        aria-label="Filter visible CSV rows"
-                        value={search}
-                        onChange={(event) => setSearch(event.target.value)}
-                        className="pl-11"
-                        placeholder="Filter visible CSV rows"
-                      />
-                    </div>
-
-                    <div className="flex items-center gap-2 rounded-full border border-border/70 bg-background/80 px-4 py-3 text-sm text-muted-foreground">
-                      <Waypoints className="size-4 text-primary" />
-                      {activeConfig
-                        ? describeConfig(activeConfig)
-                        : 'Invalid configuration'}
-                    </div>
-                  </div>
-                </CardHeader>
-
-                <CardContent className="pt-4">
-                  <Table>
-                    <TableCaption>
-                      {isStreamingFlatPreview
-                        ? describeStreamingPreviewCaption(streamingFlatPreview)
-                        : conversionResult
-                          ? `${hasBoundedFlatPreview ? `Showing first ${conversionResult.records.length} preview rows of ${conversionResult.rowCount} total rows. ${deferredSearch.trim() ? 'Search applies to the preview slice only. ' : ''}` : ''}Root path ${conversionResult.config.rootPath || '$'} with ${conversionResult.config.flattenMode} mode.`
-                          : 'Fix the current form errors to generate a preview.'}
-                    </TableCaption>
-                    <TableHeader>
-                      {table.getHeaderGroups().map((headerGroup) => (
-                        <TableRow key={headerGroup.id}>
-                          {headerGroup.headers.map((header) => (
-                            <TableHead key={header.id}>
-                              {header.isPlaceholder
-                                ? null
-                                : flexRender(
-                                    header.column.columnDef.header,
-                                    header.getContext(),
-                                  )}
-                            </TableHead>
-                          ))}
-                        </TableRow>
-                      ))}
-                    </TableHeader>
-                    <TableBody>
-                      {table.getRowModel().rows.length > 0 ? (
-                        table.getRowModel().rows.map((row) => (
-                          <TableRow key={row.id}>
-                            {row.getVisibleCells().map((cell) => (
-                              <TableCell key={cell.id}>
-                                {flexRender(
-                                  cell.column.columnDef.cell,
-                                  cell.getContext(),
-                                )}
-                              </TableCell>
-                            ))}
-                          </TableRow>
-                        ))
-                      ) : (
-                        <TableRow>
-                          <TableCell
-                            colSpan={Math.max(flatHeaders.length, 1)}
-                            className="py-16 text-center text-muted-foreground"
-                          >
-                            {isStreamingFlatPreview || conversionResult
-                              ? 'No rows match the current filter.'
-                              : 'No projection available for the current form values.'}
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
+              <RowPreviewCard
+                activeConfig={activeConfig}
+                activeSampleTitle={activeSample.title}
+                conversionResult={conversionResult}
+                flatHeaders={flatHeaders}
+                flatRecords={flatRecords}
+                flatRowCount={flatRowCount}
+                isStreamingFlatPreview={isStreamingFlatPreview}
+                sourceMode={liveValues.sourceMode}
+                streamingFlatPreview={streamingFlatPreview}
+              />
 
               <Card className="overflow-hidden bg-white/82 backdrop-blur-sm">
                 <CardHeader className="gap-4 border-b border-border/70">
@@ -3018,6 +2884,174 @@ function App() {
         </section>
       </main>
     </div>
+  )
+}
+
+function RowPreviewCard({
+  activeConfig,
+  activeSampleTitle,
+  conversionResult,
+  flatHeaders,
+  flatRecords,
+  flatRowCount,
+  isStreamingFlatPreview,
+  sourceMode,
+  streamingFlatPreview,
+}: {
+  activeConfig: MappingConfig | undefined
+  activeSampleTitle: string
+  conversionResult: ProjectionConversionResult | null
+  flatHeaders: string[]
+  flatRecords: Array<Record<string, string>>
+  flatRowCount: number
+  isStreamingFlatPreview: boolean
+  sourceMode: SourceMode
+  streamingFlatPreview: ProjectionFlatStreamPreview | null
+}) {
+  const [searchDraft, setSearchDraft] = useState('')
+  const deferredSearch = useDeferredValue(searchDraft)
+  const [sorting, setSorting] = useState<SortingState>([])
+  const hasBoundedFlatPreview =
+    !isStreamingFlatPreview &&
+    conversionResult !== null &&
+    conversionResult.rowCount > conversionResult.records.length
+  const filteredRecords = filterRecords(
+    flatHeaders,
+    flatRecords,
+    deferredSearch,
+  )
+  const previewRows = createRowPreview(
+    filteredRecords,
+    projectionFlatRowPreviewLimit,
+  )
+  const flatPreviewRowsTruncated = isStreamingFlatPreview
+    ? flatRowCount > flatRecords.length
+    : previewRows.truncated || hasBoundedFlatPreview
+  const columns = buildPreviewColumns(flatHeaders)
+  const table = useReactTable({
+    data: previewRows.rows,
+    columns,
+    state: {
+      sorting,
+    },
+    onSortingChange: setSorting,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  })
+
+  return (
+    <Card className="overflow-hidden bg-white/82 backdrop-blur-sm">
+      <CardHeader className="gap-4 border-b border-border/70">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <TableProperties className="size-5 text-primary" />
+              Row preview
+            </CardTitle>
+            <CardDescription>
+              TanStack Table renders the projected rows from the current mapping
+              config.
+            </CardDescription>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="outline">
+              {describeActiveSource(sourceMode, activeSampleTitle)}
+            </Badge>
+            <Badge variant="secondary">{flatRowCount} rows</Badge>
+            <Badge variant="secondary">{flatHeaders.length} columns</Badge>
+            {isStreamingFlatPreview ? (
+              <Badge variant="secondary">Streaming preview</Badge>
+            ) : null}
+            {isStreamingFlatPreview && streamingFlatPreview ? (
+              <Badge variant="outline">
+                {formatStreamingRootProgress(streamingFlatPreview)}
+              </Badge>
+            ) : null}
+            {flatPreviewRowsTruncated ? (
+              <Badge variant="secondary">
+                Showing first {projectionFlatRowPreviewLimit} rows
+              </Badge>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-center">
+          <div className="relative">
+            <Search className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              aria-label="Filter visible CSV rows"
+              value={searchDraft}
+              onChange={(event) => setSearchDraft(event.target.value)}
+              className="pl-11"
+              placeholder="Filter visible CSV rows"
+            />
+          </div>
+
+          <div className="flex items-center gap-2 rounded-full border border-border/70 bg-background/80 px-4 py-3 text-sm text-muted-foreground">
+            <Waypoints className="size-4 text-primary" />
+            {activeConfig
+              ? describeConfig(activeConfig)
+              : 'Invalid configuration'}
+          </div>
+        </div>
+      </CardHeader>
+
+      <CardContent className="pt-4">
+        <Table>
+          <TableCaption>
+            {isStreamingFlatPreview && streamingFlatPreview
+              ? describeStreamingPreviewCaption(streamingFlatPreview)
+              : conversionResult
+                ? `${hasBoundedFlatPreview ? `Showing first ${conversionResult.records.length} preview rows of ${conversionResult.rowCount} total rows. ${deferredSearch.trim() ? 'Search applies to the preview slice only. ' : ''}` : ''}Root path ${conversionResult.config.rootPath || '$'} with ${conversionResult.config.flattenMode} mode.`
+                : 'Fix the current form errors to generate a preview.'}
+          </TableCaption>
+          <TableHeader>
+            {table.getHeaderGroups().map((headerGroup) => (
+              <TableRow key={headerGroup.id}>
+                {headerGroup.headers.map((header) => (
+                  <TableHead key={header.id}>
+                    {header.isPlaceholder
+                      ? null
+                      : flexRender(
+                          header.column.columnDef.header,
+                          header.getContext(),
+                        )}
+                  </TableHead>
+                ))}
+              </TableRow>
+            ))}
+          </TableHeader>
+          <TableBody>
+            {table.getRowModel().rows.length > 0 ? (
+              table.getRowModel().rows.map((row) => (
+                <TableRow key={row.id}>
+                  {row.getVisibleCells().map((cell) => (
+                    <TableCell key={cell.id}>
+                      {flexRender(
+                        cell.column.columnDef.cell,
+                        cell.getContext(),
+                      )}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
+            ) : (
+              <TableRow>
+                <TableCell
+                  colSpan={Math.max(flatHeaders.length, 1)}
+                  className="py-16 text-center text-muted-foreground"
+                >
+                  {isStreamingFlatPreview || conversionResult
+                    ? 'No rows match the current filter.'
+                    : 'No projection available for the current form values.'}
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
   )
 }
 

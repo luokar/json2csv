@@ -909,6 +909,16 @@ function App() {
     : isCustomJsonDirty
       ? 'Use `Apply JSON` to rebuild the previews and restore the full workbench with the latest committed payload.'
       : 'This avoids replaying the full row preview, relational preview, CSV output, and schema sidecar on every progress update during apply.'
+  const suspendedWorkbenchSectionEyebrow = pendingWorkbenchTransition
+    ? 'Transition guard'
+    : isCustomJsonDirty
+      ? 'Editor focus'
+      : 'Workbench state'
+  const suspendedWorkbenchSectionTitle = pendingWorkbenchTransition
+    ? 'Workbench transition is in progress'
+    : isCustomJsonDirty
+      ? 'The editor is holding an unapplied draft'
+      : 'The workbench is rebuilding in the background'
   const visibleWorkbenchTransitionDiagnostic =
     workbenchTransitionDiagnostic !== null &&
     (debugFlags.showHangDiagnostics ||
@@ -1085,8 +1095,8 @@ function App() {
     <div className="relative isolate min-h-screen overflow-hidden">
       <div className="absolute inset-x-0 top-0 -z-10 h-[28rem] bg-[radial-gradient(circle_at_top_left,rgba(255,203,153,0.9),transparent_38%),radial-gradient(circle_at_top_right,rgba(147,197,253,0.65),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.94),rgba(255,247,237,0.92))]" />
 
-      <main className="mx-auto flex min-h-screen max-w-7xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
-        <section className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr] lg:items-end">
+      <main className="mx-auto flex min-h-screen max-w-[1820px] flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8 xl:gap-8">
+        <section className="grid gap-6 xl:grid-cols-[minmax(0,1.16fr)_minmax(420px,0.84fr)] xl:items-end">
           <div className="space-y-4">
             <Badge
               variant="outline"
@@ -1121,7 +1131,7 @@ function App() {
             </div>
           </div>
 
-          <Card className="bg-white/75">
+          <Card className="bg-white/82 backdrop-blur-sm">
             <CardHeader>
               <div className="flex items-center justify-between gap-3">
                 <CardTitle>Current projection</CardTitle>
@@ -1229,462 +1239,525 @@ function App() {
           </Card>
         ) : null}
 
-        <section className="grid gap-6 xl:grid-cols-[400px_1fr]">
-          <Card className="bg-white/75">
-            <CardHeader>
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <Waypoints className="size-5 text-primary" />
-                    Mapping controls
-                  </CardTitle>
-                  <CardDescription>
-                    Configure how the tree becomes rows and how values are
-                    rendered.
-                  </CardDescription>
-                </div>
-                <Badge variant="outline">
-                  {activePreset ? activePreset.name : 'Unsaved configuration'}
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <form
-                className="space-y-4"
-                onSubmit={form.handleSubmit((values) => {
-                  const latestCustomJson =
-                    liveValues.sourceMode === 'custom'
-                      ? committedCustomJson
-                      : defaultFormValues.customJson
-
-                  savePresetMutation.mutate({
-                    ...values,
-                    customJson: latestCustomJson,
-                  })
-                })}
-              >
-                <div className="space-y-2">
-                  <Label htmlFor="preset-name">Preset name</Label>
-                  <Input
-                    id="preset-name"
-                    placeholder="Donut relational export"
-                    {...form.register('presetName')}
-                  />
-                  <FieldError
-                    message={form.formState.errors.presetName?.message}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Input source</Label>
-                  <div className="flex flex-wrap gap-2">
-                    {sourceModeOptions.map((option) => (
-                      <Button
-                        key={option.value}
-                        type="button"
-                        variant={
-                          liveValues.sourceMode === option.value
-                            ? 'default'
-                            : 'outline'
-                        }
-                        onClick={() => handleSourceModeChange(option.value)}
-                      >
-                        {option.label}
-                      </Button>
-                    ))}
+        <section className="grid gap-6 xl:grid-cols-[minmax(500px,620px)_minmax(0,1fr)] 2xl:grid-cols-[minmax(560px,680px)_minmax(0,1fr)] xl:items-start">
+          <div className="space-y-6">
+            <Card className="bg-white/82 backdrop-blur-sm">
+              <CardHeader>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Waypoints className="size-5 text-primary" />
+                      Mapping controls
+                    </CardTitle>
+                    <CardDescription>
+                      Configure the source payload, how nested records become
+                      rows, and how the exported CSV should behave downstream.
+                    </CardDescription>
                   </div>
-                  <p className="text-sm text-muted-foreground">
-                    Work from the bundled ambiguity samples or switch to real
-                    JSON input with paste/upload.
-                  </p>
+                  <Badge variant="outline">
+                    {activePreset ? activePreset.name : 'Unsaved configuration'}
+                  </Badge>
                 </div>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                <form
+                  className="space-y-5"
+                  onSubmit={form.handleSubmit((values) => {
+                    const latestCustomJson =
+                      liveValues.sourceMode === 'custom'
+                        ? committedCustomJson
+                        : defaultFormValues.customJson
 
-                {liveValues.sourceMode === 'sample' ? (
-                  <div className="space-y-2">
-                    <Label htmlFor="sample-id">Sample dataset</Label>
-                    <select
-                      id="sample-id"
-                      className="flex h-11 w-full rounded-2xl border border-input bg-background/80 px-4 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
-                      value={liveValues.sampleId}
-                      onChange={(event) =>
-                        handleSampleChange(event.target.value)
-                      }
-                    >
-                      {mappingSamples.map((sample) => (
-                        <option key={sample.id} value={sample.id}>
-                          {sample.title}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="text-sm text-muted-foreground">
-                      {activeSample?.description}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-4 rounded-[24px] border border-border/70 bg-background/70 p-4">
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={handleLoadSampleIntoEditor}
-                      >
-                        Load active sample
-                      </Button>
-                      <Button
-                        type="button"
-                        disabled={!isCustomJsonDirty}
-                        onClick={() =>
-                          applyCustomJson(customJsonDraft, {
-                            suspendWorkbench: true,
-                          })
-                        }
-                      >
-                        Apply JSON
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={handleFormatCustomJson}
-                      >
-                        Format JSON
-                      </Button>
-                      <label
-                        htmlFor="json-upload"
-                        className="inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-full border border-border bg-background/80 px-5 text-sm font-semibold text-foreground transition-colors hover:bg-secondary"
-                      >
-                        <Upload className="size-4" />
-                        Upload .json
-                      </label>
-                      <input
-                        id="json-upload"
-                        type="file"
-                        accept=".json,application/json"
-                        className="sr-only"
-                        onChange={handleFileImport}
-                      />
-                    </div>
-
+                    savePresetMutation.mutate({
+                      ...values,
+                      customJson: latestCustomJson,
+                    })
+                  })}
+                >
+                  <WorkbenchSection
+                    eyebrow="Session"
+                    title="Choose the active source and preset"
+                    description="Name this mapping, pick the incoming payload, and decide whether the workbench starts from a bundled sample or your own JSON."
+                    icon={<FileJson2 className="size-5" />}
+                  >
                     <div className="space-y-2">
-                      <Label htmlFor="custom-json">Custom JSON</Label>
-                      <Textarea
-                        id="custom-json"
-                        {...bufferedJsonEditorServiceProps}
-                        placeholder='{"records": [{"id": "1", "email": "user@example.com"}]}'
-                        className="min-h-[18rem] font-mono text-xs"
-                        value={customJsonDraft}
-                        onChange={(event) => {
-                          setCustomJsonDraft(event.target.value)
-                        }}
-                      />
-                      <p className="text-sm text-muted-foreground">
-                        Custom input stays local to this browser. If you save a
-                        preset in custom mode, the raw JSON is stored locally in
-                        IndexedDB with it.
-                      </p>
-                      {isCustomJsonDirty ? (
-                        <p className="text-sm text-muted-foreground">
-                          Preview is paused while this draft has unapplied
-                          changes. Use Apply JSON, Format JSON, or save the
-                          preset to apply it.
-                        </p>
-                      ) : isCustomProjectionRebuilding ? (
-                        <p className="text-sm text-muted-foreground">
-                          Rebuilding the preview for the latest committed JSON.
-                          {projection.progress
-                            ? ` ${projection.progress.label} ${formatProjectionProgressDetail(projection.progress)}.`
-                            : ''}
-                        </p>
-                      ) : projection.parseError ? (
-                        <p className="text-sm text-destructive">
-                          Invalid JSON: {projection.parseError}
-                        </p>
-                      ) : projection.isProjecting ? (
-                        <p className="text-sm text-muted-foreground">
-                          Parsing and rebuilding the preview in the background.
-                          {projection.progress
-                            ? ` ${formatProjectionProgressDetail(projection.progress)}.`
-                            : ''}
-                        </p>
-                      ) : (
-                        <p className="text-sm text-muted-foreground">
-                          Parsed successfully. Adjust the root path to choose
-                          where CSV rows begin.
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {isWorkbenchSuspended ? (
-                  <div className="rounded-[24px] border border-border/70 bg-background/70 p-4 text-sm text-muted-foreground">
-                    <p className="font-semibold text-foreground">
-                      {suspendedWorkbenchTitle}
-                    </p>
-                    <p className="mt-2">
-                      {pendingWorkbenchTransition
-                        ? suspendedWorkbenchFollowUp
-                        : isCustomJsonDirty
-                          ? 'Additional mapping controls, saved presets, and preview panels are hidden until you apply this draft. This keeps the editor isolated while you paste or type large payloads.'
-                          : projection.progress
-                            ? `${projection.progress.label} ${formatProjectionProgressDetail(projection.progress)}. The full workbench returns after this pass completes.`
-                            : 'The latest committed JSON is rebuilding in the background. The full workbench returns after this pass completes.'}
-                    </p>
-                  </div>
-                ) : (
-                  <>
-                    <div className="space-y-2">
-                      <Label htmlFor="root-path">Root path</Label>
+                      <Label htmlFor="preset-name">Preset name</Label>
                       <Input
-                        id="root-path"
-                        placeholder="$.items.item[*]"
-                        {...form.register('rootPath')}
+                        id="preset-name"
+                        placeholder="Donut relational export"
+                        {...form.register('presetName')}
                       />
                       <FieldError
-                        message={form.formState.errors.rootPath?.message}
-                      />
-                      {liveValues.sourceMode === 'custom' ? (
-                        <p className="text-sm text-muted-foreground">
-                          {streamableCustomSelector
-                            ? 'Incremental selector parsing is active for this path. Nested [*] and [0] steps can stream directly from the custom JSON text before final materialization.'
-                            : 'This custom path currently falls back to full-document parsing.'}
-                        </p>
-                      ) : null}
-                    </div>
-
-                    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
-                      <SelectField
-                        id="flatten-mode"
-                        label="Flatten mode"
-                        registration={form.register('flattenMode')}
-                        options={flattenModes.map((value) => ({
-                          label: toTitleCase(value),
-                          value,
-                        }))}
-                      />
-                      <SelectField
-                        id="placeholder-strategy"
-                        label="Parent fill"
-                        registration={form.register('placeholderStrategy')}
-                        options={placeholderStrategies.map((value) => ({
-                          label: toTitleCase(value),
-                          value,
-                        }))}
+                        message={form.formState.errors.presetName?.message}
                       />
                     </div>
 
-                    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
-                      <SelectField
-                        id="missing-keys"
-                        label="Missing keys"
-                        registration={form.register('onMissingKey')}
-                        options={missingKeyStrategies.map((value) => ({
-                          label: toTitleCase(value),
-                          value,
-                        }))}
-                      />
-                      <SelectField
-                        id="type-mismatch"
-                        label="Type mismatch"
-                        registration={form.register('onTypeMismatch')}
-                        options={typeMismatchStrategies.map((value) => ({
-                          label: toTitleCase(value),
-                          value,
-                        }))}
-                      />
-                    </div>
-
-                    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
-                      <SelectField
-                        id="header-policy"
-                        label="Header policy"
-                        registration={form.register('headerPolicy')}
-                        options={headerPolicies.map((value) => ({
-                          label: toTitleCase(value),
-                          value,
-                        }))}
-                      />
-                      <SelectField
-                        id="collision-strategy"
-                        label="Collision strategy"
-                        registration={form.register('collisionStrategy')}
-                        options={collisionStrategies.map((value) => ({
-                          label: toTitleCase(value),
-                          value,
-                        }))}
-                      />
-                    </div>
-
-                    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
-                      <SelectField
-                        id="boolean-representation"
-                        label="Boolean output"
-                        registration={form.register('booleanRepresentation')}
-                        options={booleanRepresentations.map((value) => ({
-                          label: toTitleCase(value),
-                          value,
-                        }))}
-                      />
-                      <SelectField
-                        id="date-format"
-                        label="Date output"
-                        registration={form.register('dateFormat')}
-                        options={dateFormats.map((value) => ({
-                          label: toTitleCase(value),
-                          value,
-                        }))}
-                      />
-                    </div>
-
-                    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
-                      <SelectField
-                        id="delimiter"
-                        label="CSV delimiter"
-                        registration={form.register('delimiter')}
-                        options={delimiterOptions.map((option) => ({
-                          label: option.label,
-                          value: option.value,
-                        }))}
-                      />
-                      <SelectField
-                        id="empty-array-behavior"
-                        label="Empty arrays"
-                        registration={form.register('emptyArrayBehavior')}
-                        options={emptyArrayBehaviors.map((value) => ({
-                          label: toTitleCase(value),
-                          value,
-                        }))}
-                      />
-                    </div>
-
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label htmlFor="path-separator">Path separator</Label>
-                        <Input
-                          id="path-separator"
-                          placeholder="."
-                          {...form.register('pathSeparator')}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="header-sample-size">
-                          Header sample size
-                        </Label>
-                        <Input
-                          id="header-sample-size"
-                          type="number"
-                          min={1}
-                          max={500}
-                          {...form.register('headerSampleSize', {
-                            valueAsNumber: true,
-                          })}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="max-depth">Max depth</Label>
-                        <Input
-                          id="max-depth"
-                          type="number"
-                          min={1}
-                          max={32}
-                          {...form.register('maxDepth', {
-                            valueAsNumber: true,
-                          })}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="custom-placeholder">
-                          Custom placeholder
-                        </Label>
-                        <Input
-                          id="custom-placeholder"
-                          placeholder="NULL"
-                          {...form.register('customPlaceholder')}
-                        />
-                      </div>
-                    </div>
-
-                    <PathPlanner
-                      defaultMode={liveValues.flattenMode}
-                      rules={plannerRules}
-                      suggestions={discoveredPaths}
-                      onChange={setPlannerRules}
-                    />
-
-                    <HeaderMapper
-                      headerPolicy={liveValues.headerPolicy}
-                      rules={headerRules}
-                      suggestions={headerSuggestions}
-                      onChange={setHeaderRules}
-                    />
-
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <ToggleField
-                        label="Quote all cells"
-                        registration={form.register('quoteAll')}
-                      />
-                      <ToggleField
-                        label="Strict naming"
-                        registration={form.register('strictNaming')}
-                      />
-                      <ToggleField
-                        label="Indexed pivot columns"
-                        registration={form.register('arrayIndexSuffix')}
-                      />
-                    </div>
-
-                    <div className="flex flex-wrap gap-3">
-                      <Button
-                        type="submit"
-                        disabled={
-                          savePresetMutation.isPending || !canSavePreset
-                        }
-                      >
-                        <Save className="size-4" />
-                        {savePresetMutation.isPending
-                          ? 'Saving preset...'
-                          : 'Save preset'}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={handleResetDefaults}
-                      >
-                        Reset defaults
-                      </Button>
-                    </div>
-
-                    {savePresetMutation.isSuccess ? (
-                      <p className="text-sm text-muted-foreground">
-                        Saved "{savePresetMutation.data.name}" for{' '}
-                        {describePresetSource(savePresetMutation.data)}.
-                      </p>
-                    ) : null}
-
-                    {configErrors.length > 0 ? (
-                      <div className="rounded-[24px] border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive">
-                        {configErrors.slice(0, 3).map((error) => (
-                          <p key={error}>{error}</p>
+                    <div className="space-y-2">
+                      <Label>Input source</Label>
+                      <div className="flex flex-wrap gap-2">
+                        {sourceModeOptions.map((option) => (
+                          <Button
+                            key={option.value}
+                            type="button"
+                            variant={
+                              liveValues.sourceMode === option.value
+                                ? 'default'
+                                : 'outline'
+                            }
+                            onClick={() => handleSourceModeChange(option.value)}
+                          >
+                            {option.label}
+                          </Button>
                         ))}
                       </div>
-                    ) : null}
-                  </>
-                )}
-              </form>
+                      <p className="text-sm leading-6 text-muted-foreground">
+                        Samples are useful for learning the flattening behavior.
+                        Custom JSON is where you bring real data and stage it
+                        safely before projection rebuilds.
+                      </p>
+                    </div>
 
-              {isWorkbenchSuspended ? null : (
-                <div className="space-y-3 border-t border-border/70 pt-6">
+                    {liveValues.sourceMode === 'sample' ? (
+                      <div className="space-y-2 rounded-[24px] border border-border/70 bg-background/80 p-4">
+                        <Label htmlFor="sample-id">Sample dataset</Label>
+                        <select
+                          id="sample-id"
+                          className="flex h-11 w-full rounded-2xl border border-input bg-background/80 px-4 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
+                          value={liveValues.sampleId}
+                          onChange={(event) =>
+                            handleSampleChange(event.target.value)
+                          }
+                        >
+                          {mappingSamples.map((sample) => (
+                            <option key={sample.id} value={sample.id}>
+                              {sample.title}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="text-sm leading-6 text-muted-foreground">
+                          {activeSample?.description}
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-4 rounded-[24px] border border-border/70 bg-background/80 p-5">
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={handleLoadSampleIntoEditor}
+                          >
+                            Load active sample
+                          </Button>
+                          <Button
+                            type="button"
+                            disabled={!isCustomJsonDirty}
+                            onClick={() =>
+                              applyCustomJson(customJsonDraft, {
+                                suspendWorkbench: true,
+                              })
+                            }
+                          >
+                            Apply JSON
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={handleFormatCustomJson}
+                          >
+                            Format JSON
+                          </Button>
+                          <label
+                            htmlFor="json-upload"
+                            className="inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-full border border-border bg-background px-5 text-sm font-semibold text-foreground transition-colors hover:bg-secondary"
+                          >
+                            <Upload className="size-4" />
+                            Upload .json
+                          </label>
+                          <input
+                            id="json-upload"
+                            type="file"
+                            accept=".json,application/json"
+                            className="sr-only"
+                            onChange={handleFileImport}
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="custom-json">Custom JSON</Label>
+                          <Textarea
+                            id="custom-json"
+                            {...bufferedJsonEditorServiceProps}
+                            placeholder='{"records": [{"id": "1", "email": "user@example.com"}]}'
+                            className="min-h-[22rem] font-mono text-[13px] leading-6"
+                            value={customJsonDraft}
+                            onChange={(event) => {
+                              setCustomJsonDraft(event.target.value)
+                            }}
+                          />
+                          <p className="text-sm leading-6 text-muted-foreground">
+                            Custom input stays local to this browser. Saved
+                            custom presets persist the raw JSON in IndexedDB so
+                            you can resume the exact mapping session later.
+                          </p>
+                          {isCustomJsonDirty ? (
+                            <p className="text-sm leading-6 text-muted-foreground">
+                              Preview is paused while this draft has unapplied
+                              changes. Apply or format it when you are ready to
+                              rebuild the workbench.
+                            </p>
+                          ) : isCustomProjectionRebuilding ? (
+                            <p className="text-sm leading-6 text-muted-foreground">
+                              Rebuilding the preview for the latest committed
+                              JSON.
+                              {projection.progress
+                                ? ` ${projection.progress.label} ${formatProjectionProgressDetail(projection.progress)}.`
+                                : ''}
+                            </p>
+                          ) : projection.parseError ? (
+                            <p className="text-sm leading-6 text-destructive">
+                              Invalid JSON: {projection.parseError}
+                            </p>
+                          ) : projection.isProjecting ? (
+                            <p className="text-sm leading-6 text-muted-foreground">
+                              Parsing and rebuilding the preview in the
+                              background.
+                              {projection.progress
+                                ? ` ${formatProjectionProgressDetail(projection.progress)}.`
+                                : ''}
+                            </p>
+                          ) : (
+                            <p className="text-sm leading-6 text-muted-foreground">
+                              Parsed successfully. Next, point the root path at
+                              the array or object collection that should become
+                              CSV rows.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </WorkbenchSection>
+
+                  {isWorkbenchSuspended ? (
+                    <WorkbenchSection
+                      eyebrow={suspendedWorkbenchSectionEyebrow}
+                      title={suspendedWorkbenchSectionTitle}
+                      description={suspendedWorkbenchDescription}
+                      icon={<Braces className="size-5" />}
+                    >
+                      <div className="rounded-[22px] border border-border/70 bg-background/85 px-4 py-3 text-sm font-medium text-foreground">
+                        {suspendedWorkbenchTitle}
+                      </div>
+                      <p className="text-sm leading-6 text-muted-foreground">
+                        {suspendedWorkbenchLead}
+                      </p>
+                      <div className="rounded-[22px] border border-border/70 bg-background/85 p-4 text-sm leading-6 text-muted-foreground">
+                        {pendingWorkbenchTransition
+                          ? suspendedWorkbenchFollowUp
+                          : isCustomJsonDirty
+                            ? 'Additional mapping controls, saved presets, and preview panels are hidden until you apply this draft. This keeps large-payload editing isolated from the rest of the workbench.'
+                            : projection.progress
+                              ? `${projection.progress.label} ${formatProjectionProgressDetail(projection.progress)}. The full workbench returns after this pass completes.`
+                              : 'The latest committed JSON is rebuilding in the background. The full workbench returns after this pass completes.'}
+                      </div>
+                    </WorkbenchSection>
+                  ) : (
+                    <>
+                      <WorkbenchSection
+                        eyebrow="Scope"
+                        title="Choose where rows begin"
+                        description="Set the root path that defines row start, then use the planner to keep only the branches that matter before flattening."
+                        icon={<Waypoints className="size-5" />}
+                      >
+                        <div className="space-y-2">
+                          <Label htmlFor="root-path">Root path</Label>
+                          <Input
+                            id="root-path"
+                            placeholder="$.items.item[*]"
+                            {...form.register('rootPath')}
+                          />
+                          <FieldError
+                            message={form.formState.errors.rootPath?.message}
+                          />
+                          {liveValues.sourceMode === 'custom' ? (
+                            <p className="text-sm leading-6 text-muted-foreground">
+                              {streamableCustomSelector
+                                ? 'Incremental selector parsing is active for this path. Nested [*] and [0] steps can stream directly from the custom JSON text before final materialization.'
+                                : 'This custom path currently falls back to full-document parsing.'}
+                            </p>
+                          ) : null}
+                        </div>
+
+                        <PathPlanner
+                          defaultMode={liveValues.flattenMode}
+                          rules={plannerRules}
+                          suggestions={discoveredPaths}
+                          onChange={setPlannerRules}
+                        />
+                      </WorkbenchSection>
+
+                      <WorkbenchSection
+                        eyebrow="Row shaping"
+                        title="Control how nested data becomes rows"
+                        description="These settings decide whether arrays zip, multiply, stay embedded, or get padded when parent and child shapes do not line up."
+                        icon={<Rows3 className="size-5" />}
+                      >
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <SelectField
+                            id="flatten-mode"
+                            label="Flatten mode"
+                            registration={form.register('flattenMode')}
+                            options={flattenModes.map((value) => ({
+                              label: toTitleCase(value),
+                              value,
+                            }))}
+                          />
+                          <SelectField
+                            id="placeholder-strategy"
+                            label="Parent fill"
+                            registration={form.register('placeholderStrategy')}
+                            options={placeholderStrategies.map((value) => ({
+                              label: toTitleCase(value),
+                              value,
+                            }))}
+                          />
+                          <SelectField
+                            id="missing-keys"
+                            label="Missing keys"
+                            registration={form.register('onMissingKey')}
+                            options={missingKeyStrategies.map((value) => ({
+                              label: toTitleCase(value),
+                              value,
+                            }))}
+                          />
+                          <SelectField
+                            id="type-mismatch"
+                            label="Type mismatch"
+                            registration={form.register('onTypeMismatch')}
+                            options={typeMismatchStrategies.map((value) => ({
+                              label: toTitleCase(value),
+                              value,
+                            }))}
+                          />
+                          <SelectField
+                            id="empty-array-behavior"
+                            label="Empty arrays"
+                            registration={form.register('emptyArrayBehavior')}
+                            options={emptyArrayBehaviors.map((value) => ({
+                              label: toTitleCase(value),
+                              value,
+                            }))}
+                          />
+                          <div className="space-y-2">
+                            <Label htmlFor="max-depth">Max depth</Label>
+                            <Input
+                              id="max-depth"
+                              type="number"
+                              min={1}
+                              max={32}
+                              {...form.register('maxDepth', {
+                                valueAsNumber: true,
+                              })}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="rounded-[22px] border border-primary/15 bg-primary/5 p-4 text-sm leading-6 text-muted-foreground">
+                          Use{' '}
+                          <span className="font-medium text-foreground">
+                            Parallel
+                          </span>{' '}
+                          when sibling arrays should stay positionally aligned,
+                          <span className="font-medium text-foreground">
+                            {' '}
+                            Cross Product
+                          </span>{' '}
+                          when every combination matters, and
+                          <span className="font-medium text-foreground">
+                            {' '}
+                            Stringify
+                          </span>{' '}
+                          when nested arrays should remain in a single cell.
+                        </div>
+                      </WorkbenchSection>
+
+                      <WorkbenchSection
+                        eyebrow="Column output"
+                        title="Lock down column behavior and CSV output"
+                        description="Use these controls to stabilize headers, formatting, collision repair, and downstream-friendly CSV conventions."
+                        icon={<TableProperties className="size-5" />}
+                      >
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <SelectField
+                            id="header-policy"
+                            label="Header policy"
+                            registration={form.register('headerPolicy')}
+                            options={headerPolicies.map((value) => ({
+                              label: toTitleCase(value),
+                              value,
+                            }))}
+                          />
+                          <SelectField
+                            id="collision-strategy"
+                            label="Collision strategy"
+                            registration={form.register('collisionStrategy')}
+                            options={collisionStrategies.map((value) => ({
+                              label: toTitleCase(value),
+                              value,
+                            }))}
+                          />
+                          <SelectField
+                            id="boolean-representation"
+                            label="Boolean output"
+                            registration={form.register(
+                              'booleanRepresentation',
+                            )}
+                            options={booleanRepresentations.map((value) => ({
+                              label: toTitleCase(value),
+                              value,
+                            }))}
+                          />
+                          <SelectField
+                            id="date-format"
+                            label="Date output"
+                            registration={form.register('dateFormat')}
+                            options={dateFormats.map((value) => ({
+                              label: toTitleCase(value),
+                              value,
+                            }))}
+                          />
+                          <SelectField
+                            id="delimiter"
+                            label="CSV delimiter"
+                            registration={form.register('delimiter')}
+                            options={delimiterOptions.map((option) => ({
+                              label: option.label,
+                              value: option.value,
+                            }))}
+                          />
+                          <div className="space-y-2">
+                            <Label htmlFor="path-separator">
+                              Path separator
+                            </Label>
+                            <Input
+                              id="path-separator"
+                              placeholder="."
+                              {...form.register('pathSeparator')}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="header-sample-size">
+                              Header sample size
+                            </Label>
+                            <Input
+                              id="header-sample-size"
+                              type="number"
+                              min={1}
+                              max={500}
+                              {...form.register('headerSampleSize', {
+                                valueAsNumber: true,
+                              })}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="custom-placeholder">
+                              Custom placeholder
+                            </Label>
+                            <Input
+                              id="custom-placeholder"
+                              placeholder="NULL"
+                              {...form.register('customPlaceholder')}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                          <ToggleField
+                            label="Quote all cells"
+                            registration={form.register('quoteAll')}
+                          />
+                          <ToggleField
+                            label="Strict naming"
+                            registration={form.register('strictNaming')}
+                          />
+                          <ToggleField
+                            label="Indexed pivot columns"
+                            registration={form.register('arrayIndexSuffix')}
+                          />
+                        </div>
+
+                        <HeaderMapper
+                          headerPolicy={liveValues.headerPolicy}
+                          rules={headerRules}
+                          suggestions={headerSuggestions}
+                          onChange={setHeaderRules}
+                        />
+                      </WorkbenchSection>
+
+                      <WorkbenchSection
+                        eyebrow="Actions"
+                        title="Save this workbench or reset it"
+                        description="Capture reusable mapping recipes in IndexedDB or return to the default donut baseline when you want a clean slate."
+                        icon={<Save className="size-5" />}
+                      >
+                        <div className="flex flex-wrap gap-3">
+                          <Button
+                            type="submit"
+                            disabled={
+                              savePresetMutation.isPending || !canSavePreset
+                            }
+                          >
+                            <Save className="size-4" />
+                            {savePresetMutation.isPending
+                              ? 'Saving preset...'
+                              : 'Save preset'}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={handleResetDefaults}
+                          >
+                            Reset defaults
+                          </Button>
+                        </div>
+
+                        {savePresetMutation.isSuccess ? (
+                          <p className="text-sm leading-6 text-muted-foreground">
+                            Saved "{savePresetMutation.data.name}" for{' '}
+                            {describePresetSource(savePresetMutation.data)}.
+                          </p>
+                        ) : null}
+
+                        {configErrors.length > 0 ? (
+                          <div className="rounded-[24px] border border-destructive/20 bg-destructive/5 p-4 text-sm leading-6 text-destructive">
+                            {configErrors.slice(0, 3).map((error) => (
+                              <p key={error}>{error}</p>
+                            ))}
+                          </div>
+                        ) : null}
+                      </WorkbenchSection>
+                    </>
+                  )}
+                </form>
+              </CardContent>
+            </Card>
+
+            {isWorkbenchSuspended ? null : (
+              <Card className="bg-white/82 backdrop-blur-sm">
+                <CardHeader>
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                      <CardTitle className="flex items-center gap-2 text-base">
+                        <Save className="size-4 text-primary" />
                         Saved presets
-                      </h2>
-                      <p className="text-sm text-muted-foreground">
+                      </CardTitle>
+                      <CardDescription>
                         Dexie stores the entire mapping config for later replay.
-                      </p>
+                      </CardDescription>
                     </div>
                     <Badge variant="secondary">{presets.length}</Badge>
                   </div>
-
+                </CardHeader>
+                <CardContent className="space-y-3">
                   {isPresetsLoading ? (
                     <p className="text-sm text-muted-foreground">
                       Loading presets...
@@ -1692,13 +1765,13 @@ function App() {
                   ) : null}
 
                   {!isPresetsLoading && presets.length === 0 ? (
-                    <div className="rounded-3xl border border-dashed border-border bg-background/60 p-4 text-sm text-muted-foreground">
+                    <div className="rounded-3xl border border-dashed border-border bg-background/60 p-4 text-sm leading-6 text-muted-foreground">
                       Save a configuration to compare different mapping
                       strategies over time.
                     </div>
                   ) : null}
 
-                  <div className="space-y-3">
+                  <div className="grid gap-3">
                     {presets.map((preset) => {
                       const isActive = preset.id === selectedPresetId
 
@@ -1722,7 +1795,7 @@ function App() {
                               {describePresetSource(preset)}
                             </Badge>
                           </div>
-                          <p className="text-sm text-muted-foreground">
+                          <p className="text-sm leading-6 text-muted-foreground">
                             {preset.config.rootPath} /{' '}
                             {toTitleCase(preset.config.flattenMode)} /{' '}
                             {preset.config.pathSeparator}
@@ -1731,13 +1804,13 @@ function App() {
                       )
                     })}
                   </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                </CardContent>
+              </Card>
+            )}
+          </div>
 
           {isWorkbenchSuspended ? (
-            <Card className="bg-white/75">
+            <Card className="bg-white/82 backdrop-blur-sm">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Braces className="size-5 text-primary" />
@@ -1760,7 +1833,7 @@ function App() {
             </Card>
           ) : (
             <div className="grid gap-6">
-              <Card className="overflow-hidden bg-white/75">
+              <Card className="overflow-hidden bg-white/82 backdrop-blur-sm">
                 <CardHeader className="gap-4 border-b border-border/70">
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                     <div>
@@ -1878,7 +1951,7 @@ function App() {
                 </CardContent>
               </Card>
 
-              <Card className="overflow-hidden bg-white/75">
+              <Card className="overflow-hidden bg-white/82 backdrop-blur-sm">
                 <CardHeader className="gap-4 border-b border-border/70">
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                     <div>
@@ -2088,7 +2161,7 @@ function App() {
                           <Textarea
                             readOnly
                             value={relationalCsvPreview.text}
-                            className="mt-3 min-h-[18rem] font-mono text-xs"
+                            className="mt-3 min-h-[18rem] font-mono text-[13px] leading-6"
                           />
                         </div>
                       </div>
@@ -2102,8 +2175,8 @@ function App() {
                 </CardContent>
               </Card>
 
-              <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
-                <Card className="bg-white/75">
+              <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(380px,0.8fr)] 2xl:grid-cols-[minmax(0,1.24fr)_minmax(420px,0.88fr)]">
+                <Card className="bg-white/82 backdrop-blur-sm">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <Rows3 className="size-5 text-primary" />
@@ -2133,12 +2206,12 @@ function App() {
                     <Textarea
                       readOnly
                       value={csvPreview.text}
-                      className="min-h-[22rem] font-mono text-xs"
+                      className="min-h-[22rem] font-mono text-[13px] leading-6"
                     />
                   </CardContent>
                 </Card>
 
-                <Card className="bg-white/75">
+                <Card className="bg-white/82 backdrop-blur-sm">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <Database className="size-5 text-primary" />
@@ -2240,7 +2313,7 @@ function App() {
                 </Card>
               </div>
 
-              <Card className="bg-white/75">
+              <Card className="bg-white/82 backdrop-blur-sm">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Braces className="size-5 text-primary" />
@@ -2288,7 +2361,7 @@ function App() {
                       <Textarea
                         readOnly
                         value={sampleSourcePreview?.text ?? ''}
-                        className="min-h-[22rem] font-mono text-xs"
+                        className="min-h-[22rem] font-mono text-[13px] leading-6"
                       />
                     </div>
                   )}
@@ -2651,6 +2724,40 @@ function StatCard({
       <p className="text-2xl font-semibold">{value}</p>
       <p className="text-sm text-muted-foreground">{label}</p>
     </div>
+  )
+}
+
+function WorkbenchSection({
+  children,
+  description,
+  eyebrow,
+  icon,
+  title,
+}: {
+  children: ReactNode
+  description: string
+  eyebrow: string
+  icon: ReactNode
+  title: string
+}) {
+  return (
+    <section className="rounded-[28px] border border-border/70 bg-background/75 p-5 shadow-[0_24px_70px_-58px_rgba(15,23,42,0.65)]">
+      <div className="flex items-start gap-4">
+        <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+          {icon}
+        </div>
+        <div className="min-w-0 flex-1 space-y-1">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">
+            {eyebrow}
+          </p>
+          <h3 className="text-lg font-semibold text-foreground">{title}</h3>
+          <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
+            {description}
+          </p>
+        </div>
+      </div>
+      <div className="mt-5 space-y-4">{children}</div>
+    </section>
   )
 }
 

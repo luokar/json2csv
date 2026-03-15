@@ -60,6 +60,23 @@ describe('mapping engine', () => {
     expect(result.records[0].topping).toContain('Powdered Sugar')
   })
 
+  it('whitelists included branches while still traversing ancestors', () => {
+    const result = convertJsonToCsvTable(donutSample, {
+      includePaths: ['topping.type'],
+      rootPath: '$.items.item[*]',
+      flattenMode: 'parallel',
+    })
+
+    expect(result.headers).toEqual(['topping.type'])
+    expect(result.rowCount).toBe(10)
+    expect(result.records[0]).toEqual({
+      'topping.type': 'None',
+    })
+    expect(result.records.at(-1)).toEqual({
+      'topping.type': 'Sugar',
+    })
+  })
+
   it('performs a full header scan for heterogeneous objects', () => {
     const result = convertJsonToCsvTable(heterogeneousSample, {
       rootPath: '$.records[*]',

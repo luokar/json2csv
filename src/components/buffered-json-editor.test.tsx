@@ -1,8 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/react'
+import { createRef } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   BufferedJsonEditor,
+  type BufferedJsonEditorHandle,
   bufferedJsonCommitDelayMs,
 } from '@/components/buffered-json-editor'
 
@@ -41,13 +43,15 @@ describe('BufferedJsonEditor', () => {
     expect(handleCommit).toHaveBeenCalledWith('{')
   })
 
-  it('keeps bulk inserts buffered until blur', () => {
+  it('keeps bulk inserts buffered until flushed manually', () => {
     vi.useFakeTimers()
 
     const handleCommit = vi.fn()
+    const editorRef = createRef<BufferedJsonEditorHandle>()
 
     render(
       <BufferedJsonEditor
+        ref={editorRef}
         aria-label="Custom JSON"
         onCommit={handleCommit}
         value=""
@@ -66,10 +70,14 @@ describe('BufferedJsonEditor', () => {
 
     fireEvent.blur(editor)
 
+    expect(handleCommit).not.toHaveBeenCalled()
+
+    editorRef.current?.flush()
+
     expect(handleCommit).toHaveBeenCalledWith('{"records":[{"id":"1"}]}')
   })
 
-  it('flushes the latest value on blur', () => {
+  it('flushes the latest single-character draft on blur', () => {
     vi.useFakeTimers()
 
     const handleCommit = vi.fn()
@@ -85,11 +93,11 @@ describe('BufferedJsonEditor', () => {
     const editor = screen.getByLabelText(/custom json/i)
 
     fireEvent.change(editor, {
-      target: { value: '{"records":[{"id":"2"}]}' },
+      target: { value: '{' },
     })
     fireEvent.blur(editor)
 
-    expect(handleCommit).toHaveBeenCalledWith('{"records":[{"id":"2"}]}')
+    expect(handleCommit).toHaveBeenCalledWith('{')
 
     vi.advanceTimersByTime(bufferedJsonCommitDelayMs)
 
@@ -118,5 +126,29 @@ describe('BufferedJsonEditor', () => {
     expect(screen.getByLabelText(/custom json/i)).toHaveValue(
       '{"records":[{"id":"3"}]}',
     )
+  })
+
+  it('disables browser text services for json editing', () => {
+    render(
+      <BufferedJsonEditor
+        aria-label="Custom JSON"
+        onCommit={vi.fn()}
+        value=""
+      />,
+    )
+
+    const editor = screen.getByLabelText(/custom json/i)
+
+    expect(editor).toHaveAttribute('autocapitalize', 'off')
+    expect(editor).toHaveAttribute('autocomplete', 'off')
+    expect(editor).toHaveAttribute('autocorrect', 'off')
+    expect(editor).toHaveAttribute('data-1p-ignore', 'true')
+    expect(editor).toHaveAttribute('data-bwignore', 'true')
+    expect(editor).toHaveAttribute('data-enable-grammarly', 'false')
+    expect(editor).toHaveAttribute('data-gramm', 'false')
+    expect(editor).toHaveAttribute('data-grammarly', 'false')
+    expect(editor).toHaveAttribute('data-lt-active', 'false')
+    expect(editor).toHaveAttribute('data-ms-editor', 'false')
+    expect(editor).toHaveAttribute('spellcheck', 'false')
   })
 })

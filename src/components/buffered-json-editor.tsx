@@ -4,7 +4,22 @@ import { Textarea } from '@/components/ui/textarea'
 
 export interface BufferedJsonEditorHandle {
   flush: () => string
+  read: () => string
 }
+
+export const bufferedJsonEditorServiceProps = {
+  autoCapitalize: 'off',
+  autoComplete: 'off',
+  autoCorrect: 'off',
+  'data-1p-ignore': 'true',
+  'data-bwignore': 'true',
+  'data-enable-grammarly': 'false',
+  'data-gramm': 'false',
+  'data-grammarly': 'false',
+  'data-lt-active': 'false',
+  'data-ms-editor': 'false',
+  spellCheck: false,
+} as const
 
 interface BufferedJsonEditorProps
   extends Omit<
@@ -73,6 +88,9 @@ export const BufferedJsonEditor = forwardRef<
     flush() {
       return commit()
     },
+    read() {
+      return draftRef.current
+    },
   }))
 
   useEffect(() => {
@@ -106,8 +124,13 @@ export const BufferedJsonEditor = forwardRef<
     <Textarea
       ref={textareaRef}
       {...props}
+      {...bufferedJsonEditorServiceProps}
       defaultValue={value}
       onBlur={() => {
+        if (manualCommitUntilBlurRef.current) {
+          return
+        }
+
         commit()
       }}
       onChange={(event) => {

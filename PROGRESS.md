@@ -9,6 +9,8 @@
 - Engine coverage lives in [src/lib/mapping-engine.test.ts](/Users/mac/work/json2csv/src/lib/mapping-engine.test.ts).
 - Real JSON input is supported through paste and `.json` upload, with helper logic in [src/lib/json-input.ts](/Users/mac/work/json2csv/src/lib/json-input.ts).
 - The roadmap milestone for a structured per-path planner is now implemented with UI in [src/components/path-planner.tsx](/Users/mac/work/json2csv/src/components/path-planner.tsx) and helper logic in [src/lib/path-planner.ts](/Users/mac/work/json2csv/src/lib/path-planner.ts).
+- A first workflow-tree milestone is now implemented in [src/components/path-planner.tsx](/Users/mac/work/json2csv/src/components/path-planner.tsx) and [src/lib/path-planner.ts](/Users/mac/work/json2csv/src/lib/path-planner.ts), with nested branch browsing, exact-path drop/stringify/mode actions, and split-candidate recommendations for repeating arrays.
+- Workflow-tree phase 2 now adds persisted subtree whitelisting through `includePaths` in [src/lib/mapping-engine.ts](/Users/mac/work/json2csv/src/lib/mapping-engine.ts), [src/lib/relational-split.ts](/Users/mac/work/json2csv/src/lib/relational-split.ts), and [src/lib/path-planner.ts](/Users/mac/work/json2csv/src/lib/path-planner.ts), so branch-level include actions can actively narrow both flat and relational previews.
 - Structural provenance is now tracked during projection in [src/lib/mapping-engine.ts](/Users/mac/work/json2csv/src/lib/mapping-engine.ts), and regroup keys are surfaced in the sidecar UI in [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx).
 - Indexed pivot columns for non-row-expanding arrays are now implemented in [src/lib/mapping-engine.ts](/Users/mac/work/json2csv/src/lib/mapping-engine.ts) and exposed through the config form in [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx).
 - A deeper engine regression matrix now covers nested arrays, `strict_leaf`, and override precedence in [src/lib/mapping-engine.matrix.test.ts](/Users/mac/work/json2csv/src/lib/mapping-engine.matrix.test.ts).
@@ -17,6 +19,11 @@
 - Worker-backed live projection is now implemented through [src/hooks/use-projection-preview.ts](/Users/mac/work/json2csv/src/hooks/use-projection-preview.ts), [src/lib/projection.ts](/Users/mac/work/json2csv/src/lib/projection.ts), and [src/workers/projection-worker.ts](/Users/mac/work/json2csv/src/workers/projection-worker.ts).
 - Large live previews are now bounded in [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx) with row and text preview limits so the playground stays responsive under heavier inputs.
 - Custom JSON editing is now buffered through [src/components/buffered-json-editor.tsx](/Users/mac/work/json2csv/src/components/buffered-json-editor.tsx) so large payload typing does not recompute the entire dashboard on every keystroke, and bulk inserts stay staged until blur or an explicit apply action.
+- Explicit header mapping and renaming are now implemented through [src/components/header-mapper.tsx](/Users/mac/work/json2csv/src/components/header-mapper.tsx) and [src/lib/header-mapper.ts](/Users/mac/work/json2csv/src/lib/header-mapper.ts), with preset round-tripping wired through [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx).
+- Relational split preview is now implemented through [src/lib/relational-split.ts](/Users/mac/work/json2csv/src/lib/relational-split.ts), worker-backed projection in [src/lib/projection.ts](/Users/mac/work/json2csv/src/lib/projection.ts), and linked-table UI in [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx).
+- Chunked worker progress is now implemented through root-node progress hooks in [src/lib/mapping-engine.ts](/Users/mac/work/json2csv/src/lib/mapping-engine.ts) and [src/lib/relational-split.ts](/Users/mac/work/json2csv/src/lib/relational-split.ts), staged progress aggregation in [src/lib/projection.ts](/Users/mac/work/json2csv/src/lib/projection.ts), and live progress UI in [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx).
+- Incremental flat-preview streaming is now implemented through [src/lib/mapping-engine.ts](/Users/mac/work/json2csv/src/lib/mapping-engine.ts), [src/lib/projection.ts](/Users/mac/work/json2csv/src/lib/projection.ts), [src/workers/projection-worker.ts](/Users/mac/work/json2csv/src/workers/projection-worker.ts), [src/hooks/use-projection-preview.ts](/Users/mac/work/json2csv/src/hooks/use-projection-preview.ts), and [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx), so partial flat rows, row counts, and CSV previews render before the full worker payload finishes.
+- Incremental custom selector parsing is now implemented in [src/lib/json-root-stream.ts](/Users/mac/work/json2csv/src/lib/json-root-stream.ts) and wired through [src/lib/projection.ts](/Users/mac/work/json2csv/src/lib/projection.ts) and [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx), so the app's current JSONPath subset including nested `[*]` and `[index]` steps can start feeding the flat preview without first materializing the full parsed object graph.
 
 ## Important findings
 
@@ -31,6 +38,15 @@
 - Explicit header mode should follow the user-provided whitelist order literally. Snapshot replay is only stable if header order is not re-derived from per-file discovery order.
 - Client-side responsiveness collapses quickly if parsing, path inspection, row projection, table rendering, CSV rendering, and duplicate raw JSON previews all happen on the main render path. The app needs bounded previews plus background computation, not just faster conversion code.
 - Even with worker-backed projection, a large JSON editor still freezes if every keystroke is committed into the main app state. The editor path needs buffered commits with explicit flush points for save/format actions.
+- The engine already supported `headerAliases` and `headerWhitelist`, but without an editor the feature was effectively hidden. Professional-grade mapping requires those schema controls to be visible, ordered, and persistent.
+- The first relational split milestone has to stay on the worker-backed projection path. If normalization runs as a separate main-thread pass, the UI regresses under the same larger payloads that motivated the buffered editor and bounded previews.
+- Worker progress needs throttling at the reporting layer. Emitting one browser message per processed root entity would become its own scalability problem on larger batches.
+- Progress alone is not enough for perceived responsiveness. The flat preview needs separately streamed partial rows and counts, otherwise the user still waits on a blank result until the full projection completes.
+- The current streaming milestone improves projection and preview materialization over already-parsed root nodes, but JSON parsing is still fully in-memory before any stream chunks can be emitted.
+- Replacing `JSON.parse` with token-aware selector streaming is a pragmatic middle step. It materially improves common custom workflows such as `$.records[*]`, `$.groups[*].records[*]`, and `$.groups[0].records[0]` without forcing a full general-purpose streaming parser rewrite up front.
+- Sharing the same JSONPath tokenizer between the projection engine and the incremental parser matters. Otherwise streamed custom selectors drift away from the semantics used by the final converter.
+- Flat path cards do not scale for mapping workflows. Users need a branch-oriented tree to understand what they are excluding, stringifying, or earmarking for relational export.
+- Recommendations alone are not enough for workflow control. Users also need a real whitelist mechanism that can constrain projection to the selected subtrees instead of merely annotating branches.
 
 ## What is implemented
 
@@ -87,6 +103,12 @@
   - strict mode that fails files introducing unseen output headers
   - lax mode that appends new headers in discovery order
   - header reservation to keep collision repair stable across files
+- Relational split export model:
+  - normalized `root` and child tables derived from repeating array branches
+  - deterministic synthetic primary keys such as `root_id` and `topping_id`
+  - parent foreign keys such as `parent_root_id` and `parent_lineItems_id`
+  - scalar child arrays emitted as `value` tables instead of being forced into bloated flat rows
+  - explicit header aliases and explicit-mode inclusion applied per table while preserving link columns
 
 ### UI capabilities
 
@@ -98,9 +120,14 @@
   - local preset persistence for saved custom payloads
 - Live config form using React Hook Form + Zod
 - Structured path planner for per-path mode, stringify, and drop rules
+- Tree-based workflow browser for nested discovered paths with branch-level drop, stringify, and mode actions
+- Branch-level include actions that whitelist subtrees across both flat projection and relational preview
 - Discovered path suggestions driven by live input inspection under the selected root path
+- Split-candidate badges for repeating array branches so one-to-many paths are visible before users commit to a bloated flat export
 - Config toggle for indexed pivot columns when arrays should stay in the current row
+- Header mapping editor for source-path selection, explicit inclusion, and export-header renaming
 - Sortable preview table using TanStack Table
+- Relational split preview with selectable linked tables, relationship badges, and bounded per-table CSV previews
 - CSV output panel
 - Bounded CSV preview instead of rendering arbitrarily large text blobs inline
 - Sidecar schema panel
@@ -111,15 +138,25 @@
 - Bounded sample-source preview
 - Dexie-backed saved presets
 - Background preview refresh indicator while a worker recomputes the projection
+- Streamed flat preview state in the flat table and CSV panels while the worker is still projecting
+- Root-path guidance in custom mode showing when incremental selector parsing is active for the current JSONPath subset
 
 ### Planner capabilities
 
 - Saved presets round-trip structured planner rules through the existing mapping config shape
 - The engine exposes live path inspection for current input/root-path combinations in [src/lib/mapping-engine.ts](/Users/mac/work/json2csv/src/lib/mapping-engine.ts)
+- Saved presets now round-trip planner-driven `includePaths` alongside mode, stringify, and drop rules
 - Planner suggestions distinguish paths that can:
   - override flatten mode
   - be stringified
   - be dropped
+
+### Header capabilities
+
+- Saved presets now round-trip `headerWhitelist` and `headerAliases` through the UI
+- Header aliases can be applied without forcing explicit mode
+- Explicit mode now uses enabled header-mapper rows as the ordered export whitelist
+- Header suggestions merge current schema columns with discovered source paths under the active root
 
 ### Provenance capabilities
 
@@ -138,6 +175,9 @@
 - Background parse / inspect / project pipeline for live previews
 - Dedicated worker bundle for browser projection work
 - Deterministic main-thread fallback used by tests and non-worker environments
+- Chunked progress updates across parse, path inspection, flat projection, and relational normalization phases
+- Incremental flat-preview chunks from the worker so row counts, headers, preview rows, and CSV text update before the final result message lands
+- Incremental custom selector parsing for the app's current JSONPath subset, allowing the worker to feed flat-preview roots before building the full in-memory document object
 - Buffered custom-editor commit path so typed edits debounce normally while pasted or bulk-inserted payloads do not trigger an immediate reproject
 - Row preview limits so TanStack Table only renders a bounded slice
 - Text preview limits for CSV and source payload cards
@@ -150,16 +190,51 @@
   - invalid custom JSON state
   - buffered custom JSON flush on blur
   - discovered-path planner interaction updates the live projection
+  - explicit header mapping and renaming updates the preview
   - regroup keys are rendered in the sidecar schema card
   - indexed pivot columns can be enabled through the config form
 - Buffered editor unit coverage in [src/components/buffered-json-editor.test.tsx](/Users/mac/work/json2csv/src/components/buffered-json-editor.test.tsx)
   - debounced single-character typing
   - bulk insert buffering until blur
   - immediate flush on blur
+- Header mapper helper coverage in [src/lib/header-mapper.test.ts](/Users/mac/work/json2csv/src/lib/header-mapper.test.ts)
+  - alias and whitelist serialization
+  - explicit-order reconstruction from saved config
+- Incremental JSON selector streaming coverage in [src/lib/json-root-stream.test.ts](/Users/mac/work/json2csv/src/lib/json-root-stream.test.ts)
+  - streamable-selector detection for nested wildcard and index paths
+  - per-root extraction for nested wildcard selector paths
+  - indexed selector extraction inside nested arrays
+  - parser error handling for malformed JSON
 - JSON input helper coverage in [src/lib/json-input.test.ts](/Users/mac/work/json2csv/src/lib/json-input.test.ts)
+- Relational split library coverage in [src/lib/relational-split.test.ts](/Users/mac/work/json2csv/src/lib/relational-split.test.ts)
+  - donut sample normalization into `root`, `batters_batter`, and `topping`
+  - scalar child arrays emitted as `value` tables
+  - deeper child-of-child arrays linked to their immediate parent table
+  - alias and explicit-inclusion handling per relational table
 - Projection pipeline coverage in [src/lib/projection.test.ts](/Users/mac/work/json2csv/src/lib/projection.test.ts)
+  - relational split payload generation for valid inputs
+  - relational split suppression for invalid custom JSON
+  - staged projection progress callbacks across parse, inspect, flat, and relational phases
+  - streamed flat-preview snapshots emitted before the final projection payload
+  - custom selector paths including nested wildcard branches using incremental parsing before final projection materialization
+- Projection hook coverage in [src/hooks/use-projection-preview.test.tsx](/Users/mac/work/json2csv/src/hooks/use-projection-preview.test.tsx)
+  - worker progress updates are surfaced before the final result is committed
+  - progress state clears once the completed payload is received
+  - streamed flat-preview state is exposed before the final payload and cleared once the final result arrives
 - Preview helper coverage in [src/lib/preview.test.ts](/Users/mac/work/json2csv/src/lib/preview.test.ts)
 - Planner helper coverage in [src/lib/path-planner.test.ts](/Users/mac/work/json2csv/src/lib/path-planner.test.ts)
+- Planner helper coverage in [src/lib/path-planner.test.ts](/Users/mac/work/json2csv/src/lib/path-planner.test.ts)
+  - include-path serialization and preset reconstruction
+  - nested tree construction from discovered paths
+  - exact-path rule state reflected on tree nodes
+  - split-candidate recommendation heuristics for repeating arrays
+- Path planner component coverage in [src/components/path-planner.test.tsx](/Users/mac/work/json2csv/src/components/path-planner.test.tsx)
+  - nested workflow-tree rendering
+  - branch-level stringify, include, and keep/drop actions
+- Engine include-path coverage in [src/lib/mapping-engine.test.ts](/Users/mac/work/json2csv/src/lib/mapping-engine.test.ts)
+  - subtree whitelisting while still traversing ancestors needed to reach included descendants
+- Relational include-path coverage in [src/lib/relational-split.test.ts](/Users/mac/work/json2csv/src/lib/relational-split.test.ts)
+  - relational table emission narrowed to explicitly included branches
 - Deep engine matrix coverage in [src/lib/mapping-engine.matrix.test.ts](/Users/mac/work/json2csv/src/lib/mapping-engine.matrix.test.ts)
   - deep nested arrays under `strict_leaf`
   - explicit deep-path expansion overrides
@@ -181,6 +256,16 @@
   - per-column type statistics and coercion summaries
 - App integration coverage now also checks mixed-column reporting in [src/App.test.tsx](/Users/mac/work/json2csv/src/App.test.tsx)
 - App integration coverage now also checks compact custom-source rendering in [src/App.test.tsx](/Users/mac/work/json2csv/src/App.test.tsx)
+- App integration coverage now also checks relational table switching and linked CSV preview updates in [src/App.test.tsx](/Users/mac/work/json2csv/src/App.test.tsx)
+- App integration coverage now also checks streamed progress copy and partial flat-preview rendering in [src/App.test.tsx](/Users/mac/work/json2csv/src/App.test.tsx)
+- App integration coverage now also checks the incremental-selector hint and nested wildcard custom paths in [src/App.test.tsx](/Users/mac/work/json2csv/src/App.test.tsx)
+- App integration coverage continues to verify planner-driven live projection updates in [src/App.test.tsx](/Users/mac/work/json2csv/src/App.test.tsx), now against the workflow-tree actions
+- App integration coverage now also checks include-based live projection narrowing in [src/App.test.tsx](/Users/mac/work/json2csv/src/App.test.tsx)
+- Live projection payloads are now compacted before they cross from the worker into the UI, so large custom JSON previews no longer clone full flat CSV output, full row sets, and full relational tables back onto the main thread. The preview contract is now explicitly bounded in [src/lib/projection.ts](/Users/mac/work/json2csv/src/lib/projection.ts) and consumed in [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx)
+- The custom editor no longer mirrors raw JSON into watched React Hook Form state, so switching modes, loading samples into the editor, and saving presets do not drag the full payload through form-level subscriptions in [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx)
+- Bulk custom edits now require an explicit apply action instead of auto-applying on blur, so clicking around the custom-input workflow no longer forces an immediate large reparse just because focus moved in [src/components/buffered-json-editor.tsx](/Users/mac/work/json2csv/src/components/buffered-json-editor.tsx) and [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx)
+- Projection coverage now includes empty-string custom input, `null` root payloads, and bounded flat/relational preview payload behavior in [src/lib/projection.test.ts](/Users/mac/work/json2csv/src/lib/projection.test.ts)
+- App integration coverage now also checks malformed custom JSON, `Load active sample`, custom-mode saving, and `null` custom input flows in [src/App.test.tsx](/Users/mac/work/json2csv/src/App.test.tsx)
 
 ## Verification
 
@@ -196,19 +281,23 @@ The Vite build still emits the existing chunk-size warning for the main bundle.
 
 - The JSONPath support is intentionally narrow. It does not support filters, recursive descent, unions, or advanced selectors.
 - `strict_leaf` is currently implemented as a conservative array-stringify policy, not a complete leaf-only planner.
-- Header `explicit` mode assumes header names or source paths are provided directly. There is still no rich whitelist editor yet.
-- There is no streaming parser yet. Large-file support is still an open problem.
-- Uploaded and pasted JSON are handled in-memory on the client. There is no worker split, incremental parsing, or file-size guardrail yet.
-- The worker path keeps the UI responsive, but it is still not a true streaming converter. Full JSON parse and full CSV materialization still happen in memory inside the worker.
+- Header mapping is now list-based, but there is still no drag-to-reorder flow, tree browser, or bulk rename/import workflow.
+- The workflow tree currently supports branch-level blacklist actions and split recommendations, but it is still not a full whitelist planner or a persisted relational-split policy editor.
+- The workflow tree now supports subtree whitelisting, but the planner still only stores one action per exact path. A path cannot yet be both explicitly included and explicitly stringified or mode-overridden at the same exact node.
+- The relational split view is still preview-only. There is no ZIP packaging or download flow for the linked CSV tables yet.
+- Incremental parsing now covers the app's current selector subset of property, wildcard, and numeric-index steps, but it still does not support filters, recursive descent, unions, or full JSONPath semantics.
+- Custom JSON text is still buffered in-memory in the editor, and uploaded files still use `file.text()`. There is no browser file-stream ingestion path yet.
+- The live preview no longer sends full CSV text or full row sets back across the worker boundary, but the worker still materializes the full flat and relational results in memory before compacting them. There is still no out-of-core CSV writer or streaming relational export.
 - The new schema snapshot workflow is library-level only. There is still no batch conversion UI or persisted snapshot management flow in the app.
+- Relational split currently normalizes every repeating branch that is not explicitly stringified or dropped. There is no heuristic recommender or tree UI yet for choosing which branches should become secondary tables.
 
 ## Recommended next steps
 
-1. Build the next layer after the worker preview path: real streaming conversion or chunked worker progress instead of all-at-once in-memory projection.
-2. Consider a dedicated explicit-header editor so whitelist mode is as usable as the new path planner.
-3. Decide whether regroup metadata should also be exportable as a separate sidecar file instead of only appearing in the in-app schema panel.
-4. Decide whether pivoted columns need richer header naming controls beyond the current indexed path format.
-5. Decide whether the next milestone is persisted schema snapshots in Dexie or the first relational split export path.
+1. Connect the broader selector parser to chunked browser file ingestion, so uploaded large files do not require `file.text()` before preview can begin.
+2. Turn the relational preview into a real multi-file export flow with ZIP packaging and per-table download actions.
+3. Persist explicit relational-split decisions in the workflow tree so split recommendations become actual export policy instead of advisory labels only.
+4. Decide whether regroup metadata should also be exportable as a sidecar file instead of only appearing in the in-app schema panel.
+5. Add drag-sort and bulk-edit controls on top of the header mapper so explicit schemas are practical at larger column counts.
 
 ## Professional-Grade Roadmap
 
@@ -229,8 +318,8 @@ This app is now beyond the “toy converter” stage, but becoming a professiona
 
 ### Visual mapping and interaction
 
-- Interactive header renaming before export
 - Tree-based path blacklist and whitelist controls
+- Drag-sort column ordering and bulk rename workflows on top of the new header mapper
 - Focused preview modes for the first few rows so users can compare `parallel`, `cross_product`, and normalized layouts safely
 
 ### Data cleaning and transformation

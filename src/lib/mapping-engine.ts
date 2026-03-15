@@ -71,6 +71,7 @@ export interface MappingConfig {
   quoteAll: boolean
   emptyArrayBehavior: EmptyArrayBehavior
   maxDepth: number
+  includePaths: string[]
   dropPaths: string[]
   stringifyPaths: string[]
 }
@@ -132,6 +133,37 @@ export interface InspectedPath {
   path: string
 }
 
+export interface ProcessingProgress {
+  completed: number
+  total: number
+}
+
+export interface MappingStreamChunk {
+  headers: string[]
+  previewRecords: Array<Record<string, string>>
+  processedRoots: number
+  rowCount: number
+  totalRoots: number | null
+}
+
+export interface MappingConversionHandlers {
+  onProgress?: (progress: ProcessingProgress) => void
+  onStreamChunk?: (chunk: MappingStreamChunk) => void
+  streamChunkSize?: number
+  streamPreviewRowLimit?: number
+}
+
+export interface MappingProjectionSession {
+  appendRoot: (rootNode: unknown) => void
+  buildStreamChunk: (
+    totalRoots?: number | null,
+    previewRowLimit?: number,
+  ) => MappingStreamChunk
+  config: MappingConfig
+  finalize: () => MappingResult
+  getProcessedRoots: () => number
+}
+
 interface ProjectedRow {
   data: Record<string, ScalarValue>
   lineage: Record<string, ProvenanceSegment>
@@ -170,7 +202,7 @@ interface PathMatch {
   mode: FlattenMode
 }
 
-type PathToken =
+export type PathToken =
   | { type: 'property'; value: string }
   | { type: 'wildcard' }
   | { type: 'index'; value: number }
@@ -198,6 +230,7 @@ export const defaultMappingConfig: MappingConfig = {
   quoteAll: true,
   emptyArrayBehavior: 'include_null',
   maxDepth: 12,
+  includePaths: [],
   dropPaths: [],
   stringifyPaths: [],
 }
@@ -220,42 +253,152 @@ export function createMappingConfig(
     },
     reservedColumns:
       overrides.reservedColumns ?? defaultMappingConfig.reservedColumns,
+    includePaths: overrides.includePaths ?? defaultMappingConfig.includePaths,
     dropPaths: overrides.dropPaths ?? defaultMappingConfig.dropPaths,
     stringifyPaths:
       overrides.stringifyPaths ?? defaultMappingConfig.stringifyPaths,
   }
 }
 
-export function convertJsonToCsvTable(
-  input: unknown,
+export function createMappingProjectionSession(
   overrides: Partial<MappingConfig> = {},
-): MappingResult {
+): MappingProjectionSession {
   const config = createMappingConfig(overrides)
   const registry = createColumnRegistry(config)
   const context: EngineContext = {
     config,
     registry,
   }
+  const projectedRows: ProjectedRow[] = []
+  const renderedRows: ProjectedRow[] = []
+  let processedRootCount = 0
+
+  return {
+    appendRoot(rootNode) {
+      const traversalState = createRootTraversalState(processedRootCount)
+      const projectedGroup = appendNodeToRows(
+        [createEmptyRow({ lineage: traversalState.lineage })],
+        rootNode,
+        [],
+        context,
+        0,
+        traversalState,
+      )
+      const renderedGroup = applyPlaceholderStrategy(projectedGroup, config)
+
+      projectedRows.push(...projectedGroup)
+      renderedRows.push(...renderedGroup)
+      processedRootCount += 1
+    },
+    buildStreamChunk(totalRoots, previewRowLimit = 100) {
+      return buildMappingStreamChunk(
+        renderedRows,
+        registry,
+        config,
+        processedRootCount,
+        totalRoots === undefined ? processedRootCount : totalRoots,
+        previewRowLimit,
+      )
+    },
+    config,
+    finalize() {
+      return finalizeProjectionResult(
+        projectedRows,
+        renderedRows,
+        registry,
+        config,
+      )
+    },
+    getProcessedRoots() {
+      return processedRootCount
+    },
+  }
+}
+
+export function convertJsonToCsvTable(
+  input: unknown,
+  overrides: Partial<MappingConfig> = {},
+  handlersOrProgress:
+    | MappingConversionHandlers
+    | ((progress: ProcessingProgress) => void) = {},
+): MappingResult {
+  const handlers = normalizeMappingConversionHandlers(handlersOrProgress)
+  const session = createMappingProjectionSession(overrides)
+  const config = session.config
 
   const rootNodes = selectRootNodes(input, config.rootPath)
-  const projectedGroups = rootNodes.map((rootNode, rootIndex) => {
-    const traversalState = createRootTraversalState(rootIndex)
-
-    return appendNodeToRows(
-      [createEmptyRow({ lineage: traversalState.lineage })],
-      rootNode,
-      [],
-      context,
-      0,
-      traversalState,
-    )
-  })
-
-  const projectedRows = projectedGroups.flat()
-  const renderedGroups = projectedGroups.map((rows) =>
-    applyPlaceholderStrategy(rows, config),
+  const totalRoots = Math.max(rootNodes.length, 1)
+  const streamChunkSize = resolveStreamChunkSize(
+    totalRoots,
+    handlers.streamChunkSize,
   )
-  const renderedRows = renderedGroups.flat()
+
+  handlers.onProgress?.({ completed: 0, total: totalRoots })
+
+  for (const [rootIndex, rootNode] of rootNodes.entries()) {
+    session.appendRoot(rootNode)
+    handlers.onProgress?.({ completed: rootIndex + 1, total: totalRoots })
+
+    if (shouldEmitStreamChunk(rootIndex + 1, totalRoots, streamChunkSize)) {
+      emitMappingStreamChunk(session, handlers, totalRoots)
+    }
+  }
+
+  if (rootNodes.length === 0) {
+    handlers.onProgress?.({ completed: totalRoots, total: totalRoots })
+    emitMappingStreamChunk(session, handlers, totalRoots)
+  }
+
+  return session.finalize()
+}
+
+export function inspectMappingPaths(
+  input: unknown,
+  rootPath?: string,
+  onProgress?: (progress: ProcessingProgress) => void,
+) {
+  const registry = new Map<
+    string,
+    {
+      count: number
+      depth: number
+      kinds: Set<ValueKind>
+    }
+  >()
+  const rootNodes = selectRootNodes(input, rootPath)
+  const totalRoots = Math.max(rootNodes.length, 1)
+
+  onProgress?.({ completed: 0, total: totalRoots })
+
+  for (const [index, rootNode] of rootNodes.entries()) {
+    inspectNodePaths(rootNode, [], registry)
+    onProgress?.({ completed: index + 1, total: totalRoots })
+  }
+
+  if (rootNodes.length === 0) {
+    onProgress?.({ completed: totalRoots, total: totalRoots })
+  }
+
+  return [...registry.entries()]
+    .map(([path, entry]) => ({
+      count: entry.count,
+      depth: entry.depth,
+      kinds: [...entry.kinds].sort(compareValueKinds),
+      path,
+    }))
+    .filter((entry) => entry.path.length > 0)
+    .sort(
+      (left, right) =>
+        left.depth - right.depth || left.path.localeCompare(right.path),
+    ) satisfies InspectedPath[]
+}
+
+function finalizeProjectionResult(
+  projectedRows: ProjectedRow[],
+  renderedRows: ProjectedRow[],
+  registry: ColumnRegistry,
+  config: MappingConfig,
+) {
   const renderedRawRows = renderedRows.map((row) => ({ ...row.data }))
   const sourceRegistry = cloneColumnRegistry(registry)
   const splitRows = applyTypeMismatchStrategy(renderedRawRows, registry, config)
@@ -281,35 +424,85 @@ export function convertJsonToCsvTable(
     rowCount: renderedRows.length,
     rowProvenance: renderedRows.map(toRowProvenance),
     schema,
-  }
+  } satisfies MappingResult
 }
 
-export function inspectMappingPaths(input: unknown, rootPath?: string) {
-  const registry = new Map<
-    string,
-    {
-      count: number
-      depth: number
-      kinds: Set<ValueKind>
-    }
-  >()
-
-  for (const rootNode of selectRootNodes(input, rootPath)) {
-    inspectNodePaths(rootNode, [], registry)
+function emitMappingStreamChunk(
+  session: MappingProjectionSession,
+  handlers: MappingConversionHandlers,
+  totalRoots: number | null,
+) {
+  if (!handlers.onStreamChunk) {
+    return
   }
 
-  return [...registry.entries()]
-    .map(([path, entry]) => ({
-      count: entry.count,
-      depth: entry.depth,
-      kinds: [...entry.kinds].sort(compareValueKinds),
-      path,
-    }))
-    .filter((entry) => entry.path.length > 0)
-    .sort(
-      (left, right) =>
-        left.depth - right.depth || left.path.localeCompare(right.path),
-    ) satisfies InspectedPath[]
+  handlers.onStreamChunk(
+    session.buildStreamChunk(totalRoots, handlers.streamPreviewRowLimit),
+  )
+}
+
+function buildMappingStreamChunk(
+  renderedRows: ProjectedRow[],
+  registry: ColumnRegistry,
+  config: MappingConfig,
+  processedRoots: number,
+  totalRoots: number | null,
+  previewRowLimit: number,
+) {
+  const previewRawRows = renderedRows.map((row) => ({ ...row.data }))
+  const previewRegistry = cloneColumnRegistry(registry)
+  const splitPreviewRows = applyTypeMismatchStrategy(
+    previewRawRows,
+    previewRegistry,
+    config,
+  )
+  const selectedHeaders = selectHeaders(
+    splitPreviewRows,
+    previewRegistry,
+    config,
+  )
+  const previewRecords = renderRecords(
+    splitPreviewRows.slice(0, Math.max(1, previewRowLimit)),
+    selectedHeaders,
+    config,
+  )
+
+  return {
+    headers: selectedHeaders,
+    previewRecords,
+    processedRoots,
+    rowCount: renderedRows.length,
+    totalRoots,
+  } satisfies MappingStreamChunk
+}
+
+function normalizeMappingConversionHandlers(
+  handlersOrProgress:
+    | MappingConversionHandlers
+    | ((progress: ProcessingProgress) => void),
+) {
+  return typeof handlersOrProgress === 'function'
+    ? { onProgress: handlersOrProgress }
+    : handlersOrProgress
+}
+
+function resolveStreamChunkSize(
+  totalRoots: number,
+  requestedChunkSize?: number,
+) {
+  if (requestedChunkSize && requestedChunkSize > 0) {
+    return requestedChunkSize
+  }
+
+  return Math.max(1, Math.ceil(totalRoots / 8))
+}
+
+function shouldEmitStreamChunk(
+  processedRoots: number,
+  totalRoots: number,
+  streamChunkSize: number,
+) {
+  return processedRoots === totalRoots || processedRoots % streamChunkSize === 0
 }
 
 function createColumnRegistry(config: MappingConfig): ColumnRegistry {
@@ -472,6 +665,10 @@ function appendNodeToRows(
   }
 
   const normalizedPath = normalizeRulePath(pathSegments.join('.'))
+
+  if (!shouldIncludePath(normalizedPath, context.config.includePaths)) {
+    return rows
+  }
 
   if (shouldDropPath(normalizedPath, context.config.dropPaths)) {
     return rows
@@ -1045,7 +1242,7 @@ function collectPrimaryKeys(rows: ProjectedRow[]) {
   return [...primaryKeys].sort(comparePrimaryKeys)
 }
 
-function toCsv(
+export function toCsv(
   headers: string[],
   records: Array<Record<string, string>>,
   config: MappingConfig,
@@ -1079,7 +1276,10 @@ function escapeCsvCell(value: string, config: MappingConfig) {
   return needsQuotes ? `"${escaped}"` : escaped
 }
 
-function formatValue(value: ScalarValue | undefined, config: MappingConfig) {
+export function formatValue(
+  value: ScalarValue | undefined,
+  config: MappingConfig,
+) {
   if (value === null || value === undefined) {
     return ''
   }
@@ -1311,8 +1511,33 @@ function shouldStringifyPath(path: string, config: MappingConfig) {
   return doesAnyPathMatch(path, config.stringifyPaths)
 }
 
+function shouldIncludePath(path: string, rules: string[]) {
+  if (rules.length === 0 || path.length === 0) {
+    return true
+  }
+
+  return rules.some((rule) => doesIncludedPathMatch(path, rule))
+}
+
 function shouldDropPath(path: string, rules: string[]) {
   return doesAnyPathMatch(path, rules)
+}
+
+function doesIncludedPathMatch(path: string, rule: string) {
+  const normalizedPath = normalizeRulePath(path)
+  const normalizedRule = normalizeRulePath(rule)
+
+  if (!normalizedRule) {
+    return true
+  }
+
+  return (
+    normalizedPath === normalizedRule ||
+    normalizedPath.startsWith(`${normalizedRule}.`) ||
+    normalizedPath.startsWith(`${normalizedRule}[`) ||
+    normalizedRule.startsWith(`${normalizedPath}.`) ||
+    normalizedRule.startsWith(`${normalizedPath}[`)
+  )
 }
 
 function doesAnyPathMatch(path: string, rules: string[]) {
@@ -1334,7 +1559,7 @@ function doesPathMatch(path: string, rule: string) {
   )
 }
 
-function normalizeRulePath(path: string) {
+export function normalizeRulePath(path: string) {
   return path
     .replace(/^\$\.?/, '')
     .replace(/\[\*\]/g, '')
@@ -1348,7 +1573,7 @@ function normalizeSourcePath(path: string) {
   return normalizeRulePath(path) || (path === 'column0' ? 'column0' : '')
 }
 
-function selectRootNodes(input: unknown, rootPath?: string) {
+export function selectRootNodes(input: unknown, rootPath?: string) {
   if (!rootPath) {
     return Array.isArray(input) ? input : [input]
   }
@@ -1357,7 +1582,7 @@ function selectRootNodes(input: unknown, rootPath?: string) {
   return walkPath(input, tokens)
 }
 
-function tokenizeJsonPath(path: string) {
+export function tokenizeJsonPath(path: string) {
   const source = path.replace(/^\$\.?/, '')
   const tokens: PathToken[] = []
   let index = 0

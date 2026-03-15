@@ -1,6 +1,7 @@
 import { inspectMappingPaths, type MappingConfig } from '@/lib/mapping-engine'
 import { mappingSamples } from '@/lib/mapping-samples'
 import {
+  buildPlannerSuggestionTree,
   createPlannerRule,
   plannerRulesFromConfig,
   plannerRulesToConfig,
@@ -9,6 +10,10 @@ import {
 describe('path planner helpers', () => {
   it('serializes planner rules into mapping config overrides', () => {
     const config = plannerRulesToConfig([
+      createPlannerRule({
+        action: 'include',
+        path: 'name',
+      }),
       createPlannerRule({
         action: 'mode',
         mode: 'cross_product',
@@ -28,6 +33,7 @@ describe('path planner helpers', () => {
       }),
     ])
 
+    expect(config.includePaths).toEqual(['name'])
     expect(config.pathModes).toEqual({})
     expect(config.stringifyPaths).toEqual(['metadata', 'topping'])
     expect(config.dropPaths).toEqual(['user.password'])
@@ -36,9 +42,10 @@ describe('path planner helpers', () => {
   it('rebuilds planner rows from saved config with drop precedence', () => {
     const config: Pick<
       MappingConfig,
-      'dropPaths' | 'pathModes' | 'stringifyPaths'
+      'dropPaths' | 'includePaths' | 'pathModes' | 'stringifyPaths'
     > = {
       dropPaths: ['topping'],
+      includePaths: ['name'],
       pathModes: {
         topping: 'cross_product',
       },
@@ -47,6 +54,10 @@ describe('path planner helpers', () => {
 
     expect(plannerRulesFromConfig(config)).toEqual(
       expect.arrayContaining([
+        expect.objectContaining({
+          action: 'include',
+          path: 'name',
+        }),
         expect.objectContaining({
           action: 'stringify',
           path: 'notes',
@@ -91,5 +102,68 @@ describe('path planner helpers', () => {
     expect(
       inspectedPaths.some((entry) => entry.path.startsWith('items.')),
     ).toBe(false)
+  })
+
+  it('builds a nested planner tree with active rules and split recommendations', () => {
+    const tree = buildPlannerSuggestionTree(
+      [
+        {
+          count: 2,
+          depth: 1,
+          kinds: ['array', 'object'],
+          path: 'topping',
+        },
+        {
+          count: 10,
+          depth: 2,
+          kinds: ['string'],
+          path: 'topping.type',
+        },
+        {
+          count: 2,
+          depth: 1,
+          kinds: ['object'],
+          path: 'metadata',
+        },
+      ],
+      [
+        createPlannerRule({
+          action: 'drop',
+          path: 'metadata',
+        }),
+        createPlannerRule({
+          action: 'stringify',
+          path: 'topping',
+        }),
+      ],
+    )
+
+    expect(tree).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: 'metadata',
+          rule: expect.objectContaining({
+            action: 'drop',
+            path: 'metadata',
+          }),
+        }),
+        expect.objectContaining({
+          path: 'topping',
+          recommendation: expect.objectContaining({
+            label: 'Split candidate',
+          }),
+          rule: expect.objectContaining({
+            action: 'stringify',
+            path: 'topping',
+          }),
+          children: expect.arrayContaining([
+            expect.objectContaining({
+              path: 'topping.type',
+              segment: 'type',
+            }),
+          ]),
+        }),
+      ]),
+    )
   })
 })

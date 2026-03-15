@@ -1,13 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   computeProjectionPayload,
+  createInitialProjectionProgress,
+  type ProjectionFlatStreamPreview,
   type ProjectionPayload,
+  type ProjectionProgress,
   type ProjectionRequest,
   type ProjectionWorkerResponse,
 } from '@/lib/projection'
 
 interface ProjectionState extends ProjectionPayload {
   isProjecting: boolean
+  progress: ProjectionProgress | null
+  streamingFlatPreview: ProjectionFlatStreamPreview | null
 }
 
 const emptyProjectionState: ProjectionState = {
@@ -15,19 +20,40 @@ const emptyProjectionState: ProjectionState = {
   discoveredPaths: [],
   isProjecting: true,
   parseError: null,
+  progress: createInitialProjectionProgress(),
+  relationalSplitResult: null,
+  streamingFlatPreview: null,
+}
+
+const disabledProjectionState: ProjectionState = {
+  conversionResult: null,
+  discoveredPaths: [],
+  isProjecting: false,
+  parseError: null,
+  progress: null,
+  relationalSplitResult: null,
+  streamingFlatPreview: null,
 }
 
 export function useProjectionPreview(
   request: ProjectionRequest,
   configVersion: string,
+  options: {
+    enabled?: boolean
+  } = {},
 ) {
+  const enabled = options.enabled ?? true
   const [projection, setProjection] = useState<ProjectionState>(() =>
-    typeof Worker === 'undefined'
-      ? {
-          ...computeProjectionPayload(request),
-          isProjecting: false,
-        }
-      : emptyProjectionState,
+    !enabled
+      ? disabledProjectionState
+      : typeof Worker === 'undefined'
+        ? {
+            ...computeProjectionPayload(request),
+            isProjecting: false,
+            progress: null,
+            streamingFlatPreview: null,
+          }
+        : emptyProjectionState,
   )
   const configRef = useRef(request.config)
   const requestIdRef = useRef(0)
@@ -38,6 +64,14 @@ export function useProjectionPreview(
   const { customJson, rootPath, sampleJson, sourceMode } = request
 
   useEffect(() => {
+    if (!enabled) {
+      requestIdRef.current += 1
+      workerRef.current?.terminate()
+      workerRef.current = null
+
+      return
+    }
+
     // `configVersion` is the dependency key for config changes while the
     // latest config value itself is read from `configRef`.
     void configVersion
@@ -52,23 +86,56 @@ export function useProjectionPreview(
       sourceMode,
     }
 
-    setProjection((previous) =>
-      previous.isProjecting
-        ? previous
-        : {
-            ...previous,
-            isProjecting: true,
-          },
-    )
+    setProjection((previous) => ({
+      ...previous,
+      isProjecting: true,
+      progress: createInitialProjectionProgress(),
+      streamingFlatPreview: null,
+    }))
+
+    const commitProgress = (response: ProjectionWorkerResponse) => {
+      if (
+        response.type !== 'progress' ||
+        response.requestId !== requestIdRef.current
+      ) {
+        return
+      }
+
+      setProjection((previous) => ({
+        ...previous,
+        isProjecting: true,
+        progress: response.progress,
+      }))
+    }
+
+    const commitStreamPreview = (response: ProjectionWorkerResponse) => {
+      if (
+        response.type !== 'stream' ||
+        response.requestId !== requestIdRef.current
+      ) {
+        return
+      }
+
+      setProjection((previous) => ({
+        ...previous,
+        isProjecting: true,
+        streamingFlatPreview: response.preview,
+      }))
+    }
 
     const commitResult = (response: ProjectionWorkerResponse) => {
-      if (response.requestId !== requestIdRef.current) {
+      if (
+        response.type !== 'result' ||
+        response.requestId !== requestIdRef.current
+      ) {
         return
       }
 
       setProjection({
         ...response.payload,
         isProjecting: false,
+        progress: null,
+        streamingFlatPreview: null,
       })
     }
 
@@ -76,6 +143,7 @@ export function useProjectionPreview(
       commitResult({
         payload: computeProjectionPayload(payload),
         requestId,
+        type: 'result',
       })
 
       return
@@ -90,6 +158,8 @@ export function useProjectionPreview(
 
     const worker = workerRef.current
     const handleMessage = (event: MessageEvent<ProjectionWorkerResponse>) => {
+      commitProgress(event.data)
+      commitStreamPreview(event.data)
       commitResult(event.data)
     }
 
@@ -99,7 +169,7 @@ export function useProjectionPreview(
     return () => {
       worker.removeEventListener('message', handleMessage)
     }
-  }, [configVersion, customJson, rootPath, sampleJson, sourceMode])
+  }, [configVersion, customJson, enabled, rootPath, sampleJson, sourceMode])
 
   useEffect(
     () => () => {
@@ -109,5 +179,5 @@ export function useProjectionPreview(
     [],
   )
 
-  return projection
+  return enabled ? projection : disabledProjectionState
 }

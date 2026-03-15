@@ -22,6 +22,27 @@ function getFlatPreviewButtonLabels() {
     .map((button) => button.textContent?.trim())
 }
 
+async function switchToCustomMode(
+  user: ReturnType<typeof userEvent.setup>,
+  options: {
+    waitForWorkbench?: boolean
+  } = {},
+) {
+  const waitForWorkbench = options.waitForWorkbench ?? true
+
+  await user.click(screen.getByRole('button', { name: /custom json/i }))
+
+  await waitFor(() => {
+    expect(screen.getByLabelText(/custom json/i)).toBeInTheDocument()
+
+    if (waitForWorkbench) {
+      expect(
+        screen.getByRole('button', { name: /reset defaults/i }),
+      ).toBeInTheDocument()
+    }
+  })
+}
+
 class FakeStreamingAppWorker {
   private listeners = new Set<
     (event: MessageEvent<ProjectionWorkerResponse>) => void
@@ -97,6 +118,7 @@ class FakeStreamingAppWorker {
 afterEach(() => {
   vi.useRealTimers()
   vi.unstubAllGlobals()
+  window.history.replaceState({}, '', '/')
 })
 
 describe('App', () => {
@@ -182,7 +204,7 @@ describe('App', () => {
       </AppProviders>,
     )
 
-    await user.click(screen.getByRole('button', { name: /custom json/i }))
+    await switchToCustomMode(user, { waitForWorkbench: false })
 
     const uploadInput = screen.getByLabelText(/upload \.json/i)
     const file = new File(
@@ -237,7 +259,7 @@ describe('App', () => {
       </AppProviders>,
     )
 
-    await user.click(screen.getByRole('button', { name: /custom json/i }))
+    await switchToCustomMode(user, { waitForWorkbench: false })
 
     fireEvent.change(screen.getByLabelText(/custom json/i), {
       target: {
@@ -276,7 +298,7 @@ describe('App', () => {
       </AppProviders>,
     )
 
-    await user.click(screen.getByRole('button', { name: /custom json/i }))
+    await switchToCustomMode(user, { waitForWorkbench: false })
 
     await waitFor(() => {
       expect(screen.getByText(/invalid json:/i)).toBeInTheDocument()
@@ -295,7 +317,7 @@ describe('App', () => {
       </AppProviders>,
     )
 
-    await user.click(screen.getByRole('button', { name: /custom json/i }))
+    await switchToCustomMode(user, { waitForWorkbench: false })
 
     const editor = screen.getByLabelText(/custom json/i)
 
@@ -331,7 +353,7 @@ describe('App', () => {
       </AppProviders>,
     )
 
-    await user.click(screen.getByRole('button', { name: /custom json/i }))
+    await switchToCustomMode(user)
 
     const editor = screen.getByLabelText(/custom json/i)
 
@@ -377,7 +399,7 @@ describe('App', () => {
       </AppProviders>,
     )
 
-    await user.click(screen.getByRole('button', { name: /custom json/i }))
+    await switchToCustomMode(user)
 
     const editor = screen.getByLabelText(/custom json/i)
 
@@ -414,7 +436,7 @@ describe('App', () => {
       </AppProviders>,
     )
 
-    await user.click(screen.getByRole('button', { name: /custom json/i }))
+    await switchToCustomMode(user)
 
     const editor = screen.getByLabelText(/custom json/i)
 
@@ -469,7 +491,7 @@ describe('App', () => {
       </AppProviders>,
     )
 
-    await user.click(screen.getByRole('button', { name: /custom json/i }))
+    await switchToCustomMode(user)
     await user.click(screen.getByRole('button', { name: /sample catalog/i }))
 
     await waitFor(() => {
@@ -505,7 +527,7 @@ describe('App', () => {
       </AppProviders>,
     )
 
-    await user.click(screen.getByRole('button', { name: /custom json/i }))
+    await switchToCustomMode(user)
 
     const editor = screen.getByLabelText(/custom json/i)
 
@@ -531,7 +553,7 @@ describe('App', () => {
       ).toBeInTheDocument()
     })
 
-    await user.click(screen.getByRole('button', { name: /custom json/i }))
+    await switchToCustomMode(user, { waitForWorkbench: false })
 
     await waitFor(() => {
       expect(
@@ -555,7 +577,7 @@ describe('App', () => {
       </AppProviders>,
     )
 
-    await user.click(screen.getByRole('button', { name: /custom json/i }))
+    await switchToCustomMode(user)
     await user.click(
       screen.getByRole('button', { name: /load active sample/i }),
     )
@@ -563,7 +585,7 @@ describe('App', () => {
     await waitFor(() => {
       expect(
         screen.getByRole('heading', {
-          name: /rebuilding preview for committed custom json/i,
+          name: /loading active sample/i,
         }),
       ).toBeInTheDocument()
       expect(
@@ -574,12 +596,84 @@ describe('App', () => {
     await waitFor(() => {
       expect(
         screen.queryByRole('heading', {
-          name: /rebuilding preview for committed custom json/i,
+          name: /loading active sample/i,
         }),
       ).not.toBeInTheDocument()
       expect(screen.getByLabelText(/root path/i)).toHaveValue('$.items.item[*]')
       expect(screen.getByText(/parsed successfully/i)).toBeInTheDocument()
       expect(screen.getByRole('button', { name: /^id$/i })).toBeInTheDocument()
+    })
+  })
+
+  it('keeps the workbench collapsed while resetting back to defaults from custom mode', async () => {
+    vi.stubGlobal('Worker', FakeStreamingAppWorker)
+
+    const user = userEvent.setup()
+
+    render(
+      <AppProviders>
+        <App />
+      </AppProviders>,
+    )
+
+    await switchToCustomMode(user)
+    await user.click(screen.getByRole('button', { name: /reset defaults/i }))
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('heading', {
+          name: /resetting to defaults/i,
+        }),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByLabelText(/filter visible csv rows/i),
+      ).not.toBeInTheDocument()
+    })
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('heading', {
+          name: /resetting to defaults/i,
+        }),
+      ).not.toBeInTheDocument()
+      expect(screen.queryByLabelText(/custom json/i)).not.toBeInTheDocument()
+      expect(screen.getByLabelText(/root path/i)).toHaveValue('$.items.item[*]')
+      expect(screen.getByRole('button', { name: /^id$/i })).toBeInTheDocument()
+    })
+  })
+
+  it('publishes transition diagnostics when hang debugging is enabled', async () => {
+    vi.stubGlobal('Worker', FakeStreamingAppWorker)
+
+    const user = userEvent.setup()
+
+    window.history.replaceState({}, '', '/?debug=hangs')
+
+    render(
+      <AppProviders>
+        <App />
+      </AppProviders>,
+    )
+
+    await switchToCustomMode(user)
+    await user.click(screen.getByRole('button', { name: /reset defaults/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/transition diagnostics/i)).toBeInTheDocument()
+
+      const diagnosticWindow = window as Window & {
+        __json2csvWorkbenchTransition?: {
+          label: string
+          phase: string
+        } | null
+      }
+
+      expect(diagnosticWindow.__json2csvWorkbenchTransition?.label).toBe(
+        'Resetting to defaults',
+      )
+      expect(diagnosticWindow.__json2csvWorkbenchTransition?.phase).toBe(
+        'settled',
+      )
     })
   })
 
@@ -592,7 +686,7 @@ describe('App', () => {
       </AppProviders>,
     )
 
-    await user.click(screen.getByRole('button', { name: /custom json/i }))
+    await switchToCustomMode(user)
 
     const editor = screen.getByLabelText(/custom json/i)
 
@@ -623,7 +717,7 @@ describe('App', () => {
       </AppProviders>,
     )
 
-    await user.click(screen.getByRole('button', { name: /custom json/i }))
+    await switchToCustomMode(user)
     await user.click(
       screen.getByRole('button', { name: /load active sample/i }),
     )
@@ -647,7 +741,7 @@ describe('App', () => {
       </AppProviders>,
     )
 
-    await user.click(screen.getByRole('button', { name: /custom json/i }))
+    await switchToCustomMode(user)
 
     const editor = screen.getByLabelText(/custom json/i)
 
@@ -660,6 +754,11 @@ describe('App', () => {
     })
 
     await user.click(screen.getByRole('button', { name: /apply json/i }))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/root path/i)).toBeInTheDocument()
+    })
+
     fireEvent.change(screen.getByLabelText(/root path/i), {
       target: { value: '$.records[*]' },
     })
@@ -687,7 +786,7 @@ describe('App', () => {
       </AppProviders>,
     )
 
-    await user.click(screen.getByRole('button', { name: /custom json/i }))
+    await switchToCustomMode(user)
 
     const editor = screen.getByLabelText(/custom json/i)
 
@@ -890,7 +989,7 @@ describe('App', () => {
       </AppProviders>,
     )
 
-    await user.click(screen.getByRole('button', { name: /custom json/i }))
+    await switchToCustomMode(user)
 
     await waitFor(() => {
       expect(

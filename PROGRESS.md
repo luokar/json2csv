@@ -21,6 +21,8 @@
 - Custom JSON editing in the main app now uses an app-owned staged draft in [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx) with explicit apply/format/load actions, while [src/components/buffered-json-editor.tsx](/Users/mac/work/json2csv/src/components/buffered-json-editor.tsx) remains available for isolated input diagnostics in [src/components/input-diagnostics.tsx](/Users/mac/work/json2csv/src/components/input-diagnostics.tsx).
 - The confirmed custom-editor freeze root cause was not the textarea itself. The browser stalled when the app restored or kept the full projection workbench mounted while committed custom payload changes were rebuilding, especially on `Apply JSON` and other explicit custom-input actions.
 - The remaining `Custom JSON -> Sample catalog` hang was another transition gap in [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx): source-mode swaps could still re-enter the heavy workbench before the next projection lifecycle had actually started and settled. The fix now treats source switches as first-class suspended workbench transitions and preserves dirty custom drafts instead of auto-committing them on exit.
+- The later `Custom JSON -> Reset defaults` and `Load active sample` hangs were the same workbench-transition bug expressed through different buttons. Those actions were still allowed to synchronously swap large projection state while the previous preview surface was live. [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx) now routes reset, sample-load, preset-load, import, source-switch, and committed-custom rebuilds through the same guarded transition model.
+- Hang diagnosis is now fail-fast instead of post-mortem only. [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx) publishes lightweight transition diagnostics through the visible card in `?debug=hangs`, `window.__json2csvWorkbenchTransition`, and the `json2csv:workbench-transition` browser event so `queued`, `applying`, `projecting`, `settled`, and `timed-out` phases are inspectable before a browser stall turns opaque.
 - Explicit header mapping and renaming are now implemented through [src/components/header-mapper.tsx](/Users/mac/work/json2csv/src/components/header-mapper.tsx) and [src/lib/header-mapper.ts](/Users/mac/work/json2csv/src/lib/header-mapper.ts), with preset round-tripping wired through [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx).
 - Relational split preview is now implemented through [src/lib/relational-split.ts](/Users/mac/work/json2csv/src/lib/relational-split.ts), worker-backed projection in [src/lib/projection.ts](/Users/mac/work/json2csv/src/lib/projection.ts), and linked-table UI in [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx).
 - Chunked worker progress is now implemented through root-node progress hooks in [src/lib/mapping-engine.ts](/Users/mac/work/json2csv/src/lib/mapping-engine.ts) and [src/lib/relational-split.ts](/Users/mac/work/json2csv/src/lib/relational-split.ts), staged progress aggregation in [src/lib/projection.ts](/Users/mac/work/json2csv/src/lib/projection.ts), and live progress UI in [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx).
@@ -42,6 +44,8 @@
 - Even with worker-backed projection, a large JSON editor still freezes if every keystroke is allowed to propagate into projection or restore the heavy workbench. The main app needs a staged draft with explicit apply points, while the buffered editor is only useful as a diagnostic control.
 - The deeper freeze path was app-structure, not text input. Remounting or restoring the heavy preview workbench during custom-payload rebuilds created the main-thread stall; keeping the editor mounted while the workbench stays suspended until projection settles is the correct fix shape.
 - That same freeze class can recur on source-mode swaps if they are treated as ordinary button clicks. Switching between sample and custom sources needs the same guarded workbench transition model as explicit custom applies.
+- Any control that swaps the projection surface is part of the same risk class. `Reset defaults`, `Load active sample`, file import, preset load, and source switching all need to collapse the workbench first or they can reproduce the same synchronous stall through a different entry point.
+- Fail-fast browser diagnostics need to be emitted before risky work starts. A queued/applying/projection event stream is materially more useful than relying on a blocked DevTools session after the browser has already hung.
 - The engine already supported `headerAliases` and `headerWhitelist`, but without an editor the feature was effectively hidden. Professional-grade mapping requires those schema controls to be visible, ordered, and persistent.
 - The first relational split milestone has to stay on the worker-backed projection path. If normalization runs as a separate main-thread pass, the UI regresses under the same larger payloads that motivated the buffered editor and bounded previews.
 - Worker progress needs throttling at the reporting layer. Emitting one browser message per processed root entity would become its own scalability problem on larger batches.
@@ -186,6 +190,8 @@
 - Incremental custom selector parsing for the app's current JSONPath subset, allowing the worker to feed flat-preview roots before building the full in-memory document object
 - App-owned staged custom draft so typed payloads stay local until explicit apply, while the buffered editor still supports pause-based commits for isolated diagnostics
 - Source-mode transitions deferred past the click event and held behind a pending-workbench state until the next projection cycle actually starts and finishes
+- Guarded workbench transitions for reset, load-sample, import, preset load, source switching, and committed custom rebuilds, staged through `requestAnimationFrame` plus `setTimeout` so the heavy workbench collapses before risky state applies
+- Fail-fast transition diagnostics with a watchdog timeout, visible DOM copy, global window state, and browser events for `queued`, `applying`, `projecting`, `settled`, and `timed-out` phases
 - Row preview limits so TanStack Table only renders a bounded slice
 - Text preview limits for CSV and source payload cards
 
@@ -199,6 +205,8 @@
   - custom typing remains staged even after blur until explicit apply
   - rapid `Custom JSON -> Sample catalog` source switching stays responsive
   - dirty custom drafts survive leaving and re-entering custom mode
+  - `Load active sample` and `Reset defaults` keep the workbench collapsed during the guarded transition instead of restoring the heavy preview surface too early
+  - `?debug=hangs` publishes transition diagnostics onto `window.__json2csvWorkbenchTransition`
   - discovered-path planner interaction updates the live projection
   - explicit header mapping and renaming updates the preview
   - regroup keys are rendered in the sidecar schema card

@@ -167,12 +167,39 @@ const converterFormSchema = z.object({
 
 type ConverterFormValues = z.infer<typeof converterFormSchema>
 
-type WorkbenchTransition = 'custom-rebuild' | 'source-switch'
+const workbenchTransitionWatchdogMs = 2_000
+
+type WorkbenchTransition =
+  | 'custom-rebuild'
+  | 'import-json'
+  | 'load-preset'
+  | 'load-sample'
+  | 'reset-defaults'
+  | 'source-switch'
 
 interface PendingWorkbenchTransition {
   hasApplied: boolean
   hasStarted: boolean
+  id: number
   kind: WorkbenchTransition
+  label: string
+}
+
+type WorkbenchTransitionPhase =
+  | 'queued'
+  | 'applying'
+  | 'projecting'
+  | 'settled'
+  | 'timed-out'
+
+interface WorkbenchTransitionDiagnostic {
+  detail: string
+  id: number
+  kind: WorkbenchTransition
+  label: string
+  phase: WorkbenchTransitionPhase
+  startedAt: number
+  updatedAt: number
 }
 
 const defaultFormValues: ConverterFormValues = {
@@ -245,10 +272,15 @@ function App() {
   )
   const [pendingWorkbenchTransition, setPendingWorkbenchTransition] =
     useState<PendingWorkbenchTransition | null>(null)
+  const [workbenchTransitionDiagnostic, setWorkbenchTransitionDiagnostic] =
+    useState<WorkbenchTransitionDiagnostic | null>(null)
   const [isProjectionDebugDisabled, setProjectionDebugDisabled] = useState(
     debugFlags.projectionOffByDefault,
   )
-  const sourceModeTransitionTimeoutRef = useRef<number | null>(null)
+  const transitionApplyFrameRef = useRef<number | null>(null)
+  const transitionApplyTimeoutRef = useRef<number | null>(null)
+  const transitionSequenceRef = useRef(0)
+  const transitionWatchdogTimeoutRef = useRef<number | null>(null)
 
   const { data: presets = [], isLoading: isPresetsLoading } = useQuery({
     queryKey: ['presets'],
@@ -434,6 +466,10 @@ function App() {
   }, [relationalSplitResult, selectedRelationalTableName])
 
   useEffect(() => {
+    publishWorkbenchTransitionDiagnostic(workbenchTransitionDiagnostic)
+  }, [workbenchTransitionDiagnostic])
+
+  useEffect(() => {
     if (pendingWorkbenchTransition === null) {
       return
     }
@@ -447,6 +483,18 @@ function App() {
         return
       }
 
+      if (transitionWatchdogTimeoutRef.current !== null) {
+        window.clearTimeout(transitionWatchdogTimeoutRef.current)
+        transitionWatchdogTimeoutRef.current = null
+      }
+
+      setWorkbenchTransitionDiagnostic((previous) =>
+        createWorkbenchTransitionDiagnostic(
+          previous,
+          pendingWorkbenchTransition,
+          'projecting',
+        ),
+      )
       setPendingWorkbenchTransition((previous) =>
         previous === null || previous.hasStarted
           ? previous
@@ -456,11 +504,35 @@ function App() {
     }
 
     if (pendingWorkbenchTransition.hasStarted) {
+      if (transitionWatchdogTimeoutRef.current !== null) {
+        window.clearTimeout(transitionWatchdogTimeoutRef.current)
+        transitionWatchdogTimeoutRef.current = null
+      }
+
+      setWorkbenchTransitionDiagnostic((previous) =>
+        createWorkbenchTransitionDiagnostic(
+          previous,
+          pendingWorkbenchTransition,
+          'settled',
+        ),
+      )
       setPendingWorkbenchTransition(null)
       return
     }
 
     if (isProjectionDebugDisabled || typeof Worker === 'undefined') {
+      if (transitionWatchdogTimeoutRef.current !== null) {
+        window.clearTimeout(transitionWatchdogTimeoutRef.current)
+        transitionWatchdogTimeoutRef.current = null
+      }
+
+      setWorkbenchTransitionDiagnostic((previous) =>
+        createWorkbenchTransitionDiagnostic(
+          previous,
+          pendingWorkbenchTransition,
+          'settled',
+        ),
+      )
       setPendingWorkbenchTransition(null)
       return
     }
@@ -472,8 +544,19 @@ function App() {
 
   useEffect(
     () => () => {
-      if (sourceModeTransitionTimeoutRef.current !== null) {
-        window.clearTimeout(sourceModeTransitionTimeoutRef.current)
+      if (transitionApplyFrameRef.current !== null) {
+        window.cancelAnimationFrame(transitionApplyFrameRef.current)
+        transitionApplyFrameRef.current = null
+      }
+
+      if (transitionApplyTimeoutRef.current !== null) {
+        window.clearTimeout(transitionApplyTimeoutRef.current)
+        transitionApplyTimeoutRef.current = null
+      }
+
+      if (transitionWatchdogTimeoutRef.current !== null) {
+        window.clearTimeout(transitionWatchdogTimeoutRef.current)
+        transitionWatchdogTimeoutRef.current = null
       }
     },
     [],
@@ -508,13 +591,77 @@ function App() {
     },
   })
 
-  function cancelScheduledSourceModeTransition() {
-    if (sourceModeTransitionTimeoutRef.current === null) {
+  function clearWorkbenchTransitionWatchdog() {
+    if (transitionWatchdogTimeoutRef.current === null) {
       return
     }
 
-    window.clearTimeout(sourceModeTransitionTimeoutRef.current)
-    sourceModeTransitionTimeoutRef.current = null
+    window.clearTimeout(transitionWatchdogTimeoutRef.current)
+    transitionWatchdogTimeoutRef.current = null
+  }
+
+  function cancelScheduledWorkbenchTransition() {
+    if (transitionApplyFrameRef.current !== null) {
+      window.cancelAnimationFrame(transitionApplyFrameRef.current)
+      transitionApplyFrameRef.current = null
+    }
+
+    if (transitionApplyTimeoutRef.current !== null) {
+      window.clearTimeout(transitionApplyTimeoutRef.current)
+      transitionApplyTimeoutRef.current = null
+    }
+
+    clearWorkbenchTransitionWatchdog()
+  }
+
+  function updateWorkbenchTransitionDiagnostic(
+    transition: Pick<PendingWorkbenchTransition, 'id' | 'kind' | 'label'>,
+    phase: WorkbenchTransitionPhase,
+  ) {
+    setWorkbenchTransitionDiagnostic((previous) =>
+      createWorkbenchTransitionDiagnostic(previous, transition, phase),
+    )
+  }
+
+  function scheduleWorkbenchTransition(
+    transition: Omit<
+      PendingWorkbenchTransition,
+      'hasApplied' | 'hasStarted' | 'id'
+    >,
+    apply: () => void,
+  ) {
+    cancelScheduledWorkbenchTransition()
+
+    const nextTransition: PendingWorkbenchTransition = {
+      ...transition,
+      hasApplied: false,
+      hasStarted: false,
+      id: transitionSequenceRef.current + 1,
+    }
+
+    transitionSequenceRef.current = nextTransition.id
+    setPendingWorkbenchTransition(nextTransition)
+    updateWorkbenchTransitionDiagnostic(nextTransition, 'queued')
+
+    transitionApplyFrameRef.current = window.requestAnimationFrame(() => {
+      transitionApplyFrameRef.current = null
+
+      transitionApplyTimeoutRef.current = window.setTimeout(() => {
+        transitionApplyTimeoutRef.current = null
+
+        apply()
+        setPendingWorkbenchTransition((previous) =>
+          previous?.id === nextTransition.id
+            ? { ...previous, hasApplied: true }
+            : previous,
+        )
+        updateWorkbenchTransitionDiagnostic(nextTransition, 'applying')
+
+        transitionWatchdogTimeoutRef.current = window.setTimeout(() => {
+          updateWorkbenchTransitionDiagnostic(nextTransition, 'timed-out')
+        }, workbenchTransitionWatchdogMs)
+      }, 0)
+    })
   }
 
   function applyCustomJson(
@@ -525,88 +672,51 @@ function App() {
   ) {
     const shouldRebuildProjection = nextText !== committedCustomJson
 
-    cancelScheduledSourceModeTransition()
+    if (options.suspendWorkbench && shouldRebuildProjection) {
+      scheduleWorkbenchTransition(
+        {
+          kind: 'custom-rebuild',
+          label: 'Rebuilding preview for committed custom JSON',
+        },
+        () => {
+          setCustomJsonDraft(nextText)
+          setCommittedCustomJson(nextText)
+        },
+      )
+
+      return nextText
+    }
+
+    cancelScheduledWorkbenchTransition()
     setCustomJsonDraft(nextText)
     setCommittedCustomJson(nextText)
-    setPendingWorkbenchTransition(
-      options.suspendWorkbench && shouldRebuildProjection
-        ? {
-            hasApplied: true,
-            hasStarted: false,
-            kind: 'custom-rebuild',
-          }
-        : null,
-    )
+    setPendingWorkbenchTransition(null)
 
     return nextText
   }
 
-  function syncCustomJson(nextText: string) {
-    cancelScheduledSourceModeTransition()
-    setCustomJsonDraft(nextText)
-    setCommittedCustomJson(nextText)
-    setPendingWorkbenchTransition(null)
-  }
-
-  function scheduleSourceModeTransition(nextSourceMode: SourceMode) {
-    if (
-      nextSourceMode === liveValues.sourceMode &&
-      pendingWorkbenchTransition?.kind !== 'source-switch'
-    ) {
-      return
-    }
-
-    cancelScheduledSourceModeTransition()
-    setPendingWorkbenchTransition({
-      hasApplied: false,
-      hasStarted: false,
-      kind: 'source-switch',
-    })
-    sourceModeTransitionTimeoutRef.current = window.setTimeout(() => {
-      sourceModeTransitionTimeoutRef.current = null
-
-      const nextRootPath =
-        nextSourceMode === 'sample'
-          ? (defaultRootPaths[liveValues.sampleId] ?? '$')
-          : '$'
-
-      if (
-        form.getValues('sourceMode') === nextSourceMode &&
-        form.getValues('rootPath') === nextRootPath
-      ) {
-        setPendingWorkbenchTransition(null)
-        return
-      }
-
-      setPendingWorkbenchTransition((previous) =>
-        previous?.kind === 'source-switch'
-          ? { ...previous, hasApplied: true }
-          : previous,
-      )
-
-      form.setValue('sourceMode', nextSourceMode, { shouldValidate: true })
-      form.setValue('rootPath', nextRootPath, { shouldValidate: true })
-      savePresetMutation.reset()
-
-      startTransition(() => {
-        selectPreset(null)
-      })
-    }, 0)
-  }
-
   function loadPreset(preset: SavedPreset) {
-    form.reset({
-      ...toFormValues(preset),
-      customJson: defaultFormValues.customJson,
-    })
-    setHeaderRules(headerRulesFromConfig(preset.config))
-    syncCustomJson(preset.customJson ?? '')
-    setPlannerRules(plannerRulesFromConfig(preset.config))
-    savePresetMutation.reset()
+    scheduleWorkbenchTransition(
+      {
+        kind: 'load-preset',
+        label: 'Loading saved preset',
+      },
+      () => {
+        form.reset({
+          ...toFormValues(preset),
+          customJson: defaultFormValues.customJson,
+        })
+        setHeaderRules(headerRulesFromConfig(preset.config))
+        setCustomJsonDraft(preset.customJson ?? '')
+        setCommittedCustomJson(preset.customJson ?? '')
+        setPlannerRules(plannerRulesFromConfig(preset.config))
+        savePresetMutation.reset()
 
-    startTransition(() => {
-      selectPreset(preset.id ?? null)
-    })
+        startTransition(() => {
+          selectPreset(preset.id ?? null)
+        })
+      },
+    )
   }
 
   function handleSampleChange(sampleId: string) {
@@ -627,7 +737,33 @@ function App() {
   }
 
   function handleSourceModeChange(sourceMode: SourceMode) {
-    scheduleSourceModeTransition(sourceMode)
+    if (sourceMode === liveValues.sourceMode) {
+      return
+    }
+
+    scheduleWorkbenchTransition(
+      {
+        kind: 'source-switch',
+        label:
+          sourceMode === 'sample'
+            ? 'Switching to sample catalog'
+            : 'Switching to custom JSON',
+      },
+      () => {
+        const nextRootPath =
+          sourceMode === 'sample'
+            ? (defaultRootPaths[liveValues.sampleId] ?? '$')
+            : '$'
+
+        form.setValue('sourceMode', sourceMode, { shouldValidate: true })
+        form.setValue('rootPath', nextRootPath, { shouldValidate: true })
+        savePresetMutation.reset()
+
+        startTransition(() => {
+          selectPreset(null)
+        })
+      },
+    )
   }
 
   async function handleFileImport(event: ChangeEvent<HTMLInputElement>) {
@@ -638,40 +774,73 @@ function App() {
     }
 
     const text = await file.text()
-
-    form.setValue('sourceMode', 'custom', { shouldValidate: true })
-    applyCustomJson(text, {
-      suspendWorkbench: true,
-    })
-    form.setValue('rootPath', '$', { shouldValidate: true })
-    form.setValue('presetName', `${stripFileExtension(file.name)} export`, {
-      shouldValidate: true,
-    })
-    savePresetMutation.reset()
     event.target.value = ''
 
-    startTransition(() => {
-      selectPreset(null)
-    })
+    scheduleWorkbenchTransition(
+      {
+        kind: 'import-json',
+        label: 'Importing JSON file',
+      },
+      () => {
+        form.setValue('sourceMode', 'custom', { shouldValidate: true })
+        setCustomJsonDraft(text)
+        setCommittedCustomJson(text)
+        form.setValue('rootPath', '$', { shouldValidate: true })
+        form.setValue('presetName', `${stripFileExtension(file.name)} export`, {
+          shouldValidate: true,
+        })
+        savePresetMutation.reset()
+
+        startTransition(() => {
+          selectPreset(null)
+        })
+      },
+    )
   }
 
   function handleLoadSampleIntoEditor() {
-    const nextCustomJson = stringifyJsonInput(activeSample.json)
+    scheduleWorkbenchTransition(
+      {
+        kind: 'load-sample',
+        label: 'Loading active sample',
+      },
+      () => {
+        const nextCustomJson = stringifyJsonInput(activeSample.json)
 
-    window.setTimeout(() => {
-      form.setValue('sourceMode', 'custom', { shouldValidate: true })
-      applyCustomJson(nextCustomJson, {
-        suspendWorkbench: true,
-      })
-      form.setValue('rootPath', defaultRootPaths[activeSample.id] ?? '$', {
-        shouldValidate: true,
-      })
-      savePresetMutation.reset()
+        form.setValue('sourceMode', 'custom', { shouldValidate: true })
+        setCustomJsonDraft(nextCustomJson)
+        setCommittedCustomJson(nextCustomJson)
+        form.setValue('rootPath', defaultRootPaths[activeSample.id] ?? '$', {
+          shouldValidate: true,
+        })
+        savePresetMutation.reset()
 
-      startTransition(() => {
-        selectPreset(null)
-      })
-    }, 0)
+        startTransition(() => {
+          selectPreset(null)
+        })
+      },
+    )
+  }
+
+  function handleResetDefaults() {
+    scheduleWorkbenchTransition(
+      {
+        kind: 'reset-defaults',
+        label: 'Resetting to defaults',
+      },
+      () => {
+        form.reset(defaultFormValues)
+        setHeaderRules([])
+        setCustomJsonDraft(defaultFormValues.customJson)
+        setCommittedCustomJson(defaultFormValues.customJson)
+        setPlannerRules([])
+        savePresetMutation.reset()
+
+        startTransition(() => {
+          selectPreset(null)
+        })
+      },
+    )
   }
 
   function handleFormatCustomJson() {
@@ -706,8 +875,7 @@ function App() {
     liveValues.sourceMode === 'custom' && !isCustomJsonDirty
       ? parseJsonInput(committedCustomJson)
       : null
-  const isSourceModeTransitionPending =
-    pendingWorkbenchTransition?.kind === 'source-switch'
+  const isWorkbenchTransitionPending = pendingWorkbenchTransition !== null
   const isCustomProjectionPending =
     pendingWorkbenchTransition?.kind === 'custom-rebuild'
   const isCustomProjectionRebuilding =
@@ -716,39 +884,37 @@ function App() {
     !isCustomJsonDirty
   const isCustomWorkbenchSuspended =
     liveValues.sourceMode === 'custom' &&
-    (isCustomJsonDirty || isCustomProjectionPending)
+    (isCustomJsonDirty || isWorkbenchTransitionPending)
   const isWorkbenchSuspended =
-    isSourceModeTransitionPending || isCustomWorkbenchSuspended
-  const suspendedWorkbenchTitle = isSourceModeTransitionPending
-    ? liveValues.sourceMode === 'sample'
-      ? 'Switching to sample catalog.'
-      : 'Switching to custom JSON.'
+    isWorkbenchTransitionPending || isCustomWorkbenchSuspended
+  const suspendedWorkbenchTitle = pendingWorkbenchTransition
+    ? `${pendingWorkbenchTransition.label}.`
     : isCustomJsonDirty
       ? 'Preview paused while editing custom JSON.'
       : 'Rebuilding preview for committed custom JSON.'
-  const suspendedWorkbenchDescription = isSourceModeTransitionPending
-    ? liveValues.sourceMode === 'sample'
-      ? 'The previous custom-input workbench stays hidden while the sample projection takes over.'
-      : 'The previous sample workbench stays hidden while the custom-input surface takes over.'
+  const suspendedWorkbenchDescription = pendingWorkbenchTransition
+    ? 'The previous workbench stays hidden while this transition replaces the active projection state.'
     : isCustomJsonDirty
       ? 'The row preview, relational split, CSV output, and schema sidecar are hidden until the current draft is applied.'
       : 'The row preview, relational split, CSV output, and schema sidecar stay hidden until the next committed custom projection finishes.'
-  const suspendedWorkbenchLead = isSourceModeTransitionPending
-    ? liveValues.sourceMode === 'sample'
-      ? 'The heavy workbench is temporarily collapsed so the sample projection can replace the custom-input surface without keeping both source states mounted at once.'
-      : 'The heavy workbench is temporarily collapsed so the custom-input surface can replace the sample catalog without keeping both source states mounted at once.'
+  const suspendedWorkbenchLead = pendingWorkbenchTransition
+    ? 'The heavy workbench is collapsed first so risky projection updates do not keep the previous preview surface mounted while the next state is being applied.'
     : isCustomJsonDirty
       ? 'The current editor stays active above, but the projection workbench is temporarily collapsed so large custom payloads do not keep the rest of the UI mounted while you type.'
       : 'The latest custom payload has been committed. The workbench stays collapsed until the worker finishes rebuilding previews from that payload.'
-  const suspendedWorkbenchFollowUp = isSourceModeTransitionPending
+  const suspendedWorkbenchFollowUp = pendingWorkbenchTransition
     ? projection.progress
       ? `${projection.progress.label} ${formatProjectionProgressDetail(projection.progress)}.`
-      : liveValues.sourceMode === 'sample'
-        ? 'The sample workbench returns after the new source projection settles.'
-        : 'The custom-input workbench returns after the new source projection settles.'
+      : 'The full workbench returns after the next projection lifecycle settles.'
     : isCustomJsonDirty
       ? 'Use `Apply JSON` to rebuild the previews and restore the full workbench with the latest committed payload.'
       : 'This avoids replaying the full row preview, relational preview, CSV output, and schema sidecar on every progress update during apply.'
+  const visibleWorkbenchTransitionDiagnostic =
+    workbenchTransitionDiagnostic !== null &&
+    (debugFlags.showHangDiagnostics ||
+      workbenchTransitionDiagnostic.phase !== 'settled')
+  const activeWorkbenchTransitionDiagnostic =
+    visibleWorkbenchTransitionDiagnostic ? workbenchTransitionDiagnostic : null
   const isLightweightInputDebugMode =
     debugFlags.showInputDiagnostics && isProjectionDebugDisabled
 
@@ -1017,6 +1183,52 @@ function App() {
           />
         ) : null}
 
+        {activeWorkbenchTransitionDiagnostic ? (
+          <Card
+            aria-live="polite"
+            className={cn(
+              'bg-white/80',
+              activeWorkbenchTransitionDiagnostic.phase === 'timed-out' &&
+                'border-amber-300/80',
+            )}
+          >
+            <CardHeader>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <CardTitle>Transition diagnostics</CardTitle>
+                  <CardDescription>
+                    {activeWorkbenchTransitionDiagnostic.label}
+                  </CardDescription>
+                </div>
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    activeWorkbenchTransitionDiagnostic.phase === 'timed-out'
+                      ? 'border-amber-300 bg-amber-50 text-amber-900'
+                      : 'border-primary/20 bg-primary/5 text-primary',
+                  )}
+                >
+                  {formatWorkbenchTransitionPhase(
+                    activeWorkbenchTransitionDiagnostic.phase,
+                  )}
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm text-muted-foreground">
+              <p>{activeWorkbenchTransitionDiagnostic.detail}</p>
+              {debugFlags.showHangDiagnostics ? (
+                <p className="font-mono text-xs text-muted-foreground/80">
+                  Transition #{activeWorkbenchTransitionDiagnostic.id} ·{' '}
+                  {formatDurationMs(
+                    activeWorkbenchTransitionDiagnostic.updatedAt -
+                      activeWorkbenchTransitionDiagnostic.startedAt,
+                  )}
+                </p>
+              ) : null}
+            </CardContent>
+          </Card>
+        ) : null}
+
         <section className="grid gap-6 xl:grid-cols-[400px_1fr]">
           <Card className="bg-white/75">
             <CardHeader>
@@ -1209,7 +1421,7 @@ function App() {
                       {suspendedWorkbenchTitle}
                     </p>
                     <p className="mt-2">
-                      {isSourceModeTransitionPending
+                      {pendingWorkbenchTransition
                         ? suspendedWorkbenchFollowUp
                         : isCustomJsonDirty
                           ? 'Additional mapping controls, saved presets, and preview panels are hidden until you apply this draft. This keeps the editor isolated while you paste or type large payloads.'
@@ -1435,16 +1647,7 @@ function App() {
                       <Button
                         type="button"
                         variant="outline"
-                        onClick={() => {
-                          form.reset(defaultFormValues)
-                          setHeaderRules([])
-                          syncCustomJson(defaultFormValues.customJson)
-                          setPlannerRules([])
-                          savePresetMutation.reset()
-                          startTransition(() => {
-                            selectPreset(null)
-                          })
-                        }}
+                        onClick={handleResetDefaults}
                       >
                         Reset defaults
                       </Button>
@@ -1545,9 +1748,7 @@ function App() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3 text-sm text-muted-foreground">
-                {(isSourceModeTransitionPending ||
-                  isCustomProjectionRebuilding) &&
-                projection.progress ? (
+                {pendingWorkbenchTransition && projection.progress ? (
                   <div className="rounded-[20px] border border-border/70 bg-background/80 p-4">
                     {projection.progress.label}{' '}
                     {formatProjectionProgressDetail(projection.progress)}
@@ -2263,16 +2464,102 @@ function getAppDebugFlags() {
   if (typeof window === 'undefined') {
     return {
       projectionOffByDefault: false,
+      showHangDiagnostics: false,
       showInputDiagnostics: false,
     }
   }
 
   const params = new URLSearchParams(window.location.search)
+  const debugModes = new Set(
+    params
+      .getAll('debug')
+      .flatMap((value) => value.split(','))
+      .map((value) => value.trim())
+      .filter(Boolean),
+  )
 
   return {
     projectionOffByDefault: params.get('projection') === 'off',
-    showInputDiagnostics: params.get('debug') === 'input',
+    showHangDiagnostics: debugModes.has('hangs'),
+    showInputDiagnostics: debugModes.has('input'),
   }
+}
+
+function publishWorkbenchTransitionDiagnostic(
+  diagnostic: WorkbenchTransitionDiagnostic | null,
+) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  const debugWindow = window as Window & {
+    __json2csvWorkbenchTransition?: WorkbenchTransitionDiagnostic | null
+  }
+
+  debugWindow.__json2csvWorkbenchTransition = diagnostic
+  window.dispatchEvent(
+    new CustomEvent('json2csv:workbench-transition', {
+      detail: diagnostic,
+    }),
+  )
+}
+
+function createWorkbenchTransitionDiagnostic(
+  previous: WorkbenchTransitionDiagnostic | null,
+  transition: Pick<PendingWorkbenchTransition, 'id' | 'kind' | 'label'>,
+  phase: WorkbenchTransitionPhase,
+): WorkbenchTransitionDiagnostic {
+  const now = Date.now()
+
+  return {
+    detail: describeWorkbenchTransitionDiagnosticDetail(
+      transition.label,
+      phase,
+    ),
+    id: transition.id,
+    kind: transition.kind,
+    label: transition.label,
+    phase,
+    startedAt: previous?.id === transition.id ? previous.startedAt : now,
+    updatedAt: now,
+  }
+}
+
+function describeWorkbenchTransitionDiagnosticDetail(
+  label: string,
+  phase: WorkbenchTransitionPhase,
+) {
+  switch (phase) {
+    case 'queued':
+      return `${label}. The heavy workbench is collapsed first so this transition can fail fast instead of blocking inside the click handler.`
+    case 'applying':
+      return `${label}. The state update has been applied; waiting for the next projection lifecycle to start.`
+    case 'projecting':
+      return `${label}. Projection is running in the background and the workbench will return after it settles.`
+    case 'settled':
+      return `${label}. Projection settled and the workbench has been restored.`
+    case 'timed-out':
+      return `${label}. No projection lifecycle settled within ${formatDurationMs(workbenchTransitionWatchdogMs)}.`
+  }
+}
+
+function formatWorkbenchTransitionPhase(phase: WorkbenchTransitionPhase) {
+  switch (phase) {
+    case 'queued':
+      return 'Queued'
+    case 'applying':
+      return 'Applying'
+    case 'projecting':
+      return 'Projecting'
+    case 'settled':
+      return 'Settled'
+    case 'timed-out':
+      return 'Timed out'
+  }
+}
+
+function formatDurationMs(value: number) {
+  return `${Math.max(0, Math.round(value)).toLocaleString()} ms`
 }
 
 function describeActiveSource(sourceMode: SourceMode, sampleTitle: string) {

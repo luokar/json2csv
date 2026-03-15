@@ -8,6 +8,7 @@ const hangAuditRecoveryAgeMs = 5 * 60_000
 const hangAuditStorageKey = 'json2csv:hang-audit'
 
 export type HangAuditCategory =
+  | 'intent'
   | 'frame-gap'
   | 'longtask'
   | 'recovered'
@@ -46,7 +47,17 @@ export interface HangAuditTransitionState {
   updatedAt: number
 }
 
+export interface HangAuditIntentState {
+  detail: string
+  id: number
+  kind: string
+  label: string
+  startedAt: number
+  updatedAt: number
+}
+
 export interface HangAuditSnapshot {
+  activeIntent: HangAuditIntentState | null
   activeTransition: HangAuditTransitionState | null
   entries: HangAuditEntry[]
   recoveredEntry: HangAuditEntry | null
@@ -71,6 +82,7 @@ export function createEmptyHangAuditSnapshot(
   now: number = Date.now(),
 ): HangAuditSnapshot {
   return {
+    activeIntent: null,
     activeTransition: null,
     entries: [],
     recoveredEntry: null,
@@ -113,6 +125,8 @@ export function appendHangAuditEntry(
 
 export function formatHangAuditCategory(category: HangAuditCategory) {
   switch (category) {
+    case 'intent':
+      return 'Intent'
     case 'frame-gap':
       return 'Paint gap'
     case 'longtask':
@@ -179,7 +193,38 @@ export function readInitialHangAuditSnapshot(
     now - persisted.updatedAt <= hangAuditRecoveryAgeMs
 
   if (!shouldMarkRecovered) {
-    return persisted
+    const activeIntent = persisted.activeIntent
+    const shouldRecoverIntent =
+      !persisted.tabClosedGracefully &&
+      activeIntent !== null &&
+      now - persisted.updatedAt <= hangAuditRecoveryAgeMs
+
+    if (!shouldRecoverIntent) {
+      return persisted
+    }
+
+    const recoveredEntry = createHangAuditEntry({
+      category: 'recovered',
+      context: persisted.entries[0]?.context,
+      detail: `Recovered after the previous session stopped shortly after "${activeIntent.label}" was armed, before the guarded transition reported progress.`,
+      id: getNextHangAuditEntryId(persisted),
+      label: 'Recovered previous hang signal',
+      now,
+    })
+
+    return {
+      ...appendHangAuditEntry(
+        {
+          ...persisted,
+          activeIntent: null,
+        },
+        recoveredEntry,
+      ),
+      activeIntent: null,
+      recoveredEntry,
+      tabClosedGracefully: true,
+      updatedAt: now,
+    }
   }
 
   const activeTransition = persisted.activeTransition
@@ -240,6 +285,7 @@ function normalizeHangAuditSnapshot(value: unknown): HangAuditSnapshot | null {
   )
 
   return {
+    activeIntent: normalizeHangAuditIntent(candidate.activeIntent),
     activeTransition,
     entries,
     recoveredEntry,
@@ -311,8 +357,37 @@ function normalizeHangAuditTransition(
   }
 }
 
+function normalizeHangAuditIntent(value: unknown): HangAuditIntentState | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const candidate = value as Partial<HangAuditIntentState>
+
+  if (
+    typeof candidate.detail !== 'string' ||
+    typeof candidate.id !== 'number' ||
+    typeof candidate.kind !== 'string' ||
+    typeof candidate.label !== 'string' ||
+    typeof candidate.startedAt !== 'number' ||
+    typeof candidate.updatedAt !== 'number'
+  ) {
+    return null
+  }
+
+  return {
+    detail: candidate.detail,
+    id: candidate.id,
+    kind: candidate.kind,
+    label: candidate.label,
+    startedAt: candidate.startedAt,
+    updatedAt: candidate.updatedAt,
+  }
+}
+
 function normalizeHangAuditCategory(value: unknown): HangAuditCategory {
   switch (value) {
+    case 'intent':
     case 'frame-gap':
     case 'longtask':
     case 'recovered':

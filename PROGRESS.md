@@ -24,6 +24,7 @@
 - The later `Custom JSON -> Reset defaults` and `Load active sample` hangs were the same workbench-transition bug expressed through different buttons. Those actions were still allowed to synchronously swap large projection state while the previous preview surface was live. [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx) now routes reset, sample-load, preset-load, import, source-switch, and committed-custom rebuilds through the same guarded transition model.
 - Hang diagnosis is now fail-fast instead of post-mortem only. [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx) publishes lightweight transition diagnostics through the visible card in `?debug=hangs`, `window.__json2csvWorkbenchTransition`, and the `json2csv:workbench-transition` browser event so `queued`, `applying`, `projecting`, `settled`, and `timed-out` phases are inspectable before a browser stall turns opaque.
 - The hang audit is now persistent and more actionable. [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx) now `flushSync`s the suspended-workbench guard before risky state swaps, waits an extra paint before applying them, and records recovered transitions, long tasks, and paint gaps through [src/lib/hang-audit.ts](/Users/mac/work/json2csv/src/lib/hang-audit.ts) so `?debug=hangs` can explain the last risky action even after a reload.
+- The hang audit now also records an `Intent armed` breadcrumb before heavy guarded actions begin. [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx) and [src/lib/hang-audit.ts](/Users/mac/work/json2csv/src/lib/hang-audit.ts) persist that pre-transition intent immediately, then clear it once `queued` transition diagnostics take over. This closes the gap where a browser could freeze before the transition phase itself had been written anywhere recoverable.
 - Chrome MCP verification now confirms the guarded transition model is holding for the previously frozen paths. In `?debug=hangs`, both `Custom JSON -> Load active sample` and `Custom JSON -> Reset defaults` settle without a browser stall and immediately publish transition plus long-task evidence into `window.__json2csvHangAudit`.
 - Explicit header mapping and renaming are now implemented through [src/components/header-mapper.tsx](/Users/mac/work/json2csv/src/components/header-mapper.tsx) and [src/lib/header-mapper.ts](/Users/mac/work/json2csv/src/lib/header-mapper.ts), with preset round-tripping wired through [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx).
 - Relational split preview is now implemented through [src/lib/relational-split.ts](/Users/mac/work/json2csv/src/lib/relational-split.ts), worker-backed projection in [src/lib/projection.ts](/Users/mac/work/json2csv/src/lib/projection.ts), and linked-table UI in [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx).
@@ -31,6 +32,7 @@
 - Incremental flat-preview streaming is now implemented through [src/lib/mapping-engine.ts](/Users/mac/work/json2csv/src/lib/mapping-engine.ts), [src/lib/projection.ts](/Users/mac/work/json2csv/src/lib/projection.ts), [src/workers/projection-worker.ts](/Users/mac/work/json2csv/src/workers/projection-worker.ts), [src/hooks/use-projection-preview.ts](/Users/mac/work/json2csv/src/hooks/use-projection-preview.ts), and [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx), so partial flat rows, row counts, and CSV previews render before the full worker payload finishes.
 - Incremental custom selector parsing is now implemented in [src/lib/json-root-stream.ts](/Users/mac/work/json2csv/src/lib/json-root-stream.ts) and wired through [src/lib/projection.ts](/Users/mac/work/json2csv/src/lib/projection.ts) and [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx), so the app's current JSONPath subset including nested `[*]` and `[index]` steps can start feeding the flat preview without first materializing the full parsed object graph.
 - Smart keyed-map detection is now implemented through [src/lib/smart-config.ts](/Users/mac/work/json2csv/src/lib/smart-config.ts), [src/lib/json-root-stream.ts](/Users/mac/work/json2csv/src/lib/json-root-stream.ts), and [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx), so NOAA-style object maps such as `$.data.*` can be detected, streamed, and turned into rows with a synthetic `__entryKey` alias.
+- Keyed-map detection is now automatic on import and custom apply when the current custom root is still too broad or stale. NOAA-style files such as `/Users/mac/Downloads/110-tavg-ytd-12-1895-2016.json` now land directly on `$.data.*` with `period`, `value`, and `anomaly` instead of exploding into hundreds of mostly unhelpful sibling columns.
 
 ## Important findings
 
@@ -155,6 +157,7 @@
 - Streamed flat preview state in the flat table and CSV panels while the worker is still projecting
 - Root-path guidance in custom mode showing when incremental selector parsing is active for the current JSONPath subset
 - Smart-detect action for keyed object maps that can prefill `$.data.*`-style roots and rename the synthetic `__entryKey` header before export
+- Auto-smart root correction for keyed object maps when imported JSON or an applied custom draft still points at `$` or another root that no longer matches the payload
 
 ### Planner capabilities
 
@@ -194,10 +197,12 @@
 - Incremental flat-preview chunks from the worker so row counts, headers, preview rows, and CSV text update before the final result message lands
 - Incremental custom selector parsing for the app's current JSONPath subset, allowing the worker to feed flat-preview roots before building the full in-memory document object
 - Object-wildcard selector streaming for paths such as `$.data.*`, emitting synthetic keyed row roots without first flattening each object key into separate columns
+- Auto-suggested keyed-map root correction on import and apply, so stale or overly broad custom roots do not leave NOAA-style payloads in an unreadable top-level flatten
 - App-owned staged custom draft so typed payloads stay local until explicit apply, while the buffered editor still supports pause-based commits for isolated diagnostics
 - Source-mode transitions deferred past the click event and held behind a pending-workbench state until the next projection cycle actually starts and finishes
 - Guarded workbench transitions for reset, load-sample, import, preset load, source switching, and committed custom rebuilds, staged through `requestAnimationFrame` plus `setTimeout` so the heavy workbench collapses before risky state applies
 - Fail-fast transition diagnostics with a watchdog timeout, visible DOM copy, global window state, and browser events for `queued`, `applying`, `projecting`, `settled`, and `timed-out` phases
+- Pre-transition `Intent armed` audit entries plus reload recovery when a hang lands before the guarded transition can publish its own phase
 - Row preview limits so TanStack Table only renders a bounded slice
 - Text preview limits for CSV and source payload cards
 
@@ -213,7 +218,11 @@
   - dirty custom drafts survive leaving and re-entering custom mode
   - `Load active sample` and `Reset defaults` keep the workbench collapsed during the guarded transition instead of restoring the heavy preview surface too early
   - `?debug=hangs` publishes transition diagnostics onto `window.__json2csvWorkbenchTransition`
+  - `?debug=hangs` now records pre-transition `Intent armed` breadcrumbs and recovers unresolved intent after reload
+  - importing a keyed-object JSON file auto-applies the smarter `$.data.*` transform instead of leaving the payload at a noisy top-level root
   - smart-detect applies `$.data.*`-style keyed-map suggestions and renames the synthetic entry-key header in the live preview
+  - smart-detect also preserves complex multi-collection roots by keeping `$` and switching flatten mode to `stringify`
+  - applying a keyed-object custom draft at a broad root auto-corrects the transform and preview headers
   - discovered-path planner interaction updates the live projection
   - explicit header mapping and renaming updates the preview
   - regroup keys are rendered in the sidecar schema card

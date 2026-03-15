@@ -22,6 +22,32 @@ function getFlatPreviewButtonLabels() {
     .map((button) => button.textContent?.trim())
 }
 
+const noaaLikeCustomJson = JSON.stringify({
+  data: {
+    '189512': { anomaly: -1.2, value: 51.4 },
+    '189612': { anomaly: -0.9, value: 52.1 },
+    '189712': { anomaly: -0.4, value: 52.6 },
+    '189812': { anomaly: -0.2, value: 52.8 },
+    '189912': { anomaly: 0.1, value: 53.1 },
+  },
+  description: {
+    title: 'NOAA style sample',
+  },
+})
+
+const multiCollectionCustomJson = JSON.stringify({
+  damage_relations: {
+    double_damage_to: [{ name: 'grass' }],
+    half_damage_to: [{ name: 'water' }],
+  },
+  game_indices: [{ game_index: 1, version: { name: 'red' } }],
+  generation: { name: 'generation-i' },
+  id: 10,
+  moves: [{ move: { name: 'ember' } }, { move: { name: 'flamethrower' } }],
+  name: 'fire',
+  pokemon: [{ pokemon: { name: 'charizard' } }],
+})
+
 async function switchToCustomMode(
   user: ReturnType<typeof userEvent.setup>,
   options: {
@@ -279,6 +305,47 @@ describe('App', () => {
     expect(screen.getByLabelText(/custom json/i)).toBeInTheDocument()
   })
 
+  it('auto-applies smart row detection when importing a keyed-object json file', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <AppProviders>
+        <App />
+      </AppProviders>,
+    )
+
+    await switchToCustomMode(user, { waitForWorkbench: false })
+
+    const uploadInput = screen.getByLabelText(/upload \.json/i)
+    const file = new File(
+      [noaaLikeCustomJson],
+      '110-tavg-ytd-12-1895-2016.json',
+      { type: 'application/json' },
+    )
+
+    Object.defineProperty(file, 'text', {
+      value: vi.fn().mockResolvedValue(noaaLikeCustomJson),
+    })
+
+    fireEvent.change(uploadInput, { target: { files: [file] } })
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/root path/i)).toHaveValue('$.data.*')
+      expect(
+        screen.getByText(/auto-applied smart row detection/i),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: /^period$/i }),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: /^value$/i }),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: /^anomaly$/i }),
+      ).toBeInTheDocument()
+    })
+  })
+
   it('surfaces nested wildcard selector guidance for staged custom json', async () => {
     const user = userEvent.setup()
 
@@ -335,18 +402,7 @@ describe('App', () => {
 
     fireEvent.change(screen.getByLabelText(/custom json/i), {
       target: {
-        value: JSON.stringify({
-          data: {
-            '189512': { anomaly: -1.2, value: 51.4 },
-            '189612': { anomaly: -0.9, value: 52.1 },
-            '189712': { anomaly: -0.4, value: 52.6 },
-            '189812': { anomaly: -0.2, value: 52.8 },
-            '189912': { anomaly: 0.1, value: 53.1 },
-          },
-          description: {
-            title: 'NOAA style sample',
-          },
-        }),
+        value: noaaLikeCustomJson,
       },
     })
 
@@ -375,6 +431,82 @@ describe('App', () => {
       expect(
         screen.queryByRole('button', { name: /^__entryKey$/i }),
       ).not.toBeInTheDocument()
+    })
+  })
+
+  it('auto-applies smart row detection when applying a keyed-object custom payload at the broad root', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <AppProviders>
+        <App />
+      </AppProviders>,
+    )
+
+    await switchToCustomMode(user)
+
+    fireEvent.change(screen.getByLabelText(/custom json/i), {
+      target: {
+        value: noaaLikeCustomJson,
+      },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /apply json/i })).toBeEnabled()
+    })
+
+    await user.click(screen.getByRole('button', { name: /apply json/i }))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/root path/i)).toHaveValue('$.data.*')
+      expect(
+        screen.getByText(/auto-applied smart row detection/i),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: /^period$/i }),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: /^value$/i }),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: /^anomaly$/i }),
+      ).toBeInTheDocument()
+    })
+  })
+
+  it('smart-detect preserves complex multi-collection roots by switching to stringify at $', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <AppProviders>
+        <App />
+      </AppProviders>,
+    )
+
+    await switchToCustomMode(user)
+
+    fireEvent.change(screen.getByLabelText(/custom json/i), {
+      target: {
+        value: multiCollectionCustomJson,
+      },
+    })
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: /smart detect/i }),
+      ).toBeEnabled()
+    })
+
+    await user.click(screen.getByRole('button', { name: /smart detect/i }))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/root path/i)).toHaveValue('$')
+      expect(screen.getByLabelText(/flatten mode/i)).toHaveValue('stringify')
+      expect(
+        screen.getByText(
+          /keep \$ as the root and switch flatten mode to stringify/i,
+        ),
+      ).toBeInTheDocument()
     })
   })
 
@@ -772,6 +904,13 @@ describe('App', () => {
       expect(diagnosticWindow.__json2csvHangAudit?.entries[0]?.category).toBe(
         'transition',
       )
+      expect(
+        diagnosticWindow.__json2csvHangAudit?.entries.some(
+          (entry) =>
+            entry.category === 'intent' &&
+            entry.label.includes('Resetting to defaults'),
+        ),
+      ).toBe(true)
       expect(diagnosticWindow.__json2csvHangAudit?.entries[0]?.label).toContain(
         'Resetting to defaults',
       )
@@ -814,6 +953,42 @@ describe('App', () => {
     expect(
       await screen.findAllByText(
         /recovered after the previous session stopped while "Resetting to defaults" was applying/i,
+      ),
+    ).not.toHaveLength(0)
+  })
+
+  it('recovers a previous unresolved hang intent on the next load', async () => {
+    window.localStorage.setItem(
+      'json2csv:hang-audit',
+      JSON.stringify({
+        activeIntent: {
+          detail:
+            'Resetting to defaults. Intent recorded before the guarded action begins so a full browser hang still leaves the last risky click recoverable on reload.',
+          id: 9,
+          kind: 'reset-defaults',
+          label: 'Resetting to defaults',
+          startedAt: 100,
+          updatedAt: 200,
+        },
+        activeTransition: null,
+        entries: [],
+        recoveredEntry: null,
+        tabClosedGracefully: false,
+        updatedAt: Date.now(),
+      }),
+    )
+
+    window.history.replaceState({}, '', '/?debug=hangs')
+
+    render(
+      <AppProviders>
+        <App />
+      </AppProviders>,
+    )
+
+    expect(
+      await screen.findAllByText(
+        /recovered after the previous session stopped shortly after "Resetting to defaults" was armed/i,
       ),
     ).not.toHaveLength(0)
   })

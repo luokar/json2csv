@@ -103,9 +103,11 @@ import {
   flattenModes,
   headerPolicies,
   type InspectedPath,
+  type JsonValue,
   type MappingConfig,
   missingKeyStrategies,
   placeholderStrategies,
+  selectRootNodes,
   toCsv,
   typeMismatchStrategies,
 } from '@/lib/mapping-engine'
@@ -127,7 +129,10 @@ import {
   projectionRelationalRowPreviewLimit,
 } from '@/lib/projection'
 import type { RelationalRelationship } from '@/lib/relational-split'
-import { detectSmartConfigSuggestion } from '@/lib/smart-config'
+import {
+  detectSmartConfigSuggestion,
+  type SmartConfigSuggestion,
+} from '@/lib/smart-config'
 import { cn } from '@/lib/utils'
 import { useWorkbenchStore } from '@/store/use-workbench-store'
 
@@ -333,14 +338,22 @@ function App() {
   )
 
   const commitHangAuditSnapshot = useCallback(
-    (updater: (previous: HangAuditSnapshot) => HangAuditSnapshot) => {
-      setHangAuditSnapshot((previous) => {
-        const nextSnapshot = updater(previous)
+    (
+      updater: (previous: HangAuditSnapshot) => HangAuditSnapshot,
+      options: {
+        persistImmediately?: boolean
+      } = {},
+    ) => {
+      const nextSnapshot = updater(hangAuditSnapshotRef.current)
 
-        hangAuditSnapshotRef.current = nextSnapshot
+      hangAuditSnapshotRef.current = nextSnapshot
 
-        return nextSnapshot
-      })
+      if (options.persistImmediately) {
+        persistHangAuditSnapshot(nextSnapshot)
+        publishHangAuditSnapshot(nextSnapshot)
+      }
+
+      setHangAuditSnapshot(nextSnapshot)
     },
     [],
   )
@@ -369,6 +382,71 @@ function App() {
     },
     [commitHangAuditSnapshot],
   )
+
+  const armHangAuditIntent = useCallback(
+    (intent: Pick<PendingWorkbenchTransition, 'kind' | 'label'>) => {
+      const now = Date.now()
+      const detail = `${intent.label}. Intent recorded before the guarded action begins so a full browser hang still leaves the last risky click recoverable on reload.`
+      const entryId = nextHangAuditEntryIdRef.current
+      const entry = createHangAuditEntry({
+        category: 'intent',
+        context: hangAuditContextRef.current,
+        detail,
+        id: entryId,
+        label: `${intent.label} (Intent armed)`,
+        now,
+      })
+
+      nextHangAuditEntryIdRef.current += 1
+
+      commitHangAuditSnapshot(
+        (previous) => {
+          const nextSnapshot = appendHangAuditEntry(
+            {
+              ...previous,
+              activeIntent: {
+                detail,
+                id: entryId,
+                kind: intent.kind,
+                label: intent.label,
+                startedAt: now,
+                updatedAt: now,
+              },
+            },
+            entry,
+          )
+
+          return {
+            ...nextSnapshot,
+            activeIntent: {
+              detail,
+              id: entryId,
+              kind: intent.kind,
+              label: intent.label,
+              startedAt: now,
+              updatedAt: now,
+            },
+          }
+        },
+        { persistImmediately: true },
+      )
+    },
+    [commitHangAuditSnapshot],
+  )
+
+  const clearHangAuditIntent = useCallback(() => {
+    commitHangAuditSnapshot(
+      (previous) =>
+        previous.activeIntent === null
+          ? previous
+          : {
+              ...previous,
+              activeIntent: null,
+              updatedAt: Date.now(),
+            },
+      { persistImmediately: true },
+    )
+  }, [commitHangAuditSnapshot])
 
   const persistCurrentHangAuditSnapshot = useCallback(
     (tabClosedGracefully: boolean) => {
@@ -399,8 +477,39 @@ function App() {
       workbenchTransitionDiagnosticRef.current = nextDiagnostic
       publishWorkbenchTransitionDiagnostic(nextDiagnostic)
       setWorkbenchTransitionDiagnostic(nextDiagnostic)
+
+      const entry = createHangAuditEntry({
+        category: 'transition',
+        context: hangAuditContextRef.current,
+        detail: nextDiagnostic.detail,
+        id: nextHangAuditEntryIdRef.current,
+        label: `${nextDiagnostic.label} (${formatWorkbenchTransitionPhase(nextDiagnostic.phase)})`,
+        now: nextDiagnostic.updatedAt,
+      })
+
+      nextHangAuditEntryIdRef.current += 1
+
+      commitHangAuditSnapshot(
+        (previous) => {
+          const nextSnapshot = appendHangAuditEntry(
+            {
+              ...previous,
+              activeIntent: null,
+              activeTransition: { ...nextDiagnostic },
+            },
+            entry,
+          )
+
+          return {
+            ...nextSnapshot,
+            activeIntent: null,
+            activeTransition: { ...nextDiagnostic },
+          }
+        },
+        { persistImmediately: true },
+      )
     },
-    [],
+    [commitHangAuditSnapshot],
   )
 
   const { data: presets = [], isLoading: isPresetsLoading } = useQuery({
@@ -595,34 +704,6 @@ function App() {
     persistHangAuditSnapshot(hangAuditSnapshot)
     publishHangAuditSnapshot(hangAuditSnapshot)
   }, [hangAuditSnapshot])
-
-  useEffect(() => {
-    if (workbenchTransitionDiagnostic === null) {
-      return
-    }
-
-    const entry = createHangAuditEntry({
-      category: 'transition',
-      context: hangAuditContextRef.current,
-      detail: workbenchTransitionDiagnostic.detail,
-      id: nextHangAuditEntryIdRef.current,
-      label: `${workbenchTransitionDiagnostic.label} (${formatWorkbenchTransitionPhase(workbenchTransitionDiagnostic.phase)})`,
-      now: workbenchTransitionDiagnostic.updatedAt,
-    })
-
-    nextHangAuditEntryIdRef.current += 1
-
-    commitHangAuditSnapshot((previous) => ({
-      ...appendHangAuditEntry(
-        {
-          ...previous,
-          activeTransition: { ...workbenchTransitionDiagnostic },
-        },
-        entry,
-      ),
-      activeTransition: { ...workbenchTransitionDiagnostic },
-    }))
-  }, [commitHangAuditSnapshot, workbenchTransitionDiagnostic])
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -915,7 +996,37 @@ function App() {
   ) {
     const shouldRebuildProjection = nextText !== committedCustomJson
 
-    setSmartDetectFeedback(null)
+    if (options.suspendWorkbench && shouldRebuildProjection) {
+      armHangAuditIntent({
+        kind: 'custom-rebuild',
+        label: 'Rebuilding preview for committed custom JSON',
+      })
+    }
+
+    const parsedNextInput = parseJsonInput(nextText)
+    const nextSmartSuggestion =
+      parsedNextInput.value === undefined
+        ? null
+        : detectSmartConfigSuggestion(parsedNextInput.value)
+    const autoSmartSuggestion = shouldAutoApplySmartSuggestion(
+      nextSmartSuggestion,
+      parsedNextInput.value,
+      liveValues.rootPath,
+    )
+      ? nextSmartSuggestion
+      : null
+
+    const finalizeApply = () => {
+      setCustomJsonDraft(nextText)
+      setCommittedCustomJson(nextText)
+
+      if (autoSmartSuggestion) {
+        applySmartSuggestion(autoSmartSuggestion, { auto: true })
+        return
+      }
+
+      setSmartDetectFeedback(null)
+    }
 
     if (options.suspendWorkbench && shouldRebuildProjection) {
       scheduleWorkbenchTransition(
@@ -923,24 +1034,25 @@ function App() {
           kind: 'custom-rebuild',
           label: 'Rebuilding preview for committed custom JSON',
         },
-        () => {
-          setCustomJsonDraft(nextText)
-          setCommittedCustomJson(nextText)
-        },
+        finalizeApply,
       )
 
       return nextText
     }
 
     cancelScheduledWorkbenchTransition()
-    setCustomJsonDraft(nextText)
-    setCommittedCustomJson(nextText)
+    finalizeApply()
     setPendingWorkbenchTransition(null)
 
     return nextText
   }
 
   function loadPreset(preset: SavedPreset) {
+    armHangAuditIntent({
+      kind: 'load-preset',
+      label: 'Loading saved preset',
+    })
+
     scheduleWorkbenchTransition(
       {
         kind: 'load-preset',
@@ -988,6 +1100,14 @@ function App() {
       return
     }
 
+    armHangAuditIntent({
+      kind: 'source-switch',
+      label:
+        sourceMode === 'sample'
+          ? 'Switching to sample catalog'
+          : 'Switching to custom JSON',
+    })
+
     scheduleWorkbenchTransition(
       {
         kind: 'source-switch',
@@ -1021,7 +1141,18 @@ function App() {
       return
     }
 
+    armHangAuditIntent({
+      kind: 'import-json',
+      label: 'Importing JSON file',
+    })
+
     const text = await file.text()
+    const importedInput = parseJsonInput(text)
+    const importedSmartSuggestion =
+      importedInput.value === undefined
+        ? null
+        : detectSmartConfigSuggestion(importedInput.value)
+
     event.target.value = ''
 
     scheduleWorkbenchTransition(
@@ -1033,11 +1164,17 @@ function App() {
         form.setValue('sourceMode', 'custom', { shouldValidate: true })
         setCustomJsonDraft(text)
         setCommittedCustomJson(text)
-        form.setValue('rootPath', '$', { shouldValidate: true })
+
+        if (importedSmartSuggestion) {
+          applySmartSuggestion(importedSmartSuggestion, { auto: true })
+        } else {
+          form.setValue('rootPath', '$', { shouldValidate: true })
+          setSmartDetectFeedback(null)
+        }
+
         form.setValue('presetName', `${stripFileExtension(file.name)} export`, {
           shouldValidate: true,
         })
-        setSmartDetectFeedback(null)
         savePresetMutation.reset()
 
         startTransition(() => {
@@ -1048,6 +1185,15 @@ function App() {
   }
 
   function handleLoadSampleIntoEditor() {
+    armHangAuditIntent({
+      kind: 'load-sample',
+      label: 'Loading active sample',
+    })
+
+    const activeSampleSmartSuggestion = detectSmartConfigSuggestion(
+      activeSample.json,
+    )
+
     scheduleWorkbenchTransition(
       {
         kind: 'load-sample',
@@ -1059,10 +1205,16 @@ function App() {
         form.setValue('sourceMode', 'custom', { shouldValidate: true })
         setCustomJsonDraft(nextCustomJson)
         setCommittedCustomJson(nextCustomJson)
-        form.setValue('rootPath', defaultRootPaths[activeSample.id] ?? '$', {
-          shouldValidate: true,
-        })
-        setSmartDetectFeedback(null)
+
+        if (activeSampleSmartSuggestion) {
+          applySmartSuggestion(activeSampleSmartSuggestion, { auto: true })
+        } else {
+          form.setValue('rootPath', defaultRootPaths[activeSample.id] ?? '$', {
+            shouldValidate: true,
+          })
+          setSmartDetectFeedback(null)
+        }
+
         savePresetMutation.reset()
 
         startTransition(() => {
@@ -1073,6 +1225,11 @@ function App() {
   }
 
   function handleResetDefaults() {
+    armHangAuditIntent({
+      kind: 'reset-defaults',
+      label: 'Resetting to defaults',
+    })
+
     scheduleWorkbenchTransition(
       {
         kind: 'reset-defaults',
@@ -1106,13 +1263,73 @@ function App() {
     })
   }
 
+  function shouldAutoApplySmartSuggestion(
+    suggestion: SmartConfigSuggestion | null,
+    input: JsonValue | undefined,
+    currentRootPath: string,
+  ) {
+    if (suggestion === null || input === undefined) {
+      return false
+    }
+
+    const normalizedRootPath = currentRootPath.trim() || '$'
+
+    if (normalizedRootPath === '$') {
+      return true
+    }
+
+    return selectRootNodes(input, normalizedRootPath).length === 0
+  }
+
+  function applySmartSuggestion(
+    suggestion: SmartConfigSuggestion,
+    options: {
+      auto?: boolean
+    } = {},
+  ) {
+    form.setValue('rootPath', suggestion.rootPath, { shouldValidate: true })
+
+    if (suggestion.flattenMode) {
+      form.setValue('flattenMode', suggestion.flattenMode, {
+        shouldValidate: true,
+      })
+    }
+
+    if (suggestion.kind === 'keyed-map') {
+      setHeaderRules((previous) =>
+        upsertHeaderAliasRule(
+          previous,
+          suggestion.keySourcePath,
+          suggestion.keyAlias,
+          {
+            overwriteExisting: !options.auto,
+          },
+        ),
+      )
+    }
+
+    setSmartDetectFeedback({
+      detail: options.auto
+        ? `Auto-applied smart row detection. ${suggestion.summary}`
+        : suggestion.summary,
+      previewHeaders: suggestion.previewHeaders,
+      tone: 'success',
+    })
+  }
+
   function handleSmartDetect() {
+    armHangAuditIntent({
+      kind: 'smart-detect',
+      label: 'Applying smart row detection',
+    })
+
     const resolvedInput =
       liveValues.sourceMode === 'custom'
         ? parseJsonInput(customJsonDraft)
         : { error: null, value: activeSample.json }
 
     if (resolvedInput.value === undefined) {
+      clearHangAuditIntent()
       setSmartDetectFeedback({
         detail: `Smart detect needs valid JSON before it can analyze the current payload.${resolvedInput.error ? ` ${resolvedInput.error}` : ''}`,
         previewHeaders: [],
@@ -1124,9 +1341,10 @@ function App() {
     const suggestion = detectSmartConfigSuggestion(resolvedInput.value)
 
     if (!suggestion) {
+      clearHangAuditIntent()
       setSmartDetectFeedback({
         detail:
-          'Smart detect did not find a keyed object map that should be treated as rows in the current payload.',
+          'Smart detect did not find a better row-root or preserve-completeness strategy for the current payload.',
         previewHeaders: [],
         tone: 'info',
       })
@@ -1144,19 +1362,7 @@ function App() {
           setCommittedCustomJson(customJsonDraft)
         }
 
-        form.setValue('rootPath', suggestion.rootPath, { shouldValidate: true })
-        setHeaderRules((previous) =>
-          upsertHeaderAliasRule(
-            previous,
-            suggestion.keySourcePath,
-            suggestion.keyAlias,
-          ),
-        )
-        setSmartDetectFeedback({
-          detail: suggestion.summary,
-          previewHeaders: suggestion.previewHeaders,
-          tone: 'success',
-        })
+        applySmartSuggestion(suggestion)
         savePresetMutation.reset()
 
         startTransition(() => {
@@ -1840,8 +2046,11 @@ function App() {
                         </Button>
                         <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
                           Scan the current payload for keyed object maps such as
-                          `$.data.*` and prefill a more sensible row root plus
-                          header alias automatically.
+                          `$.data.*` or complex multi-collection roots that
+                          should stay at `$` with `stringify`. When the current
+                          custom root is still `$` or no longer matches the
+                          payload, the app now auto-applies the strongest
+                          suggestion on import or apply.
                         </p>
                       </div>
 
@@ -3099,9 +3308,13 @@ function upsertHeaderAliasRule(
   rules: HeaderRule[],
   sourcePath: string,
   header: string,
+  options: {
+    overwriteExisting?: boolean
+  } = {},
 ) {
   const normalizedSourcePath = sourcePath.trim()
   const normalizedHeader = header.trim()
+  const overwriteExisting = options.overwriteExisting ?? true
 
   if (!normalizedSourcePath || !normalizedHeader) {
     return rules
@@ -3120,6 +3333,10 @@ function upsertHeaderAliasRule(
       }),
       ...rules,
     ]
+  }
+
+  if (!overwriteExisting) {
+    return rules
   }
 
   return rules.map((rule, index) =>

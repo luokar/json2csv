@@ -26,6 +26,7 @@ import {
   startTransition,
   useDeferredValue,
   useEffect,
+  useRef,
   useState,
 } from 'react'
 import { type UseFormRegisterReturn, useForm, useWatch } from 'react-hook-form'
@@ -166,6 +167,14 @@ const converterFormSchema = z.object({
 
 type ConverterFormValues = z.infer<typeof converterFormSchema>
 
+type WorkbenchTransition = 'custom-rebuild' | 'source-switch'
+
+interface PendingWorkbenchTransition {
+  hasApplied: boolean
+  hasStarted: boolean
+  kind: WorkbenchTransition
+}
+
 const defaultFormValues: ConverterFormValues = {
   presetName: 'Donut relational export',
   sourceMode: 'sample',
@@ -234,11 +243,12 @@ function App() {
   const [customJsonDraft, setCustomJsonDraft] = useState(
     defaultFormValues.customJson,
   )
-  const [isCustomProjectionPending, setIsCustomProjectionPending] =
-    useState(false)
+  const [pendingWorkbenchTransition, setPendingWorkbenchTransition] =
+    useState<PendingWorkbenchTransition | null>(null)
   const [isProjectionDebugDisabled, setProjectionDebugDisabled] = useState(
     debugFlags.projectionOffByDefault,
   )
+  const sourceModeTransitionTimeoutRef = useRef<number | null>(null)
 
   const { data: presets = [], isLoading: isPresetsLoading } = useQuery({
     queryKey: ['presets'],
@@ -424,29 +434,50 @@ function App() {
   }, [relationalSplitResult, selectedRelationalTableName])
 
   useEffect(() => {
-    if (liveValues.sourceMode !== 'custom') {
-      if (isCustomProjectionPending) {
-        setIsCustomProjectionPending(false)
+    if (pendingWorkbenchTransition === null) {
+      return
+    }
+
+    if (!pendingWorkbenchTransition.hasApplied) {
+      return
+    }
+
+    if (projection.isProjecting) {
+      if (pendingWorkbenchTransition.hasStarted) {
+        return
       }
 
+      setPendingWorkbenchTransition((previous) =>
+        previous === null || previous.hasStarted
+          ? previous
+          : { ...previous, hasStarted: true },
+      )
       return
     }
 
-    if (
-      isCustomJsonDirty ||
-      !isCustomProjectionPending ||
-      projection.isProjecting
-    ) {
+    if (pendingWorkbenchTransition.hasStarted) {
+      setPendingWorkbenchTransition(null)
       return
     }
 
-    setIsCustomProjectionPending(false)
+    if (isProjectionDebugDisabled || typeof Worker === 'undefined') {
+      setPendingWorkbenchTransition(null)
+      return
+    }
   }, [
-    isCustomJsonDirty,
-    isCustomProjectionPending,
-    liveValues.sourceMode,
+    isProjectionDebugDisabled,
+    pendingWorkbenchTransition,
     projection.isProjecting,
   ])
+
+  useEffect(
+    () => () => {
+      if (sourceModeTransitionTimeoutRef.current !== null) {
+        window.clearTimeout(sourceModeTransitionTimeoutRef.current)
+      }
+    },
+    [],
+  )
 
   const savePresetMutation = useMutation({
     mutationFn: async (values: ConverterFormValues) => {
@@ -477,6 +508,15 @@ function App() {
     },
   })
 
+  function cancelScheduledSourceModeTransition() {
+    if (sourceModeTransitionTimeoutRef.current === null) {
+      return
+    }
+
+    window.clearTimeout(sourceModeTransitionTimeoutRef.current)
+    sourceModeTransitionTimeoutRef.current = null
+  }
+
   function applyCustomJson(
     nextText: string = customJsonDraft,
     options: {
@@ -485,19 +525,73 @@ function App() {
   ) {
     const shouldRebuildProjection = nextText !== committedCustomJson
 
+    cancelScheduledSourceModeTransition()
     setCustomJsonDraft(nextText)
     setCommittedCustomJson(nextText)
-    setIsCustomProjectionPending(
-      Boolean(options.suspendWorkbench && shouldRebuildProjection),
+    setPendingWorkbenchTransition(
+      options.suspendWorkbench && shouldRebuildProjection
+        ? {
+            hasApplied: true,
+            hasStarted: false,
+            kind: 'custom-rebuild',
+          }
+        : null,
     )
 
     return nextText
   }
 
   function syncCustomJson(nextText: string) {
+    cancelScheduledSourceModeTransition()
     setCustomJsonDraft(nextText)
     setCommittedCustomJson(nextText)
-    setIsCustomProjectionPending(false)
+    setPendingWorkbenchTransition(null)
+  }
+
+  function scheduleSourceModeTransition(nextSourceMode: SourceMode) {
+    if (
+      nextSourceMode === liveValues.sourceMode &&
+      pendingWorkbenchTransition?.kind !== 'source-switch'
+    ) {
+      return
+    }
+
+    cancelScheduledSourceModeTransition()
+    setPendingWorkbenchTransition({
+      hasApplied: false,
+      hasStarted: false,
+      kind: 'source-switch',
+    })
+    sourceModeTransitionTimeoutRef.current = window.setTimeout(() => {
+      sourceModeTransitionTimeoutRef.current = null
+
+      const nextRootPath =
+        nextSourceMode === 'sample'
+          ? (defaultRootPaths[liveValues.sampleId] ?? '$')
+          : '$'
+
+      if (
+        form.getValues('sourceMode') === nextSourceMode &&
+        form.getValues('rootPath') === nextRootPath
+      ) {
+        setPendingWorkbenchTransition(null)
+        return
+      }
+
+      setPendingWorkbenchTransition((previous) =>
+        previous?.kind === 'source-switch'
+          ? { ...previous, hasApplied: true }
+          : previous,
+      )
+
+      form.setValue('sourceMode', nextSourceMode, { shouldValidate: true })
+      form.setValue('rootPath', nextRootPath, { shouldValidate: true })
+      savePresetMutation.reset()
+
+      startTransition(() => {
+        selectPreset(null)
+      })
+    }, 0)
   }
 
   function loadPreset(preset: SavedPreset) {
@@ -533,24 +627,7 @@ function App() {
   }
 
   function handleSourceModeChange(sourceMode: SourceMode) {
-    if (liveValues.sourceMode === 'custom') {
-      setCommittedCustomJson(customJsonDraft)
-      setIsCustomProjectionPending(false)
-    }
-
-    form.setValue('sourceMode', sourceMode, { shouldValidate: true })
-    form.setValue(
-      'rootPath',
-      sourceMode === 'sample'
-        ? (defaultRootPaths[liveValues.sampleId] ?? '$')
-        : '$',
-      { shouldValidate: true },
-    )
-    savePresetMutation.reset()
-
-    startTransition(() => {
-      selectPreset(null)
-    })
+    scheduleSourceModeTransition(sourceMode)
   }
 
   async function handleFileImport(event: ChangeEvent<HTMLInputElement>) {
@@ -629,6 +706,10 @@ function App() {
     liveValues.sourceMode === 'custom' && !isCustomJsonDirty
       ? parseJsonInput(committedCustomJson)
       : null
+  const isSourceModeTransitionPending =
+    pendingWorkbenchTransition?.kind === 'source-switch'
+  const isCustomProjectionPending =
+    pendingWorkbenchTransition?.kind === 'custom-rebuild'
   const isCustomProjectionRebuilding =
     liveValues.sourceMode === 'custom' &&
     isCustomProjectionPending &&
@@ -636,6 +717,38 @@ function App() {
   const isCustomWorkbenchSuspended =
     liveValues.sourceMode === 'custom' &&
     (isCustomJsonDirty || isCustomProjectionPending)
+  const isWorkbenchSuspended =
+    isSourceModeTransitionPending || isCustomWorkbenchSuspended
+  const suspendedWorkbenchTitle = isSourceModeTransitionPending
+    ? liveValues.sourceMode === 'sample'
+      ? 'Switching to sample catalog.'
+      : 'Switching to custom JSON.'
+    : isCustomJsonDirty
+      ? 'Preview paused while editing custom JSON.'
+      : 'Rebuilding preview for committed custom JSON.'
+  const suspendedWorkbenchDescription = isSourceModeTransitionPending
+    ? liveValues.sourceMode === 'sample'
+      ? 'The previous custom-input workbench stays hidden while the sample projection takes over.'
+      : 'The previous sample workbench stays hidden while the custom-input surface takes over.'
+    : isCustomJsonDirty
+      ? 'The row preview, relational split, CSV output, and schema sidecar are hidden until the current draft is applied.'
+      : 'The row preview, relational split, CSV output, and schema sidecar stay hidden until the next committed custom projection finishes.'
+  const suspendedWorkbenchLead = isSourceModeTransitionPending
+    ? liveValues.sourceMode === 'sample'
+      ? 'The heavy workbench is temporarily collapsed so the sample projection can replace the custom-input surface without keeping both source states mounted at once.'
+      : 'The heavy workbench is temporarily collapsed so the custom-input surface can replace the sample catalog without keeping both source states mounted at once.'
+    : isCustomJsonDirty
+      ? 'The current editor stays active above, but the projection workbench is temporarily collapsed so large custom payloads do not keep the rest of the UI mounted while you type.'
+      : 'The latest custom payload has been committed. The workbench stays collapsed until the worker finishes rebuilding previews from that payload.'
+  const suspendedWorkbenchFollowUp = isSourceModeTransitionPending
+    ? projection.progress
+      ? `${projection.progress.label} ${formatProjectionProgressDetail(projection.progress)}.`
+      : liveValues.sourceMode === 'sample'
+        ? 'The sample workbench returns after the new source projection settles.'
+        : 'The custom-input workbench returns after the new source projection settles.'
+    : isCustomJsonDirty
+      ? 'Use `Apply JSON` to rebuild the previews and restore the full workbench with the latest committed payload.'
+      : 'This avoids replaying the full row preview, relational preview, CSV output, and schema sidecar on every progress update during apply.'
   const isLightweightInputDebugMode =
     debugFlags.showInputDiagnostics && isProjectionDebugDisabled
 
@@ -1090,19 +1203,19 @@ function App() {
                   </div>
                 )}
 
-                {isCustomWorkbenchSuspended ? (
+                {isWorkbenchSuspended ? (
                   <div className="rounded-[24px] border border-border/70 bg-background/70 p-4 text-sm text-muted-foreground">
                     <p className="font-semibold text-foreground">
-                      {isCustomJsonDirty
-                        ? 'Preview paused while editing custom JSON.'
-                        : 'Rebuilding preview for committed custom JSON.'}
+                      {suspendedWorkbenchTitle}
                     </p>
                     <p className="mt-2">
-                      {isCustomJsonDirty
-                        ? 'Additional mapping controls, saved presets, and preview panels are hidden until you apply this draft. This keeps the editor isolated while you paste or type large payloads.'
-                        : projection.progress
-                          ? `${projection.progress.label} ${formatProjectionProgressDetail(projection.progress)}. The full workbench returns after this pass completes.`
-                          : 'The latest committed JSON is rebuilding in the background. The full workbench returns after this pass completes.'}
+                      {isSourceModeTransitionPending
+                        ? suspendedWorkbenchFollowUp
+                        : isCustomJsonDirty
+                          ? 'Additional mapping controls, saved presets, and preview panels are hidden until you apply this draft. This keeps the editor isolated while you paste or type large payloads.'
+                          : projection.progress
+                            ? `${projection.progress.label} ${formatProjectionProgressDetail(projection.progress)}. The full workbench returns after this pass completes.`
+                            : 'The latest committed JSON is rebuilding in the background. The full workbench returns after this pass completes.'}
                     </p>
                   </div>
                 ) : (
@@ -1355,7 +1468,7 @@ function App() {
                 )}
               </form>
 
-              {isCustomWorkbenchSuspended ? null : (
+              {isWorkbenchSuspended ? null : (
                 <div className="space-y-3 border-t border-border/70 pt-6">
                   <div className="flex items-center justify-between gap-3">
                     <div>
@@ -1420,55 +1533,28 @@ function App() {
             </CardContent>
           </Card>
 
-          {isCustomWorkbenchSuspended ? (
+          {isWorkbenchSuspended ? (
             <Card className="bg-white/75">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Braces className="size-5 text-primary" />
-                  {isCustomJsonDirty
-                    ? 'Preview paused while editing custom JSON.'
-                    : 'Rebuilding preview for committed custom JSON.'}
+                  {suspendedWorkbenchTitle}
                 </CardTitle>
                 <CardDescription>
-                  {isCustomJsonDirty
-                    ? 'The row preview, relational split, CSV output, and schema sidecar are hidden until the current draft is applied.'
-                    : 'The row preview, relational split, CSV output, and schema sidecar stay hidden until the next committed custom projection finishes.'}
+                  {suspendedWorkbenchDescription}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3 text-sm text-muted-foreground">
-                {isCustomProjectionRebuilding && projection.progress ? (
+                {(isSourceModeTransitionPending ||
+                  isCustomProjectionRebuilding) &&
+                projection.progress ? (
                   <div className="rounded-[20px] border border-border/70 bg-background/80 p-4">
                     {projection.progress.label}{' '}
                     {formatProjectionProgressDetail(projection.progress)}
                   </div>
                 ) : null}
-                {isCustomJsonDirty ? (
-                  <>
-                    <p>
-                      The current editor stays active above, but the projection
-                      workbench is temporarily collapsed so large custom
-                      payloads do not keep the rest of the UI mounted while you
-                      type.
-                    </p>
-                    <p>
-                      Use `Apply JSON` to rebuild the previews and restore the
-                      full workbench with the latest committed payload.
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <p>
-                      The latest custom payload has been committed. The
-                      workbench stays collapsed until the worker finishes
-                      rebuilding previews from that payload.
-                    </p>
-                    <p>
-                      This avoids replaying the full row preview, relational
-                      preview, CSV output, and schema sidecar on every progress
-                      update during apply.
-                    </p>
-                  </>
-                )}
+                <p>{suspendedWorkbenchLead}</p>
+                <p>{suspendedWorkbenchFollowUp}</p>
               </CardContent>
             </Card>
           ) : (

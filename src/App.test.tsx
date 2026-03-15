@@ -458,6 +458,92 @@ describe('App', () => {
     })
   })
 
+  it('keeps the workbench collapsed during a rapid custom-to-sample source switch', async () => {
+    vi.stubGlobal('Worker', FakeStreamingAppWorker)
+
+    const user = userEvent.setup()
+
+    render(
+      <AppProviders>
+        <App />
+      </AppProviders>,
+    )
+
+    await user.click(screen.getByRole('button', { name: /custom json/i }))
+    await user.click(screen.getByRole('button', { name: /sample catalog/i }))
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('heading', {
+          name: /switching to sample catalog/i,
+        }),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByLabelText(/filter visible csv rows/i),
+      ).not.toBeInTheDocument()
+    })
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('heading', {
+          name: /switching to sample catalog/i,
+        }),
+      ).not.toBeInTheDocument()
+      expect(
+        screen.getByLabelText(/filter visible csv rows/i),
+      ).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /^id$/i })).toBeInTheDocument()
+    })
+  })
+
+  it('preserves an unapplied custom draft when switching away and back', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <AppProviders>
+        <App />
+      </AppProviders>,
+    )
+
+    await user.click(screen.getByRole('button', { name: /custom json/i }))
+
+    const editor = screen.getByLabelText(/custom json/i)
+
+    fireEvent.change(editor, {
+      target: { value: '{' },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /apply json/i })).toBeEnabled()
+      expect(
+        screen.getByRole('heading', {
+          name: /preview paused while editing custom json/i,
+        }),
+      ).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByRole('button', { name: /sample catalog/i }))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/sample dataset/i)).toBeInTheDocument()
+      expect(
+        screen.getByLabelText(/filter visible csv rows/i),
+      ).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByRole('button', { name: /custom json/i }))
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('heading', {
+          name: /preview paused while editing custom json/i,
+        }),
+      ).toBeInTheDocument()
+      expect(screen.getByLabelText(/custom json/i)).toHaveValue('{')
+      expect(screen.getByRole('button', { name: /apply json/i })).toBeEnabled()
+    })
+  })
+
   it('keeps the workbench collapsed while loading the active sample into custom mode', async () => {
     vi.stubGlobal('Worker', FakeStreamingAppWorker)
 

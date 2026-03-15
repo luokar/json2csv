@@ -2,7 +2,13 @@ import { fileURLToPath, URL } from 'node:url'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vitest/config'
 
-export default defineConfig({
+const githubPagesBase = '/json2csv/'
+
+export default defineConfig(({ command }) => ({
+  base:
+    command === 'build'
+      ? (process.env.PAGES_BASE_PATH ?? githubPagesBase)
+      : '/',
   plugins: [react()],
   resolve: {
     alias: {
@@ -15,4 +21,4 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     css: true,
   },
-})
+}))

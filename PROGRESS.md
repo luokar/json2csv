@@ -30,6 +30,7 @@
 - Chrome MCP verification now confirms the guarded transition model is holding for the previously frozen paths. In `?debug=hangs`, both `Custom JSON -> Load active sample` and `Custom JSON -> Reset defaults` settle without a browser stall and immediately publish transition plus long-task evidence into `window.__json2csvHangAudit`.
 - Explicit header mapping and renaming are now implemented through [src/components/header-mapper.tsx](/Users/mac/work/json2csv/src/components/header-mapper.tsx) and [src/lib/header-mapper.ts](/Users/mac/work/json2csv/src/lib/header-mapper.ts), with preset round-tripping wired through [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx).
 - Relational split preview is now implemented through [src/lib/relational-split.ts](/Users/mac/work/json2csv/src/lib/relational-split.ts), worker-backed projection in [src/lib/projection.ts](/Users/mac/work/json2csv/src/lib/projection.ts), and linked-table UI in [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx).
+- Full output export is now implemented through [src/lib/output-export.ts](/Users/mac/work/json2csv/src/lib/output-export.ts), [src/hooks/use-output-export.ts](/Users/mac/work/json2csv/src/hooks/use-output-export.ts), and [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx), with worker-backed flat CSV download, selected relational-table CSV download, and bundled ZIP export for all relational tables.
 - Chunked worker progress is now implemented through root-node progress hooks in [src/lib/mapping-engine.ts](/Users/mac/work/json2csv/src/lib/mapping-engine.ts) and [src/lib/relational-split.ts](/Users/mac/work/json2csv/src/lib/relational-split.ts), staged progress aggregation in [src/lib/projection.ts](/Users/mac/work/json2csv/src/lib/projection.ts), and live progress UI in [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx).
 - Incremental flat-preview streaming is now implemented through [src/lib/mapping-engine.ts](/Users/mac/work/json2csv/src/lib/mapping-engine.ts), [src/lib/projection.ts](/Users/mac/work/json2csv/src/lib/projection.ts), [src/workers/projection-worker.ts](/Users/mac/work/json2csv/src/workers/projection-worker.ts), [src/hooks/use-projection-preview.ts](/Users/mac/work/json2csv/src/hooks/use-projection-preview.ts), and [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx), so partial flat rows, row counts, and CSV previews render before the full worker payload finishes.
 - Incremental custom selector parsing is now implemented in [src/lib/json-root-stream.ts](/Users/mac/work/json2csv/src/lib/json-root-stream.ts) and wired through [src/lib/projection.ts](/Users/mac/work/json2csv/src/lib/projection.ts) and [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx), so the app's current JSONPath subset including nested `[*]` and `[index]` steps can start feeding the flat preview without first materializing the full parsed object graph.
@@ -145,6 +146,7 @@
 - Sortable preview table using TanStack Table
 - Relational split preview with selectable linked tables, relationship badges, and bounded per-table CSV previews
 - CSV output panel
+- Output export actions for full flat CSV download, selected relational-table CSV download, and bundled relational ZIP download
 - Bounded CSV preview instead of rendering arbitrarily large text blobs inline
 - Sidecar schema panel
 - Sidecar regroup keys derived from structural provenance
@@ -232,6 +234,11 @@
   - explicit header mapping and renaming updates the preview
   - regroup keys are rendered in the sidecar schema card
   - indexed pivot columns can be enabled through the config form
+  - flat CSV download, selected relational-table download, and bundled relational ZIP download trigger the correct full-output artifacts
+- Output export helper coverage in [src/lib/output-export.test.ts](/Users/mac/work/json2csv/src/lib/output-export.test.ts)
+  - flat CSV, relational table CSV, and ZIP bundle artifact generation
+  - manifest contents for bundled relational exports
+  - invalid custom JSON rejection before export generation
 - Smart config helper coverage in [src/lib/smart-config.test.ts](/Users/mac/work/json2csv/src/lib/smart-config.test.ts)
   - keyed object-map detection for NOAA-style payloads
   - rejection of ordinary nested objects that are not row maps
@@ -340,10 +347,9 @@ The Vite build still emits the existing chunk-size warning for the main bundle.
 ## Recommended next steps
 
 1. Connect the broader selector parser to chunked browser file ingestion, so uploaded large files do not require `file.text()` before preview can begin.
-2. Turn the relational preview into a real multi-file export flow with ZIP packaging and per-table download actions.
-3. Persist explicit relational-split decisions in the workflow tree so split recommendations become actual export policy instead of advisory labels only.
-4. Decide whether regroup metadata should also be exportable as a sidecar file instead of only appearing in the in-app schema panel.
-5. Add drag-sort and bulk-edit controls on top of the header mapper so explicit schemas are practical at larger column counts.
+2. Persist explicit relational-split decisions in the workflow tree so split recommendations become actual export policy instead of advisory labels only.
+3. Decide whether regroup metadata should also be exportable as a sidecar file instead of only appearing in the in-app schema panel.
+4. Add drag-sort and bulk-edit controls on top of the header mapper so explicit schemas are practical at larger column counts.
 
 ## Professional-Grade Roadmap
 

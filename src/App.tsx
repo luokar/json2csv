@@ -9,9 +9,11 @@ import {
   useReactTable,
 } from '@tanstack/react-table'
 import {
+  Archive,
   ArrowUpDown,
   Braces,
   Database,
+  Download,
   FileJson2,
   Rows3,
   Save,
@@ -58,6 +60,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
+import { useOutputExport } from '@/hooks/use-output-export'
 import { useProjectionPreview } from '@/hooks/use-projection-preview'
 import {
   createPreset,
@@ -112,6 +115,10 @@ import {
   typeMismatchStrategies,
 } from '@/lib/mapping-engine'
 import { mappingSamples } from '@/lib/mapping-samples'
+import {
+  createOutputExportRequest,
+  downloadExportArtifact,
+} from '@/lib/output-export'
 import {
   type PlannerRule,
   plannerRulesFromConfig,
@@ -518,6 +525,12 @@ function App() {
     resolver: zodResolver(converterFormSchema),
     defaultValues: defaultFormValues,
   })
+  const {
+    activeLabel: outputExportLabel,
+    error: outputExportError,
+    isExporting: isOutputExporting,
+    runExport,
+  } = useOutputExport()
 
   const watchedValues = useWatch({
     control: form.control,
@@ -652,6 +665,19 @@ function App() {
     text: 'No relational tables generated.',
     truncated: false,
   }
+  const outputExportBlockedReason =
+    activeConfig === undefined
+      ? 'Fix the current mapping config before exporting.'
+      : projection.parseError
+        ? 'Resolve the current JSON parse error before exporting.'
+        : pendingWorkbenchTransition
+          ? 'Wait for the current projection transition to settle before exporting.'
+          : projection.isProjecting
+            ? 'Wait for the current preview rebuild to finish before exporting.'
+            : liveValues.sourceMode === 'custom' && isCustomJsonDirty
+              ? 'Apply the current custom JSON draft before exporting.'
+              : null
+  const canExportOutputs = outputExportBlockedReason === null
 
   useEffect(() => {
     const tableNames = relationalSplitResult?.tables.map(
@@ -894,6 +920,89 @@ function App() {
 
     window.clearTimeout(transitionWatchdogTimeoutRef.current)
     transitionWatchdogTimeoutRef.current = null
+  }
+
+  async function handleFlatCsvExport() {
+    if (!canExportOutputs) {
+      return
+    }
+
+    try {
+      const bundle = await runExport(
+        createOutputExportRequest({
+          config: activeConfig,
+          customJson: liveValues.customJson,
+          exportName: liveValues.presetName,
+          rootPath: liveValues.rootPath,
+          sampleJson: activeSample.json,
+          sourceMode: liveValues.sourceMode,
+        }),
+        'Preparing full flat CSV export',
+      )
+
+      downloadExportArtifact(bundle.flatCsv)
+    } catch {
+      // Export errors are surfaced through the shared hook state.
+    }
+  }
+
+  async function handleSelectedRelationalExport() {
+    if (!canExportOutputs || !selectedRelationalTable) {
+      return
+    }
+
+    try {
+      const bundle = await runExport(
+        createOutputExportRequest({
+          config: activeConfig,
+          customJson: liveValues.customJson,
+          exportName: liveValues.presetName,
+          rootPath: liveValues.rootPath,
+          sampleJson: activeSample.json,
+          sourceMode: liveValues.sourceMode,
+        }),
+        `Preparing ${selectedRelationalTable.tableName} relational CSV export`,
+      )
+      const tableArtifact = bundle.relationalTables.find(
+        (table) => table.tableName === selectedRelationalTable.tableName,
+      )
+
+      if (!tableArtifact) {
+        return
+      }
+
+      downloadExportArtifact(tableArtifact)
+    } catch {
+      // Export errors are surfaced through the shared hook state.
+    }
+  }
+
+  async function handleRelationalArchiveExport() {
+    if (!canExportOutputs) {
+      return
+    }
+
+    try {
+      const bundle = await runExport(
+        createOutputExportRequest({
+          config: activeConfig,
+          customJson: liveValues.customJson,
+          exportName: liveValues.presetName,
+          rootPath: liveValues.rootPath,
+          sampleJson: activeSample.json,
+          sourceMode: liveValues.sourceMode,
+        }),
+        'Preparing bundled relational export',
+      )
+
+      if (!bundle.relationalArchive) {
+        return
+      }
+
+      downloadExportArtifact(bundle.relationalArchive)
+    } catch {
+      // Export errors are surfaced through the shared hook state.
+    }
   }
 
   function cancelScheduledWorkbenchTransition() {
@@ -2478,7 +2587,7 @@ function App() {
                       </CardDescription>
                     </div>
 
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap items-center justify-end gap-2">
                       <Badge variant="secondary">
                         {relationalSplitResult?.tables.length ?? 0} tables
                       </Badge>
@@ -2491,6 +2600,52 @@ function App() {
                           {selectedRelationalTable.tableName}
                         </Badge>
                       ) : null}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        title={
+                          outputExportBlockedReason ??
+                          'Download the full selected relational table as CSV.'
+                        }
+                        disabled={
+                          !canExportOutputs ||
+                          isOutputExporting ||
+                          !selectedRelationalTable
+                        }
+                        onClick={() => {
+                          void handleSelectedRelationalExport()
+                        }}
+                      >
+                        <Download className="size-4" />
+                        {isOutputExporting &&
+                        outputExportLabel?.includes('relational CSV')
+                          ? 'Preparing table CSV'
+                          : 'Download selected table CSV'}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        title={
+                          outputExportBlockedReason ??
+                          'Download every relational table as a ZIP archive.'
+                        }
+                        disabled={
+                          !canExportOutputs ||
+                          isOutputExporting ||
+                          !relationalSplitResult
+                        }
+                        onClick={() => {
+                          void handleRelationalArchiveExport()
+                        }}
+                      >
+                        <Archive className="size-4" />
+                        {isOutputExporting &&
+                        outputExportLabel?.includes('bundled relational')
+                          ? 'Preparing ZIP archive'
+                          : 'Download all tables ZIP'}
+                      </Button>
                     </div>
                   </div>
                 </CardHeader>
@@ -2690,17 +2845,46 @@ function App() {
               <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(380px,0.8fr)] 2xl:grid-cols-[minmax(0,1.24fr)_minmax(420px,0.88fr)]">
                 <Card className="bg-white/82 backdrop-blur-sm">
                   <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Rows3 className="size-5 text-primary" />
-                      CSV output
-                    </CardTitle>
-                    <CardDescription>
-                      {isStreamingFlatPreview
-                        ? 'This is a streamed partial CSV preview from the roots processed so far.'
-                        : 'This is a bounded preview of the emitted CSV so large conversions do not lock the page.'}
-                    </CardDescription>
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                      <div>
+                        <CardTitle className="flex items-center gap-2">
+                          <Rows3 className="size-5 text-primary" />
+                          CSV output
+                        </CardTitle>
+                        <CardDescription>
+                          {isStreamingFlatPreview
+                            ? 'This is a streamed partial CSV preview from the roots processed so far.'
+                            : 'This is a bounded preview of the emitted CSV so large conversions do not lock the page.'}
+                        </CardDescription>
+                      </div>
+
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        title={
+                          outputExportBlockedReason ??
+                          'Download the full flat CSV output.'
+                        }
+                        disabled={!canExportOutputs || isOutputExporting}
+                        onClick={() => {
+                          void handleFlatCsvExport()
+                        }}
+                      >
+                        <Download className="size-4" />
+                        {isOutputExporting &&
+                        outputExportLabel?.includes('flat CSV')
+                          ? 'Preparing full CSV'
+                          : 'Download full CSV'}
+                      </Button>
+                    </div>
                   </CardHeader>
                   <CardContent className="space-y-3">
+                    {outputExportError ? (
+                      <div className="rounded-[20px] border border-destructive/25 bg-destructive/5 p-4 text-sm text-destructive">
+                        {outputExportError}
+                      </div>
+                    ) : null}
                     {isStreamingFlatPreview ? (
                       <div className="rounded-[20px] border border-border/70 bg-background/80 p-4 text-sm text-muted-foreground">
                         {describeStreamingCsvProgress(streamingFlatPreview)}

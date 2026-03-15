@@ -8,6 +8,21 @@ import {
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, vi } from 'vitest'
 
+const { downloadExportArtifactMock } = vi.hoisted(() => ({
+  downloadExportArtifactMock: vi.fn(),
+}))
+
+vi.mock('@/lib/output-export', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/output-export')>(
+    '@/lib/output-export',
+  )
+
+  return {
+    ...actual,
+    downloadExportArtifact: downloadExportArtifactMock,
+  }
+})
+
 import App from '@/App'
 import {
   computeProjectionPayload,
@@ -172,6 +187,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers()
   vi.unstubAllGlobals()
+  downloadExportArtifactMock.mockReset()
   window.localStorage.clear()
   window.history.replaceState({}, '', '/')
 })
@@ -229,6 +245,70 @@ describe('App', () => {
           /"batters_batter_id","parent_root_id","id","type"/i,
         ),
       ).toBeInTheDocument()
+    })
+  })
+
+  it('downloads the full flat CSV output', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <AppProviders>
+        <App />
+      </AppProviders>,
+    )
+
+    await screen.findByRole('button', { name: /^id$/i })
+
+    await user.click(screen.getByRole('button', { name: /download full csv/i }))
+
+    await waitFor(() => {
+      expect(downloadExportArtifactMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fileName: 'donut-relational-export.csv',
+          mimeType: 'text/csv;charset=utf-8',
+        }),
+      )
+    })
+  })
+
+  it('downloads selected relational tables and the bundled archive', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <AppProviders>
+        <App />
+      </AppProviders>,
+    )
+
+    await screen.findByRole('heading', {
+      name: /relational split preview/i,
+    })
+
+    await user.click(screen.getByRole('button', { name: /^topping$/i }))
+    await user.click(
+      screen.getByRole('button', { name: /download selected table csv/i }),
+    )
+
+    await waitFor(() => {
+      expect(downloadExportArtifactMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fileName: 'donut-relational-export--topping.csv',
+          mimeType: 'text/csv;charset=utf-8',
+        }),
+      )
+    })
+
+    await user.click(
+      screen.getByRole('button', { name: /download all tables zip/i }),
+    )
+
+    await waitFor(() => {
+      expect(downloadExportArtifactMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fileName: 'donut-relational-export-relational.zip',
+          mimeType: 'application/zip',
+        }),
+      )
     })
   })
 

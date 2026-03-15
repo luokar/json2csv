@@ -1,5 +1,6 @@
 import {
   type JsonValue,
+  objectMapEntryKeyField,
   type PathToken,
   tokenizeJsonPath,
 } from '@/lib/mapping-engine'
@@ -229,6 +230,7 @@ function streamObjectPropertyMatches(
     return false
   }
 
+  const isWildcardProperty = propertyName === '*'
   let matchedPath = false
 
   while (true) {
@@ -239,7 +241,24 @@ function streamObjectPropertyMatches(
     parser.skipWhitespace()
     onAdvance()
 
-    if (key === propertyName) {
+    if (isWildcardProperty) {
+      if (tokenIndex >= tokens.length) {
+        const value = parser.parseValue()
+
+        onAdvance()
+        onMatch(createObjectMapEntryRootNode(key, value))
+        matchedPath = true
+      } else {
+        matchedPath =
+          streamJsonPathMatches(
+            parser,
+            tokens,
+            tokenIndex,
+            onAdvance,
+            onMatch,
+          ) || matchedPath
+      }
+    } else if (key === propertyName) {
       matchedPath =
         streamJsonPathMatches(parser, tokens, tokenIndex, onAdvance, onMatch) ||
         matchedPath
@@ -259,6 +278,27 @@ function streamObjectPropertyMatches(
     parser.skipWhitespace()
     onAdvance()
   }
+}
+
+function createObjectMapEntryRootNode(
+  entryKey: string,
+  value: JsonValue,
+): Record<string, JsonValue> {
+  if (isPlainObject(value)) {
+    return {
+      [objectMapEntryKeyField]: entryKey,
+      ...value,
+    }
+  }
+
+  return {
+    [objectMapEntryKeyField]: entryKey,
+    value,
+  }
+}
+
+function isPlainObject(value: JsonValue): value is Record<string, JsonValue> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 class JsonTextParser {

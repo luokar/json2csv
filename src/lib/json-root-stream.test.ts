@@ -31,6 +31,13 @@ describe('json root streaming helpers', () => {
       rootPath: 'records[*]',
       tokens: [{ type: 'property', value: 'records' }, { type: 'wildcard' }],
     })
+    expect(resolveStreamableJsonPath('$.data.*')).toEqual({
+      rootPath: '$.data.*',
+      tokens: [
+        { type: 'property', value: 'data' },
+        { type: 'property', value: '*' },
+      ],
+    })
     expect(resolveStreamableJsonPath('   ')).toBeNull()
   })
 
@@ -138,6 +145,48 @@ describe('json root streaming helpers', () => {
       rootCount: 1,
     })
     expect(roots).toEqual([{ id: '3' }])
+  })
+
+  it('streams object-wildcard keyed maps as synthetic row roots', () => {
+    const roots: unknown[] = []
+
+    const result = streamJsonPath(
+      `{
+  "data": {
+    "189512": { "value": 51.4, "anomaly": -1.2 },
+    "189612": { "value": 52.1, "anomaly": -0.9 },
+    "189712": { "value": 52.6, "anomaly": -0.4 }
+  }
+}`,
+      '$.data.*',
+      {
+        onRoot: (value) => {
+          roots.push(value)
+        },
+      },
+    )
+
+    expect(result).toEqual({
+      matchedPath: true,
+      rootCount: 3,
+    })
+    expect(roots).toEqual([
+      {
+        __entryKey: '189512',
+        anomaly: -1.2,
+        value: 51.4,
+      },
+      {
+        __entryKey: '189612',
+        anomaly: -0.9,
+        value: 52.1,
+      },
+      {
+        __entryKey: '189712',
+        anomaly: -0.4,
+        value: 52.6,
+      },
+    ])
   })
 
   it('throws a parse error for invalid JSON input', () => {

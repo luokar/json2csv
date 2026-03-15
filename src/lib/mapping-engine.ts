@@ -207,6 +207,8 @@ export type PathToken =
   | { type: 'wildcard' }
   | { type: 'index'; value: number }
 
+export const objectMapEntryKeyField = '__entryKey'
+
 export const defaultMappingConfig: MappingConfig = {
   rootPath: '$.items.item[*]',
   flattenMode: 'parallel',
@@ -1637,6 +1639,20 @@ function walkPath(value: unknown, tokens: PathToken[]): unknown[] {
   const [token, ...rest] = tokens
 
   if (token.type === 'property') {
+    if (token.value === '*') {
+      if (!isPlainObject(value)) {
+        return []
+      }
+
+      return Object.entries(value).flatMap(([key, entryValue]) => {
+        const matches = walkPath(entryValue, rest)
+
+        return rest.length === 0
+          ? matches.map((match) => createObjectMapEntryRootNode(key, match))
+          : matches
+      })
+    }
+
     if (!isPlainObject(value) || !(token.value in value)) {
       return []
     }
@@ -1658,4 +1674,18 @@ function walkPath(value: unknown, tokens: PathToken[]): unknown[] {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function createObjectMapEntryRootNode(entryKey: string, value: unknown) {
+  if (isPlainObject(value)) {
+    return {
+      [objectMapEntryKeyField]: entryKey,
+      ...value,
+    }
+  }
+
+  return {
+    [objectMapEntryKeyField]: entryKey,
+    value: value as JsonValue,
+  }
 }

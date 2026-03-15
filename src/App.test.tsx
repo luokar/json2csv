@@ -6,7 +6,7 @@ import {
   within,
 } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, vi } from 'vitest'
+import { afterEach, beforeEach, vi } from 'vitest'
 
 import App from '@/App'
 import {
@@ -115,9 +115,38 @@ class FakeStreamingAppWorker {
   }
 }
 
+function createLocalStorageMock(): Storage {
+  const store = new Map<string, string>()
+
+  return {
+    clear: vi.fn(() => {
+      store.clear()
+    }),
+    getItem: vi.fn((key: string) => store.get(key) ?? null),
+    key: vi.fn((index: number) => Array.from(store.keys())[index] ?? null),
+    get length() {
+      return store.size
+    },
+    removeItem: vi.fn((key: string) => {
+      store.delete(key)
+    }),
+    setItem: vi.fn((key: string, value: string) => {
+      store.set(key, value)
+    }),
+  }
+}
+
+beforeEach(() => {
+  Object.defineProperty(window, 'localStorage', {
+    configurable: true,
+    value: createLocalStorageMock(),
+  })
+})
+
 afterEach(() => {
   vi.useRealTimers()
   vi.unstubAllGlobals()
+  window.localStorage.clear()
   window.history.replaceState({}, '', '/')
 })
 
@@ -284,9 +313,69 @@ describe('App', () => {
 
     expect(rootPath).toHaveValue('$.groups[*].records[*]')
 
-    expect(
-      screen.getByText(/nested \[\*\] and \[0\] steps can stream directly/i),
-    ).toBeInTheDocument()
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          /nested \[\*\] and \[0\] steps plus object \.\* branches can stream directly/i,
+        ),
+      ).toBeInTheDocument()
+    })
+  })
+
+  it('smart-detects keyed object maps from custom json and applies the suggested root path', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <AppProviders>
+        <App />
+      </AppProviders>,
+    )
+
+    await switchToCustomMode(user)
+
+    fireEvent.change(screen.getByLabelText(/custom json/i), {
+      target: {
+        value: JSON.stringify({
+          data: {
+            '189512': { anomaly: -1.2, value: 51.4 },
+            '189612': { anomaly: -0.9, value: 52.1 },
+            '189712': { anomaly: -0.4, value: 52.6 },
+            '189812': { anomaly: -0.2, value: 52.8 },
+            '189912': { anomaly: 0.1, value: 53.1 },
+          },
+          description: {
+            title: 'NOAA style sample',
+          },
+        }),
+      },
+    })
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: /smart detect/i }),
+      ).toBeEnabled()
+    })
+
+    await user.click(screen.getByRole('button', { name: /smart detect/i }))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/root path/i)).toHaveValue('$.data.*')
+      expect(
+        screen.getByText(/use \$\.data\.\* and rename __entryKey to period/i),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: /^period$/i }),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: /^value$/i }),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: /^anomaly$/i }),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: /^__entryKey$/i }),
+      ).not.toBeInTheDocument()
+    })
   })
 
   it('shows a validation error when custom json is missing', async () => {
@@ -666,6 +755,12 @@ describe('App', () => {
           label: string
           phase: string
         } | null
+        __json2csvHangAudit?: {
+          entries: Array<{
+            category: string
+            label: string
+          }>
+        } | null
       }
 
       expect(diagnosticWindow.__json2csvWorkbenchTransition?.label).toBe(
@@ -674,7 +769,53 @@ describe('App', () => {
       expect(diagnosticWindow.__json2csvWorkbenchTransition?.phase).toBe(
         'settled',
       )
+      expect(diagnosticWindow.__json2csvHangAudit?.entries[0]?.category).toBe(
+        'transition',
+      )
+      expect(diagnosticWindow.__json2csvHangAudit?.entries[0]?.label).toContain(
+        'Resetting to defaults',
+      )
+      expect(
+        JSON.parse(window.localStorage.getItem('json2csv:hang-audit') ?? '{}')
+          .entries?.[0]?.label,
+      ).toContain('Resetting to defaults')
     })
+  })
+
+  it('recovers a previous unresolved hang audit on the next load', async () => {
+    window.localStorage.setItem(
+      'json2csv:hang-audit',
+      JSON.stringify({
+        activeTransition: {
+          detail:
+            'Resetting to defaults. The state update has been applied; waiting for the next projection lifecycle to start.',
+          id: 7,
+          kind: 'reset-defaults',
+          label: 'Resetting to defaults',
+          phase: 'applying',
+          startedAt: 100,
+          updatedAt: 200,
+        },
+        entries: [],
+        recoveredEntry: null,
+        tabClosedGracefully: false,
+        updatedAt: Date.now(),
+      }),
+    )
+
+    window.history.replaceState({}, '', '/?debug=hangs')
+
+    render(
+      <AppProviders>
+        <App />
+      </AppProviders>,
+    )
+
+    expect(
+      await screen.findAllByText(
+        /recovered after the previous session stopped while "Resetting to defaults" was applying/i,
+      ),
+    ).not.toHaveLength(0)
   })
 
   it('shows an invalid-json error after applying malformed custom input', async () => {

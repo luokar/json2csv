@@ -24,11 +24,13 @@ import {
   type ChangeEvent,
   type ReactNode,
   startTransition,
+  useCallback,
   useDeferredValue,
   useEffect,
   useRef,
   useState,
 } from 'react'
+import { flushSync } from 'react-dom'
 import { type UseFormRegisterReturn, useForm, useWatch } from 'react-hook-form'
 import { z } from 'zod'
 import { bufferedJsonEditorServiceProps } from '@/components/buffered-json-editor'
@@ -64,6 +66,21 @@ import {
   type SourceMode,
 } from '@/lib/db'
 import {
+  appendHangAuditEntry,
+  createHangAuditEntry,
+  formatHangAuditCategory,
+  getNextHangAuditEntryId,
+  type HangAuditContext,
+  type HangAuditEntry,
+  type HangAuditSnapshot,
+  hangAuditFrameGapThresholdMs,
+  hangAuditLongTaskThresholdMs,
+  persistHangAuditSnapshot,
+  publishHangAuditSnapshot,
+  readInitialHangAuditSnapshot,
+} from '@/lib/hang-audit'
+import {
+  createHeaderRule,
   type HeaderRule,
   headerRulesFromConfig,
   headerRulesToConfig,
@@ -110,6 +127,7 @@ import {
   projectionRelationalRowPreviewLimit,
 } from '@/lib/projection'
 import type { RelationalRelationship } from '@/lib/relational-split'
+import { detectSmartConfigSuggestion } from '@/lib/smart-config'
 import { cn } from '@/lib/utils'
 import { useWorkbenchStore } from '@/store/use-workbench-store'
 
@@ -175,6 +193,7 @@ type WorkbenchTransition =
   | 'load-preset'
   | 'load-sample'
   | 'reset-defaults'
+  | 'smart-detect'
   | 'source-switch'
 
 interface PendingWorkbenchTransition {
@@ -200,6 +219,12 @@ interface WorkbenchTransitionDiagnostic {
   phase: WorkbenchTransitionPhase
   startedAt: number
   updatedAt: number
+}
+
+interface SmartDetectFeedback {
+  detail: string
+  previewHeaders: string[]
+  tone: 'error' | 'info' | 'success'
 }
 
 const defaultFormValues: ConverterFormValues = {
@@ -253,6 +278,8 @@ const watchedFieldNames = [
 
 function App() {
   const debugFlags = getAppDebugFlags()
+  const isJsdomEnvironment =
+    typeof navigator !== 'undefined' && /jsdom/i.test(navigator.userAgent)
   const queryClient = useQueryClient()
   const search = useWorkbenchStore((state) => state.search)
   const selectedPresetId = useWorkbenchStore((state) => state.selectedPresetId)
@@ -261,6 +288,8 @@ function App() {
   const deferredSearch = useDeferredValue(search)
   const [headerRules, setHeaderRules] = useState<HeaderRule[]>([])
   const [plannerRules, setPlannerRules] = useState<PlannerRule[]>([])
+  const [smartDetectFeedback, setSmartDetectFeedback] =
+    useState<SmartDetectFeedback | null>(null)
   const [selectedRelationalTableName, setSelectedRelationalTableName] =
     useState('root')
   const [sorting, setSorting] = useState<SortingState>([])
@@ -274,6 +303,9 @@ function App() {
     useState<PendingWorkbenchTransition | null>(null)
   const [workbenchTransitionDiagnostic, setWorkbenchTransitionDiagnostic] =
     useState<WorkbenchTransitionDiagnostic | null>(null)
+  const [hangAuditSnapshot, setHangAuditSnapshot] = useState<HangAuditSnapshot>(
+    () => readInitialHangAuditSnapshot(),
+  )
   const [isProjectionDebugDisabled, setProjectionDebugDisabled] = useState(
     debugFlags.projectionOffByDefault,
   )
@@ -281,6 +313,95 @@ function App() {
   const transitionApplyTimeoutRef = useRef<number | null>(null)
   const transitionSequenceRef = useRef(0)
   const transitionWatchdogTimeoutRef = useRef<number | null>(null)
+  const workbenchTransitionDiagnosticRef =
+    useRef<WorkbenchTransitionDiagnostic | null>(null)
+  const hangAuditContextRef = useRef<HangAuditContext>({
+    columnCount: 0,
+    customJsonChars: 0,
+    isProjecting: false,
+    isWorkbenchSuspended: false,
+    projectionLabel: null,
+    rootPath: '$',
+    rowCount: 0,
+    sourceMode: 'sample',
+    transitionLabel: null,
+    transitionPhase: null,
+  })
+  const hangAuditSnapshotRef = useRef(hangAuditSnapshot)
+  const nextHangAuditEntryIdRef = useRef(
+    getNextHangAuditEntryId(hangAuditSnapshot),
+  )
+
+  const commitHangAuditSnapshot = useCallback(
+    (updater: (previous: HangAuditSnapshot) => HangAuditSnapshot) => {
+      setHangAuditSnapshot((previous) => {
+        const nextSnapshot = updater(previous)
+
+        hangAuditSnapshotRef.current = nextSnapshot
+
+        return nextSnapshot
+      })
+    },
+    [],
+  )
+
+  const appendHangAuditEvent = useCallback(
+    (options: {
+      category: HangAuditEntry['category']
+      detail: string
+      durationMs?: number | null
+      label: string
+    }) => {
+      const entry = createHangAuditEntry({
+        category: options.category,
+        context: hangAuditContextRef.current,
+        detail: options.detail,
+        durationMs: options.durationMs,
+        id: nextHangAuditEntryIdRef.current,
+        label: options.label,
+      })
+
+      nextHangAuditEntryIdRef.current += 1
+
+      commitHangAuditSnapshot((previous) =>
+        appendHangAuditEntry(previous, entry),
+      )
+    },
+    [commitHangAuditSnapshot],
+  )
+
+  const persistCurrentHangAuditSnapshot = useCallback(
+    (tabClosedGracefully: boolean) => {
+      const nextSnapshot = {
+        ...hangAuditSnapshotRef.current,
+        tabClosedGracefully,
+        updatedAt: Date.now(),
+      }
+
+      hangAuditSnapshotRef.current = nextSnapshot
+      persistHangAuditSnapshot(nextSnapshot)
+      publishHangAuditSnapshot(nextSnapshot)
+    },
+    [],
+  )
+
+  const updateWorkbenchTransitionDiagnostic = useCallback(
+    (
+      transition: Pick<PendingWorkbenchTransition, 'id' | 'kind' | 'label'>,
+      phase: WorkbenchTransitionPhase,
+    ) => {
+      const nextDiagnostic = createWorkbenchTransitionDiagnostic(
+        workbenchTransitionDiagnosticRef.current,
+        transition,
+        phase,
+      )
+
+      workbenchTransitionDiagnosticRef.current = nextDiagnostic
+      publishWorkbenchTransitionDiagnostic(nextDiagnostic)
+      setWorkbenchTransitionDiagnostic(nextDiagnostic)
+    },
+    [],
+  )
 
   const { data: presets = [], isLoading: isPresetsLoading } = useQuery({
     queryKey: ['presets'],
@@ -466,8 +587,146 @@ function App() {
   }, [relationalSplitResult, selectedRelationalTableName])
 
   useEffect(() => {
-    publishWorkbenchTransitionDiagnostic(workbenchTransitionDiagnostic)
+    workbenchTransitionDiagnosticRef.current = workbenchTransitionDiagnostic
   }, [workbenchTransitionDiagnostic])
+
+  useEffect(() => {
+    hangAuditSnapshotRef.current = hangAuditSnapshot
+    persistHangAuditSnapshot(hangAuditSnapshot)
+    publishHangAuditSnapshot(hangAuditSnapshot)
+  }, [hangAuditSnapshot])
+
+  useEffect(() => {
+    if (workbenchTransitionDiagnostic === null) {
+      return
+    }
+
+    const entry = createHangAuditEntry({
+      category: 'transition',
+      context: hangAuditContextRef.current,
+      detail: workbenchTransitionDiagnostic.detail,
+      id: nextHangAuditEntryIdRef.current,
+      label: `${workbenchTransitionDiagnostic.label} (${formatWorkbenchTransitionPhase(workbenchTransitionDiagnostic.phase)})`,
+      now: workbenchTransitionDiagnostic.updatedAt,
+    })
+
+    nextHangAuditEntryIdRef.current += 1
+
+    commitHangAuditSnapshot((previous) => ({
+      ...appendHangAuditEntry(
+        {
+          ...previous,
+          activeTransition: { ...workbenchTransitionDiagnostic },
+        },
+        entry,
+      ),
+      activeTransition: { ...workbenchTransitionDiagnostic },
+    }))
+  }, [commitHangAuditSnapshot, workbenchTransitionDiagnostic])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    const handlePageHide = () => {
+      persistCurrentHangAuditSnapshot(true)
+    }
+
+    window.addEventListener('pagehide', handlePageHide)
+
+    return () => {
+      window.removeEventListener('pagehide', handlePageHide)
+    }
+  }, [persistCurrentHangAuditSnapshot])
+
+  useEffect(() => {
+    if (typeof PerformanceObserver === 'undefined' || isJsdomEnvironment) {
+      return
+    }
+
+    const supportedEntryTypes = PerformanceObserver.supportedEntryTypes ?? []
+
+    if (!supportedEntryTypes.includes('longtask')) {
+      return
+    }
+
+    const observer = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        if (entry.duration < hangAuditLongTaskThresholdMs) {
+          continue
+        }
+
+        const roundedDuration = Math.round(entry.duration)
+        const context = hangAuditContextRef.current
+
+        appendHangAuditEvent({
+          category: 'longtask',
+          detail: `Main thread blocked for ${roundedDuration} ms while ${describeHangAuditContext(context)}.`,
+          durationMs: roundedDuration,
+          label:
+            context.transitionLabel ??
+            context.projectionLabel ??
+            'Main-thread long task',
+        })
+      }
+    })
+
+    observer.observe({ entryTypes: ['longtask'] })
+
+    return () => {
+      observer.disconnect()
+    }
+  }, [appendHangAuditEvent, isJsdomEnvironment])
+
+  useEffect(() => {
+    if (
+      isJsdomEnvironment ||
+      typeof window === 'undefined' ||
+      typeof window.requestAnimationFrame !== 'function'
+    ) {
+      return
+    }
+
+    let frameId = 0
+    let lastFrameAt: number | null = null
+
+    const tick = (now: number) => {
+      if (document.visibilityState !== 'visible') {
+        lastFrameAt = now
+        frameId = window.requestAnimationFrame(tick)
+        return
+      }
+
+      if (lastFrameAt !== null) {
+        const gapMs = now - lastFrameAt
+
+        if (gapMs >= hangAuditFrameGapThresholdMs) {
+          const roundedGapMs = Math.round(gapMs)
+          const context = hangAuditContextRef.current
+
+          appendHangAuditEvent({
+            category: 'frame-gap',
+            detail: `No paint completed for ${roundedGapMs} ms while ${describeHangAuditContext(context)}.`,
+            durationMs: roundedGapMs,
+            label:
+              context.transitionLabel ??
+              context.projectionLabel ??
+              'Main-thread paint gap',
+          })
+        }
+      }
+
+      lastFrameAt = now
+      frameId = window.requestAnimationFrame(tick)
+    }
+
+    frameId = window.requestAnimationFrame(tick)
+
+    return () => {
+      window.cancelAnimationFrame(frameId)
+    }
+  }, [appendHangAuditEvent, isJsdomEnvironment])
 
   useEffect(() => {
     if (pendingWorkbenchTransition === null) {
@@ -488,12 +747,9 @@ function App() {
         transitionWatchdogTimeoutRef.current = null
       }
 
-      setWorkbenchTransitionDiagnostic((previous) =>
-        createWorkbenchTransitionDiagnostic(
-          previous,
-          pendingWorkbenchTransition,
-          'projecting',
-        ),
+      updateWorkbenchTransitionDiagnostic(
+        pendingWorkbenchTransition,
+        'projecting',
       )
       setPendingWorkbenchTransition((previous) =>
         previous === null || previous.hasStarted
@@ -509,13 +765,7 @@ function App() {
         transitionWatchdogTimeoutRef.current = null
       }
 
-      setWorkbenchTransitionDiagnostic((previous) =>
-        createWorkbenchTransitionDiagnostic(
-          previous,
-          pendingWorkbenchTransition,
-          'settled',
-        ),
-      )
+      updateWorkbenchTransitionDiagnostic(pendingWorkbenchTransition, 'settled')
       setPendingWorkbenchTransition(null)
       return
     }
@@ -526,13 +776,7 @@ function App() {
         transitionWatchdogTimeoutRef.current = null
       }
 
-      setWorkbenchTransitionDiagnostic((previous) =>
-        createWorkbenchTransitionDiagnostic(
-          previous,
-          pendingWorkbenchTransition,
-          'settled',
-        ),
-      )
+      updateWorkbenchTransitionDiagnostic(pendingWorkbenchTransition, 'settled')
       setPendingWorkbenchTransition(null)
       return
     }
@@ -540,6 +784,7 @@ function App() {
     isProjectionDebugDisabled,
     pendingWorkbenchTransition,
     projection.isProjecting,
+    updateWorkbenchTransitionDiagnostic,
   ])
 
   useEffect(
@@ -614,15 +859,6 @@ function App() {
     clearWorkbenchTransitionWatchdog()
   }
 
-  function updateWorkbenchTransitionDiagnostic(
-    transition: Pick<PendingWorkbenchTransition, 'id' | 'kind' | 'label'>,
-    phase: WorkbenchTransitionPhase,
-  ) {
-    setWorkbenchTransitionDiagnostic((previous) =>
-      createWorkbenchTransitionDiagnostic(previous, transition, phase),
-    )
-  }
-
   function scheduleWorkbenchTransition(
     transition: Omit<
       PendingWorkbenchTransition,
@@ -640,27 +876,34 @@ function App() {
     }
 
     transitionSequenceRef.current = nextTransition.id
-    setPendingWorkbenchTransition(nextTransition)
-    updateWorkbenchTransitionDiagnostic(nextTransition, 'queued')
+    flushSync(() => {
+      setPendingWorkbenchTransition(nextTransition)
+      updateWorkbenchTransitionDiagnostic(nextTransition, 'queued')
+    })
 
     transitionApplyFrameRef.current = window.requestAnimationFrame(() => {
-      transitionApplyFrameRef.current = null
+      transitionApplyFrameRef.current = window.requestAnimationFrame(() => {
+        transitionApplyFrameRef.current = null
 
-      transitionApplyTimeoutRef.current = window.setTimeout(() => {
-        transitionApplyTimeoutRef.current = null
+        transitionApplyTimeoutRef.current = window.setTimeout(() => {
+          transitionApplyTimeoutRef.current = null
 
-        apply()
-        setPendingWorkbenchTransition((previous) =>
-          previous?.id === nextTransition.id
-            ? { ...previous, hasApplied: true }
-            : previous,
-        )
-        updateWorkbenchTransitionDiagnostic(nextTransition, 'applying')
+          flushSync(() => {
+            setPendingWorkbenchTransition((previous) =>
+              previous?.id === nextTransition.id
+                ? { ...previous, hasApplied: true }
+                : previous,
+            )
+            updateWorkbenchTransitionDiagnostic(nextTransition, 'applying')
+          })
 
-        transitionWatchdogTimeoutRef.current = window.setTimeout(() => {
-          updateWorkbenchTransitionDiagnostic(nextTransition, 'timed-out')
-        }, workbenchTransitionWatchdogMs)
-      }, 0)
+          apply()
+
+          transitionWatchdogTimeoutRef.current = window.setTimeout(() => {
+            updateWorkbenchTransitionDiagnostic(nextTransition, 'timed-out')
+          }, workbenchTransitionWatchdogMs)
+        }, 0)
+      })
     })
   }
 
@@ -671,6 +914,8 @@ function App() {
     } = {},
   ) {
     const shouldRebuildProjection = nextText !== committedCustomJson
+
+    setSmartDetectFeedback(null)
 
     if (options.suspendWorkbench && shouldRebuildProjection) {
       scheduleWorkbenchTransition(
@@ -707,6 +952,7 @@ function App() {
           customJson: defaultFormValues.customJson,
         })
         setHeaderRules(headerRulesFromConfig(preset.config))
+        setSmartDetectFeedback(null)
         setCustomJsonDraft(preset.customJson ?? '')
         setCommittedCustomJson(preset.customJson ?? '')
         setPlannerRules(plannerRulesFromConfig(preset.config))
@@ -729,6 +975,7 @@ function App() {
     form.setValue('presetName', `${sample?.title ?? 'Sample'} export`, {
       shouldValidate: true,
     })
+    setSmartDetectFeedback(null)
     savePresetMutation.reset()
 
     startTransition(() => {
@@ -757,6 +1004,7 @@ function App() {
 
         form.setValue('sourceMode', sourceMode, { shouldValidate: true })
         form.setValue('rootPath', nextRootPath, { shouldValidate: true })
+        setSmartDetectFeedback(null)
         savePresetMutation.reset()
 
         startTransition(() => {
@@ -789,6 +1037,7 @@ function App() {
         form.setValue('presetName', `${stripFileExtension(file.name)} export`, {
           shouldValidate: true,
         })
+        setSmartDetectFeedback(null)
         savePresetMutation.reset()
 
         startTransition(() => {
@@ -813,6 +1062,7 @@ function App() {
         form.setValue('rootPath', defaultRootPaths[activeSample.id] ?? '$', {
           shouldValidate: true,
         })
+        setSmartDetectFeedback(null)
         savePresetMutation.reset()
 
         startTransition(() => {
@@ -834,6 +1084,7 @@ function App() {
         setCustomJsonDraft(defaultFormValues.customJson)
         setCommittedCustomJson(defaultFormValues.customJson)
         setPlannerRules([])
+        setSmartDetectFeedback(null)
         savePresetMutation.reset()
 
         startTransition(() => {
@@ -853,6 +1104,66 @@ function App() {
     applyCustomJson(formatted.formattedText, {
       suspendWorkbench: true,
     })
+  }
+
+  function handleSmartDetect() {
+    const resolvedInput =
+      liveValues.sourceMode === 'custom'
+        ? parseJsonInput(customJsonDraft)
+        : { error: null, value: activeSample.json }
+
+    if (resolvedInput.value === undefined) {
+      setSmartDetectFeedback({
+        detail: `Smart detect needs valid JSON before it can analyze the current payload.${resolvedInput.error ? ` ${resolvedInput.error}` : ''}`,
+        previewHeaders: [],
+        tone: 'error',
+      })
+      return
+    }
+
+    const suggestion = detectSmartConfigSuggestion(resolvedInput.value)
+
+    if (!suggestion) {
+      setSmartDetectFeedback({
+        detail:
+          'Smart detect did not find a keyed object map that should be treated as rows in the current payload.',
+        previewHeaders: [],
+        tone: 'info',
+      })
+      return
+    }
+
+    scheduleWorkbenchTransition(
+      {
+        kind: 'smart-detect',
+        label: 'Applying smart row detection',
+      },
+      () => {
+        if (liveValues.sourceMode === 'custom') {
+          setCustomJsonDraft(customJsonDraft)
+          setCommittedCustomJson(customJsonDraft)
+        }
+
+        form.setValue('rootPath', suggestion.rootPath, { shouldValidate: true })
+        setHeaderRules((previous) =>
+          upsertHeaderAliasRule(
+            previous,
+            suggestion.keySourcePath,
+            suggestion.keyAlias,
+          ),
+        )
+        setSmartDetectFeedback({
+          detail: suggestion.summary,
+          previewHeaders: suggestion.previewHeaders,
+          tone: 'success',
+        })
+        savePresetMutation.reset()
+
+        startTransition(() => {
+          selectPreset(null)
+        })
+      },
+    )
   }
 
   const configErrors = [
@@ -927,6 +1238,25 @@ function App() {
     visibleWorkbenchTransitionDiagnostic ? workbenchTransitionDiagnostic : null
   const isLightweightInputDebugMode =
     debugFlags.showInputDiagnostics && isProjectionDebugDisabled
+  const shouldShowHangAuditCard =
+    debugFlags.showHangDiagnostics || hangAuditSnapshot.recoveredEntry !== null
+  const visibleHangAuditEntries = hangAuditSnapshot.entries.slice(0, 6)
+
+  hangAuditContextRef.current = {
+    columnCount: flatHeaders.length,
+    customJsonChars: customJsonDraft.length,
+    isProjecting: projection.isProjecting,
+    isWorkbenchSuspended,
+    projectionLabel: projection.progress?.label ?? null,
+    rootPath: liveValues.rootPath,
+    rowCount: flatRowCount,
+    sourceMode: liveValues.sourceMode,
+    transitionLabel:
+      pendingWorkbenchTransition?.label ??
+      workbenchTransitionDiagnostic?.label ??
+      null,
+    transitionPhase: workbenchTransitionDiagnostic?.phase ?? null,
+  }
 
   if (isLightweightInputDebugMode) {
     return (
@@ -1239,6 +1569,68 @@ function App() {
           </Card>
         ) : null}
 
+        {shouldShowHangAuditCard ? (
+          <Card className="bg-white/80">
+            <CardHeader>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <CardTitle>Hang audit</CardTitle>
+                  <CardDescription>
+                    Recent transition, long-task, and paint-gap snapshots are
+                    persisted to `window.__json2csvHangAudit` and the browser's
+                    local storage so the last risky action survives a reload.
+                  </CardDescription>
+                </div>
+                <Badge variant="outline">
+                  {visibleHangAuditEntries.length.toLocaleString()} events
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm text-muted-foreground">
+              {hangAuditSnapshot.recoveredEntry ? (
+                <p className="rounded-2xl border border-amber-300/80 bg-amber-50 px-4 py-3 text-amber-900">
+                  {hangAuditSnapshot.recoveredEntry.detail}
+                </p>
+              ) : null}
+
+              {visibleHangAuditEntries.length > 0 ? (
+                <div className="space-y-3">
+                  {visibleHangAuditEntries.map((entry) => (
+                    <div
+                      key={entry.id}
+                      className="rounded-2xl border border-border/70 bg-background/80 p-4"
+                    >
+                      <div className="flex flex-wrap items-center gap-2 text-foreground">
+                        <Badge variant="secondary">
+                          {formatHangAuditCategory(entry.category)}
+                        </Badge>
+                        {entry.durationMs !== null ? (
+                          <Badge variant="outline">
+                            {formatDurationMs(entry.durationMs)}
+                          </Badge>
+                        ) : null}
+                        <span className="font-medium">{entry.label}</span>
+                      </div>
+                      <p className="mt-2">{entry.detail}</p>
+                      <p className="mt-2 font-mono text-xs text-muted-foreground/80">
+                        {entry.context.sourceMode === 'custom'
+                          ? 'custom'
+                          : 'sample'}{' '}
+                        · {entry.context.rootPath} ·{' '}
+                        {entry.context.customJsonChars.toLocaleString()} chars ·{' '}
+                        {entry.context.rowCount.toLocaleString()} rows ·{' '}
+                        {entry.context.columnCount.toLocaleString()} cols
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p>No hang audit events have been recorded in this session.</p>
+              )}
+            </CardContent>
+          </Card>
+        ) : null}
+
         <section className="grid gap-6 xl:grid-cols-[minmax(500px,620px)_minmax(0,1fr)] 2xl:grid-cols-[minmax(560px,680px)_minmax(0,1fr)] xl:items-start">
           <div className="space-y-6">
             <Card className="bg-white/82 backdrop-blur-sm">
@@ -1435,6 +1827,51 @@ function App() {
                         </div>
                       </div>
                     )}
+
+                    <div className="space-y-3 rounded-[24px] border border-border/70 bg-background/80 p-4">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          disabled={isWorkbenchTransitionPending}
+                          onClick={handleSmartDetect}
+                        >
+                          Smart detect
+                        </Button>
+                        <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
+                          Scan the current payload for keyed object maps such as
+                          `$.data.*` and prefill a more sensible row root plus
+                          header alias automatically.
+                        </p>
+                      </div>
+
+                      {smartDetectFeedback ? (
+                        <div
+                          className={cn(
+                            'rounded-[22px] border px-4 py-3 text-sm leading-6',
+                            smartDetectFeedback.tone === 'error'
+                              ? 'border-destructive/30 bg-destructive/5 text-destructive'
+                              : smartDetectFeedback.tone === 'success'
+                                ? 'border-primary/20 bg-primary/5 text-foreground'
+                                : 'border-border/70 bg-background/70 text-muted-foreground',
+                          )}
+                        >
+                          <p>{smartDetectFeedback.detail}</p>
+                          {smartDetectFeedback.previewHeaders.length > 0 ? (
+                            <p className="mt-2 font-mono text-xs text-muted-foreground/80">
+                              Preview columns:{' '}
+                              {smartDetectFeedback.previewHeaders.join(', ')}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <p className="text-sm leading-6 text-muted-foreground">
+                          Useful for payloads where each object key is really a
+                          row identifier and the current flattening path would
+                          otherwise explode into hundreds of sibling columns.
+                        </p>
+                      )}
+                    </div>
                   </WorkbenchSection>
 
                   {isWorkbenchSuspended ? (
@@ -1481,7 +1918,7 @@ function App() {
                           {liveValues.sourceMode === 'custom' ? (
                             <p className="text-sm leading-6 text-muted-foreground">
                               {streamableCustomSelector
-                                ? 'Incremental selector parsing is active for this path. Nested [*] and [0] steps can stream directly from the custom JSON text before final materialization.'
+                                ? 'Incremental selector parsing is active for this path. Nested [*] and [0] steps plus object .* branches can stream directly from the custom JSON text before final materialization.'
                                 : 'This custom path currently falls back to full-document parsing.'}
                             </p>
                           ) : null}
@@ -2635,6 +3072,17 @@ function formatDurationMs(value: number) {
   return `${Math.max(0, Math.round(value)).toLocaleString()} ms`
 }
 
+function describeHangAuditContext(context: HangAuditContext) {
+  const sourceLabel =
+    context.sourceMode === 'custom' ? 'custom JSON' : 'sample data'
+  const activeLabel =
+    context.transitionLabel ??
+    context.projectionLabel ??
+    'the current workbench state'
+
+  return `${sourceLabel} at ${context.rootPath} with ${context.customJsonChars.toLocaleString()} chars, ${context.rowCount.toLocaleString()} rows, and ${context.columnCount.toLocaleString()} columns under ${activeLabel}`
+}
+
 function describeActiveSource(sourceMode: SourceMode, sampleTitle: string) {
   return sourceMode === 'custom' ? 'Custom JSON' : sampleTitle
 }
@@ -2645,6 +3093,40 @@ function describePresetSource(
   return preset.sourceMode === 'custom'
     ? 'Custom JSON'
     : getSampleById(preset.sampleId).title
+}
+
+function upsertHeaderAliasRule(
+  rules: HeaderRule[],
+  sourcePath: string,
+  header: string,
+) {
+  const normalizedSourcePath = sourcePath.trim()
+  const normalizedHeader = header.trim()
+
+  if (!normalizedSourcePath || !normalizedHeader) {
+    return rules
+  }
+
+  const existingIndex = rules.findIndex(
+    (rule) => rule.sourcePath.trim() === normalizedSourcePath,
+  )
+
+  if (existingIndex === -1) {
+    return [
+      createHeaderRule({
+        enabled: false,
+        header: normalizedHeader,
+        sourcePath: normalizedSourcePath,
+      }),
+      ...rules,
+    ]
+  }
+
+  return rules.map((rule, index) =>
+    index === existingIndex
+      ? { ...rule, header: normalizedHeader, sourcePath: normalizedSourcePath }
+      : rule,
+  )
 }
 
 function stripFileExtension(fileName: string) {

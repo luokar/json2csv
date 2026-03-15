@@ -1,6 +1,7 @@
 import {
   convertJsonToCsvTable,
   createMappingConfig,
+  selectRootNodes,
 } from '@/lib/mapping-engine'
 import { mappingSamples } from '@/lib/mapping-samples'
 
@@ -30,6 +31,37 @@ describe('mapping engine', () => {
     expect(result.records[0]['batters.batter.type']).toBe('Regular')
     expect(result.records[0]['topping.type']).toBe('None')
     expect(result.records[6]['topping.type']).toBe('Maple')
+  })
+
+  it('treats object-wildcard keyed maps as row roots', () => {
+    expect(
+      selectRootNodes(
+        {
+          data: {
+            '189512': {
+              anomaly: -1.2,
+              value: 51.4,
+            },
+            '189612': {
+              anomaly: -0.9,
+              value: 52.1,
+            },
+          },
+        },
+        '$.data.*',
+      ),
+    ).toEqual([
+      {
+        __entryKey: '189512',
+        anomaly: -1.2,
+        value: 51.4,
+      },
+      {
+        __entryKey: '189612',
+        anomaly: -0.9,
+        value: 52.1,
+      },
+    ])
   })
 
   it('creates a cartesian product in cross-product mode', () => {

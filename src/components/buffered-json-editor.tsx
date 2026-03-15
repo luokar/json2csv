@@ -26,6 +26,7 @@ interface BufferedJsonEditorProps
     React.ComponentProps<typeof Textarea>,
     'defaultValue' | 'onChange' | 'value'
   > {
+  commitOnPause?: boolean
   commitDelay?: number
   onCommit: (nextValue: string) => void
   onDirtyChange?: (isDirty: boolean) => void
@@ -39,6 +40,7 @@ export const BufferedJsonEditor = forwardRef<
   BufferedJsonEditorProps
 >(function BufferedJsonEditor(
   {
+    commitOnPause = true,
     commitDelay = bufferedJsonCommitDelayMs,
     onCommit,
     onDirtyChange,
@@ -157,8 +159,12 @@ export const BufferedJsonEditor = forwardRef<
           return
         }
 
-        if (manualCommitUntilBlurRef.current || isBulkEdit) {
+        if (isBulkEdit) {
           manualCommitUntilBlurRef.current = true
+          return
+        }
+
+        if (manualCommitUntilBlurRef.current || !commitOnPause) {
           return
         }
 

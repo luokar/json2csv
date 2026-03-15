@@ -43,6 +43,35 @@ describe('BufferedJsonEditor', () => {
     expect(handleCommit).toHaveBeenCalledWith('{')
   })
 
+  it('can keep single-character typing staged until blur', () => {
+    vi.useFakeTimers()
+
+    const handleCommit = vi.fn()
+
+    render(
+      <BufferedJsonEditor
+        aria-label="Custom JSON"
+        commitOnPause={false}
+        onCommit={handleCommit}
+        value=""
+      />,
+    )
+
+    const editor = screen.getByLabelText(/custom json/i)
+
+    fireEvent.change(editor, {
+      target: { value: '{' },
+    })
+
+    vi.advanceTimersByTime(bufferedJsonCommitDelayMs)
+
+    expect(handleCommit).not.toHaveBeenCalled()
+
+    fireEvent.blur(editor)
+
+    expect(handleCommit).toHaveBeenCalledWith('{')
+  })
+
   it('keeps bulk inserts buffered until flushed manually', () => {
     vi.useFakeTimers()
 

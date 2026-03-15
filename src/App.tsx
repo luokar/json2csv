@@ -485,9 +485,15 @@ function App() {
     })
   }
 
-  function replaceCustomJson(nextText: string) {
+  function replaceCustomJson(
+    nextText: string,
+    options: {
+      suspendWorkbench?: boolean
+    } = {},
+  ) {
     setCommittedCustomJson(nextText)
     setIsCustomJsonDirty(false)
+    setIsCustomProjectionPending(options.suspendWorkbench ?? false)
   }
 
   function flushCustomJson() {
@@ -595,16 +601,22 @@ function App() {
   }
 
   function handleLoadSampleIntoEditor() {
-    form.setValue('sourceMode', 'custom', { shouldValidate: true })
-    replaceCustomJson(stringifyJsonInput(activeSample.json))
-    form.setValue('rootPath', defaultRootPaths[activeSample.id] ?? '$', {
-      shouldValidate: true,
-    })
-    savePresetMutation.reset()
+    const nextCustomJson = stringifyJsonInput(activeSample.json)
 
-    startTransition(() => {
-      selectPreset(null)
-    })
+    window.setTimeout(() => {
+      form.setValue('sourceMode', 'custom', { shouldValidate: true })
+      replaceCustomJson(nextCustomJson, {
+        suspendWorkbench: true,
+      })
+      form.setValue('rootPath', defaultRootPaths[activeSample.id] ?? '$', {
+        shouldValidate: true,
+      })
+      savePresetMutation.reset()
+
+      startTransition(() => {
+        selectPreset(null)
+      })
+    }, 0)
   }
 
   function handleFormatCustomJson() {
@@ -614,7 +626,9 @@ function App() {
       return
     }
 
-    replaceCustomJson(formatted.formattedText)
+    replaceCustomJson(formatted.formattedText, {
+      suspendWorkbench: true,
+    })
   }
 
   const configErrors = [
@@ -769,6 +783,7 @@ function App() {
                   id="custom-json"
                   placeholder='{"records": [{"id": "1", "email": "user@example.com"}]}'
                   className="min-h-[22rem] font-mono text-xs"
+                  commitOnPause={false}
                   value={committedCustomJson}
                   onCommit={commitCustomJson}
                   onDirtyChange={setIsCustomJsonDirty}
@@ -1046,6 +1061,7 @@ function App() {
                         id="custom-json"
                         placeholder='{"records": [{"id": "1", "email": "user@example.com"}]}'
                         className="min-h-[18rem] font-mono text-xs"
+                        commitOnPause={false}
                         value={committedCustomJson}
                         onCommit={commitCustomJson}
                         onDirtyChange={setIsCustomJsonDirty}

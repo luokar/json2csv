@@ -9,6 +9,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, vi } from 'vitest'
 
 import App from '@/App'
+import { bufferedJsonCommitDelayMs } from '@/components/buffered-json-editor'
 import {
   computeProjectionPayload,
   type ProjectionWorkerRequest,
@@ -95,6 +96,7 @@ class FakeStreamingAppWorker {
 }
 
 afterEach(() => {
+  vi.useRealTimers()
   vi.unstubAllGlobals()
 })
 
@@ -380,6 +382,39 @@ describe('App', () => {
     })
   })
 
+  it('keeps single-character typing staged until apply while the editor stays focused', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <AppProviders>
+        <App />
+      </AppProviders>,
+    )
+
+    await user.click(screen.getByRole('button', { name: /custom json/i }))
+
+    const editor = screen.getByLabelText(/custom json/i)
+
+    await user.click(editor)
+    fireEvent.change(editor, {
+      target: { value: '{' },
+    })
+
+    await new Promise((resolve) => {
+      window.setTimeout(resolve, bufferedJsonCommitDelayMs + 50)
+    })
+
+    expect(
+      screen.getByRole('heading', {
+        name: /preview paused while editing custom json/i,
+      }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /apply json/i })).toBeEnabled()
+    expect(
+      screen.queryByLabelText(/filter visible csv rows/i),
+    ).not.toBeInTheDocument()
+  })
+
   it('keeps the heavy workbench collapsed while an applied custom draft is rebuilding', async () => {
     vi.stubGlobal('Worker', FakeStreamingAppWorker)
 
@@ -432,6 +467,45 @@ describe('App', () => {
       expect(
         screen.getByRole('button', { name: /^email$/i }),
       ).toBeInTheDocument()
+    })
+  })
+
+  it('keeps the workbench collapsed while loading the active sample into custom mode', async () => {
+    vi.stubGlobal('Worker', FakeStreamingAppWorker)
+
+    const user = userEvent.setup()
+
+    render(
+      <AppProviders>
+        <App />
+      </AppProviders>,
+    )
+
+    await user.click(screen.getByRole('button', { name: /custom json/i }))
+    await user.click(
+      screen.getByRole('button', { name: /load active sample/i }),
+    )
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('heading', {
+          name: /rebuilding preview for committed custom json/i,
+        }),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByLabelText(/filter visible csv rows/i),
+      ).not.toBeInTheDocument()
+    })
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('heading', {
+          name: /rebuilding preview for committed custom json/i,
+        }),
+      ).not.toBeInTheDocument()
+      expect(screen.getByLabelText(/root path/i)).toHaveValue('$.items.item[*]')
+      expect(screen.getByText(/parsed successfully/i)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /^id$/i })).toBeInTheDocument()
     })
   })
 

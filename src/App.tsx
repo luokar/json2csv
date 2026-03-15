@@ -26,15 +26,11 @@ import {
   startTransition,
   useDeferredValue,
   useEffect,
-  useRef,
   useState,
 } from 'react'
 import { type UseFormRegisterReturn, useForm, useWatch } from 'react-hook-form'
 import { z } from 'zod'
-import {
-  BufferedJsonEditor,
-  type BufferedJsonEditorHandle,
-} from '@/components/buffered-json-editor'
+import { bufferedJsonEditorServiceProps } from '@/components/buffered-json-editor'
 import { HeaderMapper, type HeaderSuggestion } from '@/components/header-mapper'
 import { InputDiagnostics } from '@/components/input-diagnostics'
 import { PathPlanner } from '@/components/path-planner'
@@ -235,13 +231,14 @@ function App() {
   const [committedCustomJson, setCommittedCustomJson] = useState(
     defaultFormValues.customJson,
   )
-  const [isCustomJsonDirty, setIsCustomJsonDirty] = useState(false)
+  const [customJsonDraft, setCustomJsonDraft] = useState(
+    defaultFormValues.customJson,
+  )
   const [isCustomProjectionPending, setIsCustomProjectionPending] =
     useState(false)
   const [isProjectionDebugDisabled, setProjectionDebugDisabled] = useState(
     debugFlags.projectionOffByDefault,
   )
-  const customJsonEditorRef = useRef<BufferedJsonEditorHandle | null>(null)
 
   const { data: presets = [], isLoading: isPresetsLoading } = useQuery({
     queryKey: ['presets'],
@@ -305,6 +302,7 @@ function App() {
     strictNaming,
   }
   const activeSample = getSampleById(liveValues.sampleId)
+  const isCustomJsonDirty = customJsonDraft !== committedCustomJson
   const streamableCustomSelector =
     liveValues.sourceMode === 'custom'
       ? resolveStreamableJsonPath(liveValues.rootPath)
@@ -479,40 +477,27 @@ function App() {
     },
   })
 
-  function commitCustomJson(nextText: string) {
-    startTransition(() => {
-      setCommittedCustomJson(nextText)
-    })
-  }
-
-  function replaceCustomJson(
-    nextText: string,
+  function applyCustomJson(
+    nextText: string = customJsonDraft,
     options: {
       suspendWorkbench?: boolean
     } = {},
   ) {
+    const shouldRebuildProjection = nextText !== committedCustomJson
+
+    setCustomJsonDraft(nextText)
     setCommittedCustomJson(nextText)
-    setIsCustomJsonDirty(false)
-    setIsCustomProjectionPending(options.suspendWorkbench ?? false)
+    setIsCustomProjectionPending(
+      Boolean(options.suspendWorkbench && shouldRebuildProjection),
+    )
+
+    return nextText
   }
 
-  function flushCustomJson() {
-    const latestText =
-      customJsonEditorRef.current?.flush() ?? committedCustomJson
-    const shouldRebuildProjection =
-      isCustomJsonDirty || latestText !== committedCustomJson
-
-    if (latestText !== committedCustomJson) {
-      setCommittedCustomJson(latestText)
-    }
-
-    setIsCustomJsonDirty(false)
-
-    if (shouldRebuildProjection) {
-      setIsCustomProjectionPending(true)
-    }
-
-    return latestText
+  function syncCustomJson(nextText: string) {
+    setCustomJsonDraft(nextText)
+    setCommittedCustomJson(nextText)
+    setIsCustomProjectionPending(false)
   }
 
   function loadPreset(preset: SavedPreset) {
@@ -521,9 +506,7 @@ function App() {
       customJson: defaultFormValues.customJson,
     })
     setHeaderRules(headerRulesFromConfig(preset.config))
-    setCommittedCustomJson(preset.customJson ?? '')
-    setIsCustomJsonDirty(false)
-    setIsCustomProjectionPending(false)
+    syncCustomJson(preset.customJson ?? '')
     setPlannerRules(plannerRulesFromConfig(preset.config))
     savePresetMutation.reset()
 
@@ -551,14 +534,7 @@ function App() {
 
   function handleSourceModeChange(sourceMode: SourceMode) {
     if (liveValues.sourceMode === 'custom') {
-      const latestCustomJson =
-        customJsonEditorRef.current?.read() ?? committedCustomJson
-
-      if (latestCustomJson !== committedCustomJson) {
-        setCommittedCustomJson(latestCustomJson)
-      }
-
-      setIsCustomJsonDirty(false)
+      setCommittedCustomJson(customJsonDraft)
       setIsCustomProjectionPending(false)
     }
 
@@ -587,7 +563,9 @@ function App() {
     const text = await file.text()
 
     form.setValue('sourceMode', 'custom', { shouldValidate: true })
-    replaceCustomJson(text)
+    applyCustomJson(text, {
+      suspendWorkbench: true,
+    })
     form.setValue('rootPath', '$', { shouldValidate: true })
     form.setValue('presetName', `${stripFileExtension(file.name)} export`, {
       shouldValidate: true,
@@ -605,7 +583,7 @@ function App() {
 
     window.setTimeout(() => {
       form.setValue('sourceMode', 'custom', { shouldValidate: true })
-      replaceCustomJson(nextCustomJson, {
+      applyCustomJson(nextCustomJson, {
         suspendWorkbench: true,
       })
       form.setValue('rootPath', defaultRootPaths[activeSample.id] ?? '$', {
@@ -620,13 +598,13 @@ function App() {
   }
 
   function handleFormatCustomJson() {
-    const formatted = formatJsonInput(flushCustomJson())
+    const formatted = formatJsonInput(customJsonDraft)
 
     if (!formatted.formattedText) {
       return
     }
 
-    replaceCustomJson(formatted.formattedText, {
+    applyCustomJson(formatted.formattedText, {
       suspendWorkbench: true,
     })
   }
@@ -700,8 +678,8 @@ function App() {
                     Main custom editor
                   </CardTitle>
                   <CardDescription>
-                    This uses the same buffered editor and apply flow as the
-                    normal custom JSON panel, but without the projection
+                    This uses the same staged editor and explicit apply flow as
+                    the normal custom JSON panel, but without the projection
                     workbench attached.
                   </CardDescription>
                 </div>
@@ -746,9 +724,11 @@ function App() {
                   <Button
                     type="button"
                     disabled={!isCustomJsonDirty}
-                    onClick={() => {
-                      flushCustomJson()
-                    }}
+                    onClick={() =>
+                      applyCustomJson(customJsonDraft, {
+                        suspendWorkbench: true,
+                      })
+                    }
                   >
                     Apply JSON
                   </Button>
@@ -778,15 +758,15 @@ function App() {
 
               <div className="space-y-2">
                 <Label htmlFor="custom-json">Custom JSON</Label>
-                <BufferedJsonEditor
-                  ref={customJsonEditorRef}
+                <Textarea
                   id="custom-json"
+                  {...bufferedJsonEditorServiceProps}
                   placeholder='{"records": [{"id": "1", "email": "user@example.com"}]}'
                   className="min-h-[22rem] font-mono text-xs"
-                  commitOnPause={false}
-                  value={committedCustomJson}
-                  onCommit={commitCustomJson}
-                  onDirtyChange={setIsCustomJsonDirty}
+                  value={customJsonDraft}
+                  onChange={(event) => {
+                    setCustomJsonDraft(event.target.value)
+                  }}
                 />
                 <p className="text-sm text-muted-foreground">
                   Projection is paused in this surface by design. Re-enable it
@@ -947,7 +927,10 @@ function App() {
               <form
                 className="space-y-4"
                 onSubmit={form.handleSubmit((values) => {
-                  const latestCustomJson = flushCustomJson()
+                  const latestCustomJson =
+                    liveValues.sourceMode === 'custom'
+                      ? committedCustomJson
+                      : defaultFormValues.customJson
 
                   savePresetMutation.mutate({
                     ...values,
@@ -1025,9 +1008,11 @@ function App() {
                       <Button
                         type="button"
                         disabled={!isCustomJsonDirty}
-                        onClick={() => {
-                          flushCustomJson()
-                        }}
+                        onClick={() =>
+                          applyCustomJson(customJsonDraft, {
+                            suspendWorkbench: true,
+                          })
+                        }
                       >
                         Apply JSON
                       </Button>
@@ -1056,15 +1041,15 @@ function App() {
 
                     <div className="space-y-2">
                       <Label htmlFor="custom-json">Custom JSON</Label>
-                      <BufferedJsonEditor
-                        ref={customJsonEditorRef}
+                      <Textarea
                         id="custom-json"
+                        {...bufferedJsonEditorServiceProps}
                         placeholder='{"records": [{"id": "1", "email": "user@example.com"}]}'
                         className="min-h-[18rem] font-mono text-xs"
-                        commitOnPause={false}
-                        value={committedCustomJson}
-                        onCommit={commitCustomJson}
-                        onDirtyChange={setIsCustomJsonDirty}
+                        value={customJsonDraft}
+                        onChange={(event) => {
+                          setCustomJsonDraft(event.target.value)
+                        }}
                       />
                       <p className="text-sm text-muted-foreground">
                         Custom input stays local to this browser. If you save a
@@ -1340,8 +1325,7 @@ function App() {
                         onClick={() => {
                           form.reset(defaultFormValues)
                           setHeaderRules([])
-                          setCommittedCustomJson(defaultFormValues.customJson)
-                          setIsCustomJsonDirty(false)
+                          syncCustomJson(defaultFormValues.customJson)
                           setPlannerRules([])
                           savePresetMutation.reset()
                           startTransition(() => {

@@ -18,7 +18,7 @@
 - Type drift summaries are now derived in [src/lib/mapping-engine.ts](/Users/mac/work/json2csv/src/lib/mapping-engine.ts) and surfaced in the sidecar UI in [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx).
 - Worker-backed live projection is now implemented through [src/hooks/use-projection-preview.ts](/Users/mac/work/json2csv/src/hooks/use-projection-preview.ts), [src/lib/projection.ts](/Users/mac/work/json2csv/src/lib/projection.ts), and [src/workers/projection-worker.ts](/Users/mac/work/json2csv/src/workers/projection-worker.ts).
 - Large live previews are now bounded in [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx) with row and text preview limits so the playground stays responsive under heavier inputs.
-- Custom JSON editing is now buffered through [src/components/buffered-json-editor.tsx](/Users/mac/work/json2csv/src/components/buffered-json-editor.tsx) so large payload typing does not recompute the entire dashboard on every keystroke, and the main app keeps custom drafts staged until blur or an explicit apply action.
+- Custom JSON editing in the main app now uses an app-owned staged draft in [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx) with explicit apply/format/load actions, while [src/components/buffered-json-editor.tsx](/Users/mac/work/json2csv/src/components/buffered-json-editor.tsx) remains available for isolated input diagnostics in [src/components/input-diagnostics.tsx](/Users/mac/work/json2csv/src/components/input-diagnostics.tsx).
 - The confirmed custom-editor freeze root cause was not the textarea itself. The browser stalled when the app restored or kept the full projection workbench mounted while committed custom payload changes were rebuilding, especially on `Apply JSON` and other explicit custom-input actions.
 - Explicit header mapping and renaming are now implemented through [src/components/header-mapper.tsx](/Users/mac/work/json2csv/src/components/header-mapper.tsx) and [src/lib/header-mapper.ts](/Users/mac/work/json2csv/src/lib/header-mapper.ts), with preset round-tripping wired through [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx).
 - Relational split preview is now implemented through [src/lib/relational-split.ts](/Users/mac/work/json2csv/src/lib/relational-split.ts), worker-backed projection in [src/lib/projection.ts](/Users/mac/work/json2csv/src/lib/projection.ts), and linked-table UI in [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx).
@@ -38,7 +38,7 @@
 - `pathModes` need exact-path matching. If they cascade to descendant arrays, users lose the ability to control nested arrays independently. Subtree semantics remain appropriate for `stringifyPaths` and `dropPaths`.
 - Explicit header mode should follow the user-provided whitelist order literally. Snapshot replay is only stable if header order is not re-derived from per-file discovery order.
 - Client-side responsiveness collapses quickly if parsing, path inspection, row projection, table rendering, CSV rendering, and duplicate raw JSON previews all happen on the main render path. The app needs bounded previews plus background computation, not just faster conversion code.
-- Even with worker-backed projection, a large JSON editor still freezes if every keystroke is committed into the main app state. The editor path needs buffered commits with explicit flush points for save/format actions.
+- Even with worker-backed projection, a large JSON editor still freezes if every keystroke is allowed to propagate into projection or restore the heavy workbench. The main app needs a staged draft with explicit apply points, while the buffered editor is only useful as a diagnostic control.
 - The deeper freeze path was app-structure, not text input. Remounting or restoring the heavy preview workbench during custom-payload rebuilds created the main-thread stall; keeping the editor mounted while the workbench stays suspended until projection settles is the correct fix shape.
 - The engine already supported `headerAliases` and `headerWhitelist`, but without an editor the feature was effectively hidden. Professional-grade mapping requires those schema controls to be visible, ordered, and persistent.
 - The first relational split milestone has to stay on the worker-backed projection path. If normalization runs as a separate main-thread pass, the UI regresses under the same larger payloads that motivated the buffered editor and bounded previews.
@@ -136,7 +136,8 @@
 - Sidecar regroup keys derived from structural provenance
 - Sidecar type drift report for mixed columns
 - Compact custom-source summary instead of duplicating the full custom payload in a second textarea
-- Buffered custom JSON editor for staged custom drafts, with the main app requiring blur or explicit apply before rebuilding the projection workbench
+- Staged custom JSON textarea in the main app with explicit apply before rebuilding the projection workbench
+- Buffered custom JSON editor retained in diagnostics so input-widget behavior can still be isolated from the main app structure
 - Bounded sample-source preview
 - Dexie-backed saved presets
 - Background preview refresh indicator while a worker recomputes the projection
@@ -180,7 +181,7 @@
 - Chunked progress updates across parse, path inspection, flat projection, and relational normalization phases
 - Incremental flat-preview chunks from the worker so row counts, headers, preview rows, and CSV text update before the final result message lands
 - Incremental custom selector parsing for the app's current JSONPath subset, allowing the worker to feed flat-preview roots before building the full in-memory document object
-- Buffered custom-editor commit path so the main app can hold typed drafts locally until blur or explicit apply, while the editor component still supports pause-based commits for isolated diagnostics
+- App-owned staged custom draft so typed payloads stay local until explicit apply, while the buffered editor still supports pause-based commits for isolated diagnostics
 - Row preview limits so TanStack Table only renders a bounded slice
 - Text preview limits for CSV and source payload cards
 
@@ -190,15 +191,17 @@
   - default sample rendering
   - custom upload flow
   - invalid custom JSON state
-  - buffered custom JSON flush on blur
+  - staged custom JSON apply flow
+  - custom typing remains staged even after blur until explicit apply
   - discovered-path planner interaction updates the live projection
   - explicit header mapping and renaming updates the preview
   - regroup keys are rendered in the sidecar schema card
   - indexed pivot columns can be enabled through the config form
 - Buffered editor unit coverage in [src/components/buffered-json-editor.test.tsx](/Users/mac/work/json2csv/src/components/buffered-json-editor.test.tsx)
   - debounced single-character typing
-  - bulk insert buffering until blur
-  - immediate flush on blur
+  - optional blur-only staging when pause commits are disabled
+  - bulk insert buffering until manual flush
+  - single-character flush on blur when using the buffered probe behavior
 - Header mapper helper coverage in [src/lib/header-mapper.test.ts](/Users/mac/work/json2csv/src/lib/header-mapper.test.ts)
   - alias and whitelist serialization
   - explicit-order reconstruction from saved config
@@ -265,7 +268,7 @@
 - App integration coverage now also checks include-based live projection narrowing in [src/App.test.tsx](/Users/mac/work/json2csv/src/App.test.tsx)
 - Live projection payloads are now compacted before they cross from the worker into the UI, so large custom JSON previews no longer clone full flat CSV output, full row sets, and full relational tables back onto the main thread. The preview contract is now explicitly bounded in [src/lib/projection.ts](/Users/mac/work/json2csv/src/lib/projection.ts) and consumed in [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx)
 - The custom editor no longer mirrors raw JSON into watched React Hook Form state, so switching modes, loading samples into the editor, and saving presets do not drag the full payload through form-level subscriptions in [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx)
-- Bulk custom edits now require an explicit apply action instead of auto-applying on blur, so clicking around the custom-input workflow no longer forces an immediate large reparse just because focus moved in [src/components/buffered-json-editor.tsx](/Users/mac/work/json2csv/src/components/buffered-json-editor.tsx) and [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx)
+- The main app custom editor now requires an explicit apply action instead of auto-applying on blur, so clicking around the custom-input workflow no longer forces an immediate large reparse just because focus moved in [src/App.tsx](/Users/mac/work/json2csv/src/App.tsx). The buffered editor behavior is now confined to diagnostics in [src/components/buffered-json-editor.tsx](/Users/mac/work/json2csv/src/components/buffered-json-editor.tsx)
 - Projection coverage now includes empty-string custom input, `null` root payloads, and bounded flat/relational preview payload behavior in [src/lib/projection.test.ts](/Users/mac/work/json2csv/src/lib/projection.test.ts)
 - App integration coverage now also checks malformed custom JSON, `Load active sample`, custom-mode saving, and `null` custom input flows in [src/App.test.tsx](/Users/mac/work/json2csv/src/App.test.tsx)
 
@@ -288,7 +291,7 @@ The Vite build still emits the existing chunk-size warning for the main bundle.
 - The workflow tree now supports subtree whitelisting, but the planner still only stores one action per exact path. A path cannot yet be both explicitly included and explicitly stringified or mode-overridden at the same exact node.
 - The relational split view is still preview-only. There is no ZIP packaging or download flow for the linked CSV tables yet.
 - Incremental parsing now covers the app's current selector subset of property, wildcard, and numeric-index steps, but it still does not support filters, recursive descent, unions, or full JSONPath semantics.
-- Custom JSON text is still buffered in-memory in the editor, and uploaded files still use `file.text()`. There is no browser file-stream ingestion path yet.
+- Custom JSON text is still staged in-memory on the client, and uploaded files still use `file.text()`. There is no browser file-stream ingestion path yet.
 - The live preview no longer sends full CSV text or full row sets back across the worker boundary, but the worker still materializes the full flat and relational results in memory before compacting them. There is still no out-of-core CSV writer or streaming relational export.
 - The new schema snapshot workflow is library-level only. There is still no batch conversion UI or persisted snapshot management flow in the app.
 - Relational split currently normalizes every repeating branch that is not explicitly stringified or dropped. There is no heuristic recommender or tree UI yet for choosing which branches should become secondary tables.

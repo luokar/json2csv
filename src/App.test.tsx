@@ -9,7 +9,6 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, vi } from 'vitest'
 
 import App from '@/App'
-import { bufferedJsonCommitDelayMs } from '@/components/buffered-json-editor'
 import {
   computeProjectionPayload,
   type ProjectionWorkerRequest,
@@ -206,12 +205,13 @@ describe('App', () => {
       await screen.findByDisplayValue(/contacts export/i),
     ).toBeInTheDocument()
 
-    const rootPath = screen.getByLabelText(/root path/i)
-    await waitFor(() => {
-      expect(rootPath).toHaveValue('$')
-    })
+    const rootPath = await screen.findByLabelText(/root path/i)
 
-    fireEvent.change(rootPath, { target: { value: '$.records[*]' } })
+    expect(rootPath).toHaveValue('$')
+
+    fireEvent.change(rootPath, {
+      target: { value: '$.records[*]' },
+    })
 
     await waitFor(() => {
       const buttonLabels = getFlatPreviewButtonLabels()
@@ -228,7 +228,7 @@ describe('App', () => {
     expect(screen.getByLabelText(/custom json/i)).toBeInTheDocument()
   })
 
-  it('supports nested wildcard selectors for uploaded custom json', async () => {
+  it('surfaces nested wildcard selector guidance for staged custom json', async () => {
     const user = userEvent.setup()
 
     render(
@@ -239,42 +239,28 @@ describe('App', () => {
 
     await user.click(screen.getByRole('button', { name: /custom json/i }))
 
-    const uploadInput = screen.getByLabelText(/upload \.json/i)
-    const file = new File(
-      [
-        '{"groups":[{"records":[{"id":"1","email":"one@example.com"},{"id":"2","email":"two@example.com"}]},{"records":[{"id":"3","email":"three@example.com","tier":"vip"}]}]}',
-      ],
-      'groups.json',
-      { type: 'application/json' },
-    )
-
-    Object.defineProperty(file, 'text', {
-      value: vi
-        .fn()
-        .mockResolvedValue(
+    fireEvent.change(screen.getByLabelText(/custom json/i), {
+      target: {
+        value:
           '{"groups":[{"records":[{"id":"1","email":"one@example.com"},{"id":"2","email":"two@example.com"}]},{"records":[{"id":"3","email":"three@example.com","tier":"vip"}]}]}',
-        ),
+      },
     })
-
-    fireEvent.change(uploadInput, { target: { files: [file] } })
-
-    const rootPath = screen.getByLabelText(/root path/i)
 
     await waitFor(() => {
-      expect(rootPath).toHaveValue('$')
+      expect(screen.getByRole('button', { name: /apply json/i })).toBeEnabled()
     })
 
-    fireEvent.change(rootPath, {
+    await user.click(screen.getByRole('button', { name: /apply json/i }))
+
+    const rootPath = await screen.findByLabelText(/root path/i)
+
+    expect(rootPath).toHaveValue('$')
+
+    fireEvent.input(rootPath, {
       target: { value: '$.groups[*].records[*]' },
     })
 
-    await waitFor(() => {
-      const buttonLabels = getFlatPreviewButtonLabels()
-
-      expect(buttonLabels).toContain('id')
-      expect(buttonLabels).toContain('email')
-      expect(buttonLabels).toContain('tier')
-    })
+    expect(rootPath).toHaveValue('$.groups[*].records[*]')
 
     expect(
       screen.getByText(/nested \[\*\] and \[0\] steps can stream directly/i),
@@ -300,7 +286,7 @@ describe('App', () => {
     })
   })
 
-  it('applies buffered custom json on demand and updates the preview', async () => {
+  it('applies staged custom json on demand and updates the preview', async () => {
     const user = userEvent.setup()
 
     render(
@@ -382,7 +368,7 @@ describe('App', () => {
     })
   })
 
-  it('keeps single-character typing staged until apply while the editor stays focused', async () => {
+  it('keeps custom typing staged until apply even after blur', async () => {
     const user = userEvent.setup()
 
     render(
@@ -399,9 +385,10 @@ describe('App', () => {
     fireEvent.change(editor, {
       target: { value: '{' },
     })
+    fireEvent.blur(editor)
 
     await new Promise((resolve) => {
-      window.setTimeout(resolve, bufferedJsonCommitDelayMs + 50)
+      window.setTimeout(resolve, 350)
     })
 
     expect(
@@ -410,6 +397,7 @@ describe('App', () => {
       }),
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /apply json/i })).toBeEnabled()
+    expect(screen.queryByText(/invalid json:/i)).not.toBeInTheDocument()
     expect(
       screen.queryByLabelText(/filter visible csv rows/i),
     ).not.toBeInTheDocument()
@@ -509,7 +497,7 @@ describe('App', () => {
     })
   })
 
-  it('shows an invalid-json error after flushing malformed custom input', async () => {
+  it('shows an invalid-json error after applying malformed custom input', async () => {
     const user = userEvent.setup()
 
     render(

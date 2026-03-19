@@ -59,14 +59,37 @@ Status: Completed in the first execution pass.
 - Memoized `RowPreviewCard`, `PathPlanner`, and `HeaderMapper`.
 - Memoized the highest-churn derived data feeding those panels.
 - Added bounded live-preview limits for extreme column-count payloads so the row table and schema sidecar do not try to render every column at once.
+- Added a staged complex-root gate for broad `$` documents so the full planner and preview stay hidden until the user narrows the scope or explicitly continues.
+- Ranked suggested roots by reusable structural breadth and suppressed high-cardinality keyed children such as individual OpenAPI routes.
 
 ### Next pass
 
 - Replace the large controlled custom JSON textarea in the main workbench with the existing buffered editor path so typing no longer rerenders the whole root component on every keystroke.
-- Add a better browse/filter workflow for very large discovered-path trees so OpenAPI-style documents remain navigable even when the root contains thousands of paths.
+- Replace the literal large-path planner with a browse/filter workflow based on grouped path families once the root has been narrowed.
 - Extract the relational preview and CSV/schema side panels into memoized subcomponents if profiler traces still show expensive progress-only rerenders.
 - Validate the impact with browser profiling on large nested custom payloads, especially while streaming preview is active.
 
 ## Expected Outcome
 
 The first pass should noticeably reduce UI churn during preview rebuilds, especially for large nested payloads where the worker emits multiple progress and streaming updates. It does not change the core conversion algorithm; it reduces how much redundant UI work happens while conversion is in flight.
+
+## Swagger Profile
+
+I ran a structural profile against `/Users/mac/Downloads/swagger.json` after the first optimization pass. The important numbers were:
+
+- file size: about `2.5 MB`
+- top-level arrays: `servers=1`, `security=3`, `tags=71`, `x-tagGroups=17`
+- OpenAPI path objects: `367`
+- component schemas: `987`
+- component parameters: `372`
+- component responses: `163`
+- approximate unique leaf paths: `20,310`
+- approximate total unique paths including branches: `39,620`
+
+What this means:
+
+- This payload is not primarily a “too many preview rows” case.
+- It is a “far too many paths and columns” case.
+- The new bounded table/schema preview limits should reduce the row-preview and sidecar cost.
+- The new staged overview gate now prevents the heaviest planner/preview surfaces from mounting immediately at root `$`.
+- The next likely UI hotspot for this document is the literal path-planner tree after narrowing, because it still works with a very large discovered-path set.

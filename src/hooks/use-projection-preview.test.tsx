@@ -49,6 +49,11 @@ class FakeProjectionWorker {
     setTimeout(() => {
       this.emit({
         preview: {
+          csvPreview: {
+            omittedCharacters: 0,
+            text: '"id","type","name"\n"0001","donut","Cake"',
+            truncated: false,
+          },
           headers: ['id', 'type', 'name'],
           previewRecords: [{ id: '0001', name: 'Cake', type: 'donut' }],
           processedRoots: 1,

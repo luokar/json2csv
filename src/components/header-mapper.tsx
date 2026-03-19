@@ -1,4 +1,5 @@
 import { Plus, Trash2 } from 'lucide-react'
+import { memo, useMemo } from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -20,7 +21,7 @@ interface HeaderMapperProps {
   suggestions: HeaderSuggestion[]
 }
 
-export function HeaderMapper({
+export const HeaderMapper = memo(function HeaderMapper({
   headerPolicy,
   onChange,
   rules,
@@ -73,7 +74,10 @@ export function HeaderMapper({
     ])
   }
 
-  const visibleSuggestions = suggestions.slice(0, 12)
+  const visibleSuggestions = useMemo(
+    () => suggestions.slice(0, 12),
+    [suggestions],
+  )
 
   return (
     <div className="space-y-4 rounded-[24px] border border-border/70 bg-background/55 p-4">
@@ -228,4 +232,4 @@ export function HeaderMapper({
       </div>
     </div>
   )
-}
+})

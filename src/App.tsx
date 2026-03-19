@@ -24,11 +24,13 @@ import {
 } from 'lucide-react'
 import {
   type ChangeEvent,
+  memo,
   type ReactNode,
   startTransition,
   useCallback,
   useDeferredValue,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react'
@@ -112,7 +114,6 @@ import {
   missingKeyStrategies,
   placeholderStrategies,
   selectRootNodes,
-  toCsv,
   typeMismatchStrategies,
 } from '@/lib/mapping-engine'
 import { mappingSamples } from '@/lib/mapping-samples'
@@ -163,6 +164,11 @@ const defaultRootPaths: Record<string, string> = {
 }
 
 const sampleSourcePreviewCharacterLimit = 12_000
+const schemaColumnPreviewLimit = 120
+const schemaTypeReportPreviewLimit = 40
+const tableColumnPreviewLimit = 80
+const emptyPreviewHeaders: string[] = []
+const emptyPreviewRecords: Array<Record<string, string>> = []
 
 const converterFormSchema = z.object({
   presetName: z
@@ -632,40 +638,50 @@ function App() {
   const isStreamingFlatPreview =
     projection.isProjecting && streamingFlatPreview !== null
   const isRelationalPreviewProjecting = relationalPreview.isProjecting
-  const headerSuggestions = buildHeaderSuggestions(
-    conversionResult?.schema.columns ?? [],
-    discoveredPaths,
+  const headerSuggestions = useMemo(
+    () =>
+      buildHeaderSuggestions(
+        conversionResult?.schema.columns ?? [],
+        discoveredPaths,
+      ),
+    [conversionResult?.schema.columns, discoveredPaths],
   )
 
   const flatHeaders =
-    streamingFlatPreview?.headers ?? conversionResult?.headers ?? []
+    streamingFlatPreview?.headers ??
+    conversionResult?.headers ??
+    emptyPreviewHeaders
   const flatRecords =
-    streamingFlatPreview?.previewRecords ?? conversionResult?.records ?? []
+    streamingFlatPreview?.previewRecords ??
+    conversionResult?.records ??
+    emptyPreviewRecords
   const flatRowCount =
     streamingFlatPreview?.rowCount ?? conversionResult?.rowCount ?? 0
-  const flatCsvSource =
-    isStreamingFlatPreview && activeConfig
-      ? toCsv(flatHeaders, flatRecords, activeConfig)
-      : (conversionResult?.csvPreview.text ?? 'No CSV generated.')
   const flatCsvLineCount =
     isStreamingFlatPreview || conversionResult
       ? flatRowCount + (flatHeaders.length > 0 ? 1 : 0)
       : 0
-  const csvPreview =
-    isStreamingFlatPreview && activeConfig
-      ? createTextPreview(flatCsvSource, projectionFlatCsvPreviewCharacterLimit)
-      : (conversionResult?.csvPreview ?? {
-          omittedCharacters: 0,
-          text: 'No CSV generated.',
-          truncated: false,
-        })
-  const sampleSourcePreview =
-    liveValues.sourceMode === 'sample'
-      ? createTextPreview(
-          stringifyJsonInput(activeSample.json),
-          sampleSourcePreviewCharacterLimit,
-        )
-      : null
+  const csvPreview = isStreamingFlatPreview
+    ? (streamingFlatPreview?.csvPreview ?? {
+        omittedCharacters: 0,
+        text: 'No CSV generated.',
+        truncated: false,
+      })
+    : (conversionResult?.csvPreview ?? {
+        omittedCharacters: 0,
+        text: 'No CSV generated.',
+        truncated: false,
+      })
+  const sampleSourcePreview = useMemo(
+    () =>
+      liveValues.sourceMode === 'sample'
+        ? createTextPreview(
+            stringifyJsonInput(activeSample.json),
+            sampleSourcePreviewCharacterLimit,
+          )
+        : null,
+    [activeSample.json, liveValues.sourceMode],
+  )
   const selectedRelationalTable =
     relationalSplitResult?.tables.find(
       (table) => table.tableName === selectedRelationalTableName,
@@ -711,6 +727,9 @@ function App() {
               ? 'Apply the current custom JSON draft before exporting.'
               : null
   const canExportOutputs = outputExportBlockedReason === null
+  const activeConfigDescription = activeConfig
+    ? describeConfig(activeConfig)
+    : 'Invalid configuration'
 
   useEffect(() => {
     const tableNames = relationalSplitResult?.tables.map(
@@ -1496,10 +1515,34 @@ function App() {
     parsedValues.success &&
     (liveValues.sourceMode === 'sample' ||
       (!projection.isProjecting && projection.parseError === null))
-  const mixedTypeReports =
-    conversionResult?.schema.typeReports.filter(
-      (report) => report.typeBreakdown.length > 1,
-    ) ?? []
+  const mixedTypeReports = useMemo(
+    () =>
+      conversionResult?.schema.typeReports.filter(
+        (report) => report.typeBreakdown.length > 1,
+      ) ?? [],
+    [conversionResult?.schema.typeReports],
+  )
+  const visibleMixedTypeReports = useMemo(
+    () => mixedTypeReports.slice(0, schemaTypeReportPreviewLimit),
+    [mixedTypeReports],
+  )
+  const hiddenMixedTypeReportCount = Math.max(
+    0,
+    mixedTypeReports.length - visibleMixedTypeReports.length,
+  )
+  const visibleSchemaColumns = useMemo(
+    () =>
+      (conversionResult?.schema.columns ?? []).slice(
+        0,
+        schemaColumnPreviewLimit,
+      ),
+    [conversionResult?.schema.columns],
+  )
+  const hiddenSchemaColumnCount = Math.max(
+    0,
+    (conversionResult?.schema.columns.length ?? 0) -
+      visibleSchemaColumns.length,
+  )
   const committedCustomJsonParseResult =
     liveValues.sourceMode === 'custom' && !isCustomJsonDirty
       ? parseJsonInput(committedCustomJson)
@@ -2594,8 +2637,8 @@ function App() {
           ) : (
             <div className="grid gap-6">
               <RowPreviewCard
-                activeConfig={activeConfig}
                 activeSampleTitle={activeSample.title}
+                configDescription={activeConfigDescription}
                 conversionResult={conversionResult}
                 flatHeaders={flatHeaders}
                 flatRecords={flatRecords}
@@ -2991,7 +3034,17 @@ function App() {
 
                       {mixedTypeReports.length > 0 ? (
                         <div className="mt-3 space-y-3">
-                          {mixedTypeReports.map((report) => (
+                          {hiddenMixedTypeReportCount > 0 ? (
+                            <div className="rounded-[20px] border border-border/70 bg-background/80 p-4 text-sm text-muted-foreground">
+                              Showing the first{' '}
+                              {schemaTypeReportPreviewLimit.toLocaleString()}{' '}
+                              mixed-type columns. {hiddenMixedTypeReportCount}{' '}
+                              more type-drift reports are hidden from the live
+                              sidecar.
+                            </div>
+                          ) : null}
+
+                          {visibleMixedTypeReports.map((report) => (
                             <div key={report.header}>
                               <div className="flex items-center justify-between gap-3">
                                 <p className="font-semibold text-foreground">
@@ -3017,7 +3070,16 @@ function App() {
                       )}
                     </div>
 
-                    {conversionResult?.schema.columns.map((column) => (
+                    {hiddenSchemaColumnCount > 0 ? (
+                      <div className="rounded-[20px] border border-border/70 bg-background/80 p-4 text-sm text-muted-foreground">
+                        Showing the first{' '}
+                        {schemaColumnPreviewLimit.toLocaleString()} columns in
+                        the live sidecar. {hiddenSchemaColumnCount} additional
+                        columns remain available in the full export.
+                      </div>
+                    ) : null}
+
+                    {visibleSchemaColumns.map((column) => (
                       <div
                         key={column.header}
                         className="rounded-[24px] border border-border/70 bg-background/80 p-4"
@@ -3111,9 +3173,9 @@ function App() {
   )
 }
 
-function RowPreviewCard({
-  activeConfig,
+const RowPreviewCard = memo(function RowPreviewCard({
   activeSampleTitle,
+  configDescription,
   conversionResult,
   flatHeaders,
   flatRecords,
@@ -3122,8 +3184,8 @@ function RowPreviewCard({
   sourceMode,
   streamingFlatPreview,
 }: {
-  activeConfig: MappingConfig | undefined
   activeSampleTitle: string
+  configDescription: string
   conversionResult: ProjectionConversionResult | null
   flatHeaders: string[]
   flatRecords: Array<Record<string, string>>
@@ -3139,19 +3201,29 @@ function RowPreviewCard({
     !isStreamingFlatPreview &&
     conversionResult !== null &&
     conversionResult.rowCount > conversionResult.records.length
-  const filteredRecords = filterRecords(
-    flatHeaders,
-    flatRecords,
-    deferredSearch,
+  const visibleHeaders = useMemo(
+    () => flatHeaders.slice(0, tableColumnPreviewLimit),
+    [flatHeaders],
   )
-  const previewRows = createRowPreview(
-    filteredRecords,
-    projectionFlatRowPreviewLimit,
+  const hiddenColumnCount = Math.max(
+    0,
+    flatHeaders.length - visibleHeaders.length,
+  )
+  const filteredRecords = useMemo(
+    () => filterRecords(visibleHeaders, flatRecords, deferredSearch),
+    [deferredSearch, flatRecords, visibleHeaders],
+  )
+  const previewRows = useMemo(
+    () => createRowPreview(filteredRecords, projectionFlatRowPreviewLimit),
+    [filteredRecords],
   )
   const flatPreviewRowsTruncated = isStreamingFlatPreview
     ? flatRowCount > flatRecords.length
     : previewRows.truncated || hasBoundedFlatPreview
-  const columns = buildPreviewColumns(flatHeaders)
+  const columns = useMemo(
+    () => buildPreviewColumns(visibleHeaders),
+    [visibleHeaders],
+  )
   const table = useReactTable({
     data: previewRows.rows,
     columns,
@@ -3184,6 +3256,11 @@ function RowPreviewCard({
             </Badge>
             <Badge variant="secondary">{flatRowCount} rows</Badge>
             <Badge variant="secondary">{flatHeaders.length} columns</Badge>
+            {hiddenColumnCount > 0 ? (
+              <Badge variant="outline">
+                Showing first {visibleHeaders.length} columns
+              </Badge>
+            ) : null}
             {isStreamingFlatPreview ? (
               <Badge variant="secondary">Streaming preview</Badge>
             ) : null}
@@ -3208,15 +3285,13 @@ function RowPreviewCard({
               value={searchDraft}
               onChange={(event) => setSearchDraft(event.target.value)}
               className="pl-11"
-              placeholder="Filter visible CSV rows"
+              placeholder="Filter visible rows across the shown columns"
             />
           </div>
 
           <div className="flex items-center gap-2 rounded-full border border-border/70 bg-background/80 px-4 py-3 text-sm text-muted-foreground">
             <Waypoints className="size-4 text-primary" />
-            {activeConfig
-              ? describeConfig(activeConfig)
-              : 'Invalid configuration'}
+            {configDescription}
           </div>
         </div>
       </CardHeader>
@@ -3225,9 +3300,9 @@ function RowPreviewCard({
         <Table>
           <TableCaption>
             {isStreamingFlatPreview && streamingFlatPreview
-              ? describeStreamingPreviewCaption(streamingFlatPreview)
+              ? `${describeStreamingPreviewCaption(streamingFlatPreview)}${hiddenColumnCount > 0 ? ` Showing the first ${visibleHeaders.length} of ${flatHeaders.length} columns in the live table preview.` : ''}`
               : conversionResult
-                ? `${hasBoundedFlatPreview ? `Showing first ${conversionResult.records.length} preview rows of ${conversionResult.rowCount} total rows. ${deferredSearch.trim() ? 'Search applies to the preview slice only. ' : ''}` : ''}Root path ${conversionResult.config.rootPath || '$'} with ${conversionResult.config.flattenMode} mode.`
+                ? `${hasBoundedFlatPreview ? `Showing first ${conversionResult.records.length} preview rows of ${conversionResult.rowCount} total rows. ${deferredSearch.trim() ? 'Search applies to the preview slice only. ' : ''}` : ''}${hiddenColumnCount > 0 ? `Showing the first ${visibleHeaders.length} of ${flatHeaders.length} columns in the live table preview. ` : ''}Root path ${conversionResult.config.rootPath || '$'} with ${conversionResult.config.flattenMode} mode.`
                 : 'Fix the current form errors to generate a preview.'}
           </TableCaption>
           <TableHeader>
@@ -3263,7 +3338,7 @@ function RowPreviewCard({
             ) : (
               <TableRow>
                 <TableCell
-                  colSpan={Math.max(flatHeaders.length, 1)}
+                  colSpan={Math.max(visibleHeaders.length, 1)}
                   className="py-16 text-center text-muted-foreground"
                 >
                   {isStreamingFlatPreview || conversionResult
@@ -3277,7 +3352,7 @@ function RowPreviewCard({
       </CardContent>
     </Card>
   )
-}
+})
 
 function buildPreviewColumns(
   headers: string[],

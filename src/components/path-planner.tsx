@@ -1,4 +1,5 @@
 import { Plus, Trash2 } from 'lucide-react'
+import { memo, useMemo } from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -24,7 +25,7 @@ interface PathPlannerProps {
   suggestions: InspectedPath[]
 }
 
-export function PathPlanner({
+export const PathPlanner = memo(function PathPlanner({
   defaultMode,
   onChange,
   rules,
@@ -79,7 +80,10 @@ export function PathPlanner({
     onChange(rules.filter((rule) => normalizePlannerPath(rule.path) !== path))
   }
 
-  const suggestionTree = buildPlannerSuggestionTree(suggestions, rules)
+  const suggestionTree = useMemo(
+    () => buildPlannerSuggestionTree(suggestions, rules),
+    [rules, suggestions],
+  )
 
   return (
     <div className="space-y-4 rounded-[24px] border border-border/70 bg-background/55 p-4">
@@ -213,7 +217,7 @@ export function PathPlanner({
       </div>
     </div>
   )
-}
+})
 
 function PlannerTreeBranch({
   defaultMode,

@@ -155,6 +155,7 @@ export interface ProcessingProgress {
 }
 
 export interface MappingStreamChunk {
+  csvPreview: TextPreview
   headers: string[]
   previewRecords: Array<Record<string, string>>
   processedRoots: number
@@ -166,6 +167,7 @@ export interface MappingConversionHandlers {
   onProgress?: (progress: ProcessingProgress) => void
   onStreamChunk?: (chunk: MappingStreamChunk) => void
   streamChunkSize?: number
+  streamPreviewCharacterLimit?: number
   streamPreviewRowLimit?: number
 }
 
@@ -174,6 +176,7 @@ export interface MappingProjectionSession {
   buildStreamChunk: (
     totalRoots?: number | null,
     previewRowLimit?: number,
+    previewCharacterLimit?: number,
   ) => MappingStreamChunk
   config: MappingConfig
   finalize: () => MappingResult
@@ -310,7 +313,11 @@ export function createMappingProjectionSession(
       renderedRows.push(...renderedGroup)
       processedRootCount += 1
     },
-    buildStreamChunk(totalRoots, previewRowLimit = 100) {
+    buildStreamChunk(
+      totalRoots,
+      previewRowLimit = 100,
+      previewCharacterLimit = Number.POSITIVE_INFINITY,
+    ) {
       return buildMappingStreamChunk(
         renderedRows,
         registry,
@@ -318,6 +325,7 @@ export function createMappingProjectionSession(
         processedRootCount,
         totalRoots === undefined ? processedRootCount : totalRoots,
         previewRowLimit,
+        previewCharacterLimit,
       )
     },
     config,
@@ -550,7 +558,11 @@ function emitMappingStreamChunk(
   }
 
   handlers.onStreamChunk(
-    session.buildStreamChunk(totalRoots, handlers.streamPreviewRowLimit),
+    session.buildStreamChunk(
+      totalRoots,
+      handlers.streamPreviewRowLimit,
+      handlers.streamPreviewCharacterLimit,
+    ),
   )
 }
 
@@ -561,6 +573,7 @@ function buildMappingStreamChunk(
   processedRoots: number,
   totalRoots: number | null,
   previewRowLimit: number,
+  previewCharacterLimit: number,
 ) {
   const previewRows = renderedRows.slice(0, Math.max(1, previewRowLimit))
   const previewRawRows = previewRows.map((row) => ({ ...row.data }))
@@ -582,6 +595,10 @@ function buildMappingStreamChunk(
   )
 
   return {
+    csvPreview: createTextPreview(
+      toCsv(selectedHeaders, previewRecords, config),
+      previewCharacterLimit,
+    ),
     headers: selectedHeaders,
     previewRecords,
     processedRoots,

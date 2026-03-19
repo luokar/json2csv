@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import {
+  startTransition,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
 import {
   computeRelationalProjectionPayload,
   createInitialProjectionProgress,
@@ -47,7 +53,12 @@ export function useRelationalPreview(
         : emptyRelationalProjectionState,
   )
   const configRef = useRef(request.config)
+  const pendingCommitRequestIdRef = useRef<number | null>(null)
+  const pendingProjectionPatchRef =
+    useRef<Partial<RelationalProjectionState> | null>(null)
+  const scheduledAnimationFrameRef = useRef<number | null>(null)
   const requestIdRef = useRef(0)
+  const scheduledTimeoutRef = useRef<number | null>(null)
   const workerRef = useRef<Worker | null>(null)
 
   configRef.current = request.config
@@ -55,9 +66,99 @@ export function useRelationalPreview(
   const { customJson, includeRelational, rootPath, sampleJson, sourceMode } =
     request
 
+  const clearScheduledCommit = useCallback(() => {
+    if (
+      typeof window !== 'undefined' &&
+      scheduledAnimationFrameRef.current !== null
+    ) {
+      window.cancelAnimationFrame(scheduledAnimationFrameRef.current)
+      scheduledAnimationFrameRef.current = null
+    }
+
+    if (typeof window !== 'undefined' && scheduledTimeoutRef.current !== null) {
+      window.clearTimeout(scheduledTimeoutRef.current)
+      scheduledTimeoutRef.current = null
+    }
+  }, [])
+
+  const clearPendingCommit = useCallback(() => {
+    clearScheduledCommit()
+    pendingCommitRequestIdRef.current = null
+    pendingProjectionPatchRef.current = null
+  }, [clearScheduledCommit])
+
+  const flushPendingCommit = useCallback(() => {
+    clearScheduledCommit()
+
+    const pendingPatch = pendingProjectionPatchRef.current
+    const pendingRequestId = pendingCommitRequestIdRef.current
+
+    pendingProjectionPatchRef.current = null
+    pendingCommitRequestIdRef.current = null
+
+    if (!pendingPatch || pendingRequestId !== requestIdRef.current) {
+      return
+    }
+
+    startTransition(() => {
+      setProjection((previous) => ({
+        ...previous,
+        ...pendingPatch,
+      }))
+    })
+  }, [clearScheduledCommit])
+
+  const scheduleCommit = useCallback(
+    (requestId: number, patch: Partial<RelationalProjectionState>) => {
+      if (requestId !== requestIdRef.current) {
+        return
+      }
+
+      pendingCommitRequestIdRef.current = requestId
+      pendingProjectionPatchRef.current = {
+        ...(pendingProjectionPatchRef.current ?? {}),
+        ...patch,
+      }
+
+      if (
+        scheduledAnimationFrameRef.current !== null ||
+        scheduledTimeoutRef.current !== null
+      ) {
+        return
+      }
+
+      if (
+        typeof window !== 'undefined' &&
+        typeof window.requestAnimationFrame === 'function'
+      ) {
+        scheduledAnimationFrameRef.current = window.requestAnimationFrame(
+          () => {
+            scheduledAnimationFrameRef.current = null
+            flushPendingCommit()
+          },
+        )
+
+        return
+      }
+
+      if (typeof window !== 'undefined') {
+        scheduledTimeoutRef.current = window.setTimeout(() => {
+          scheduledTimeoutRef.current = null
+          flushPendingCommit()
+        }, 16)
+
+        return
+      }
+
+      flushPendingCommit()
+    },
+    [flushPendingCommit],
+  )
+
   useEffect(() => {
     if (!enabled) {
       requestIdRef.current += 1
+      clearPendingCommit()
       workerRef.current?.terminate()
       workerRef.current = null
 
@@ -68,6 +169,7 @@ export function useRelationalPreview(
     // latest config value itself is read from `configRef`.
     void configVersion
 
+    clearPendingCommit()
     requestIdRef.current += 1
     const requestId = requestIdRef.current
     const payload: ProjectionRequest = {
@@ -95,11 +197,10 @@ export function useRelationalPreview(
         return
       }
 
-      setProjection((previous) => ({
-        ...previous,
+      scheduleCommit(requestId, {
         isProjecting: true,
         progress: response.progress,
-      }))
+      })
     }
 
     const commitResult = (response: ProjectionRelationalWorkerResponse) => {
@@ -110,6 +211,7 @@ export function useRelationalPreview(
         return
       }
 
+      clearPendingCommit()
       setProjection({
         ...response.payload,
         isProjecting: false,
@@ -149,21 +251,24 @@ export function useRelationalPreview(
       worker.removeEventListener('message', handleMessage)
     }
   }, [
+    clearPendingCommit,
     configVersion,
     customJson,
     enabled,
     includeRelational,
     rootPath,
     sampleJson,
+    scheduleCommit,
     sourceMode,
   ])
 
   useEffect(
     () => () => {
+      clearPendingCommit()
       workerRef.current?.terminate()
       workerRef.current = null
     },
-    [],
+    [clearPendingCommit],
   )
 
   return enabled ? projection : disabledRelationalProjectionState

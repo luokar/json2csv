@@ -258,6 +258,7 @@ export function streamProjectionPayload(
             reportProgress('flat', progress.completed, progress.total)
           },
           onStreamChunk: handlers.onFlatStreamPreview,
+          streamPreviewCharacterLimit: projectionFlatCsvPreviewCharacterLimit,
           streamPreviewRowLimit: projectionStreamPreviewRowLimit,
         },
       )
@@ -355,6 +356,7 @@ function streamCustomSelectorProjectionPayload(
             flatProjectionSession.buildStreamChunk(
               null,
               projectionStreamPreviewRowLimit,
+              projectionFlatCsvPreviewCharacterLimit,
             ),
           )
         }
@@ -375,6 +377,7 @@ function streamCustomSelectorProjectionPayload(
       flatProjectionSession.buildStreamChunk(
         rootNodes.length,
         projectionStreamPreviewRowLimit,
+        projectionFlatCsvPreviewCharacterLimit,
       ),
     )
   }

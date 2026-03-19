@@ -6,6 +6,7 @@ describe('preview helpers', () => {
 
     expect(result).toEqual({
       omittedCharacters: 4,
+      omittedCharactersKnown: true,
       text: 'abcdef\n\n[Preview truncated]',
       truncated: true,
     })

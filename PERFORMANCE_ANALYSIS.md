@@ -467,3 +467,101 @@ I executed the first improvement pass after writing the study and reran the same
 3. Full final flat materialization still does more work than a pure preview path ideally needs.
 
 This rerun supports the original diagnosis. The initial slowdown was mostly preview-path churn plus eager derived work, not raw JSON parsing.
+
+## Second Improvement Pass
+
+I continued with the next item from Phase 2 and changed the flat preview path to avoid export-grade finalization work.
+
+The implemented changes were:
+
+- add a preview-only flat finalizer instead of building a full `MappingResult` for preview
+- stop materializing full flat `records` arrays for preview
+- stop materializing full flat CSV text for preview
+- stop materializing flat `rowProvenance` for preview
+- stop computing an exact hidden-character count when the CSV preview is row-bounded, because that extra counting pass was erasing part of the gain
+
+### Flat preview finalizer vs full finalizer
+
+On the same benchmark payloads, the new preview-only flat finalizer is now consistently cheaper than the full flat finalizer:
+
+| Scenario | Full `convertJsonToCsvTable` | Preview `convertJsonToCsvPreviewTable` | Improvement |
+| --- | ---: | ---: | ---: |
+| flat records, `parallel` | `37.26 ms` | `25.68 ms` | `31%` faster |
+| nested groups, `parallel` | `117.27 ms` | `98.28 ms` | `16%` faster |
+| nested groups, `stringify` | `18.41 ms` | `14.00 ms` | `24%` faster |
+| nested groups, `strict_leaf` | `17.01 ms` | `12.98 ms` | `24%` faster |
+
+This confirms that preview-only finalization is worthwhile, but it also confirms that nested `parallel` row amplification still dominates the flat stage.
+
+### User-visible rerun after both passes
+
+I reran the same `~1.25 MB` matrix after both implementation passes were in place.
+
+| Scenario | Original eager worker path | After first pass flat/discovery | Current flat/discovery | Separate relational pass | Current combined async total |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| flat records, `parallel` | `164.32 ms` | `45.64 ms` | `46.78 ms` | `32.02 ms` | `78.80 ms` |
+| nested groups, `parallel` | `427.15 ms` | `143.72 ms` | `124.14 ms` | `88.19 ms` | `212.33 ms` |
+| nested groups, `stringify` | `157.59 ms` | `44.19 ms` | `37.07 ms` | `81.66 ms` | `118.73 ms` |
+| nested groups, `strict_leaf` | `150.48 ms` | `43.19 ms` | `38.03 ms` | `81.77 ms` | `119.80 ms` |
+
+### What the second pass achieved
+
+- The row-heavy nested `parallel` flat/discovery pass dropped again, from `143.72 ms` to `124.14 ms`.
+- The lower-row nested modes also got cheaper once exact hidden-character counting was removed from the row-bounded preview path.
+- Relative to the original eager worker path, the app is now roughly `50%` faster on the large flat case and roughly `50%` faster on the large nested `parallel` case before the user even considers export.
+
+### Updated bottleneck ranking
+
+After the second pass, I would rank the remaining bottlenecks this way:
+
+1. Flat row amplification under nested `parallel` flattening.
+2. Relational normalization cost, which is now isolated but still expensive.
+3. Full-row schema/type scanning in the flat preview path, which still scales with all derived rows even after export-grade artifacts were removed.
+
+The evidence still points to the same central conclusion: the main limit is derived-work amplification, not raw JSON parsing. The next meaningful win would come from reducing how much all-row flat work `parallel` preview still performs, or from introducing an adaptive preview flatten fallback when row multiplication becomes extreme.
+
+## Third Improvement Pass
+
+I then applied the same idea to the relational preview path.
+
+The implemented changes were:
+
+- add a preview-only relational splitter for the app preview path
+- stop materializing full relational `rawRows` arrays for preview
+- stop materializing full relational `records` arrays for preview
+- stop materializing full per-table CSV text for preview
+- keep export behavior on the existing full relational path
+
+### Relational preview finalizer vs full relational finalizer
+
+The cleanest way to evaluate this pass is a same-run comparison between the full relational finalizer and the preview-only relational finalizer:
+
+| Scenario | Full `splitJsonToRelationalTables` | Preview `splitJsonToRelationalTablesPreview` | Improvement |
+| --- | ---: | ---: | ---: |
+| flat records, `parallel` | `35.68 ms` | `24.73 ms` | `31%` faster |
+| nested groups, `parallel` | `85.15 ms` | `70.23 ms` | `18%` faster |
+| nested groups, `stringify` | `81.31 ms` | `65.82 ms` | `19%` faster |
+| nested groups, `strict_leaf` | `79.71 ms` | `71.33 ms` | `11%` faster |
+
+This confirms that the relational preview was still paying a meaningful fixed cost for export-grade materialization, and that removing that materialization helps even though the tree traversal itself still remains.
+
+### Current cumulative async path
+
+Using the same rerun, the current preview pipeline now looks like this:
+
+| Scenario | Current flat/discovery | Current relational preview | Current combined async total | Original eager worker path |
+| --- | ---: | ---: | ---: | ---: |
+| flat records, `parallel` | `40.77 ms` | `26.61 ms` | `67.38 ms` | `164.32 ms` |
+| nested groups, `parallel` | `127.90 ms` | `77.71 ms` | `205.61 ms` | `427.15 ms` |
+| nested groups, `stringify` | `38.29 ms` | `69.64 ms` | `107.93 ms` | `157.59 ms` |
+| nested groups, `strict_leaf` | `37.68 ms` | `67.57 ms` | `105.25 ms` | `150.48 ms` |
+
+The benchmark environment still shows some run-to-run variance, but the same-run deltas are consistent enough to support the conclusion that this third pass is a real improvement.
+
+### Updated bottleneck ranking after three passes
+
+1. Flat row amplification under nested `parallel` flattening is still the dominant cost.
+2. Relational normalization traversal is still expensive even after preview-only materialization is removed.
+3. Full-row schema/type scanning in the flat preview path remains a significant fixed cost.
+
+At this point, the biggest remaining win is no longer “stop rebuilding preview output” or “stop building export artifacts during preview”. Those are already materially improved. The next meaningful architectural step is reducing the amount of all-row work the app does once nested `parallel` expansion starts multiplying derived rows.

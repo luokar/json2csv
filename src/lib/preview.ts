@@ -1,5 +1,6 @@
 export interface TextPreview {
   omittedCharacters: number
+  omittedCharactersKnown?: boolean
   text: string
   truncated: boolean
 }
@@ -14,6 +15,7 @@ export function createTextPreview(text: string, maxCharacters: number) {
   if (text.length <= maxCharacters) {
     return {
       omittedCharacters: 0,
+      omittedCharactersKnown: true,
       text,
       truncated: false,
     } satisfies TextPreview
@@ -21,6 +23,7 @@ export function createTextPreview(text: string, maxCharacters: number) {
 
   return {
     omittedCharacters: text.length - maxCharacters,
+    omittedCharactersKnown: true,
     text: `${text.slice(0, maxCharacters).trimEnd()}\n\n[Preview truncated]`,
     truncated: true,
   } satisfies TextPreview

@@ -8,12 +8,35 @@ import {
   selectRootNodes,
   toCsv,
 } from '@/lib/mapping-engine'
+import { createTextPreview, type TextPreview } from '@/lib/preview'
 
 const rootTableKey = '__root__'
 
 export interface RelationalSplitResult {
   relationships: RelationalRelationship[]
   tables: RelationalTable[]
+}
+
+export interface RelationalSplitPreviewOptions {
+  csvPreviewCharacterLimit: number
+  previewRowLimit: number
+}
+
+export interface RelationalPreviewTable {
+  csvPreview: TextPreview
+  headers: string[]
+  idColumn: string
+  parentIdColumn: string | null
+  parentTable: string | null
+  records: Array<Record<string, string>>
+  rowCount: number
+  sourcePath: string
+  tableName: string
+}
+
+export interface RelationalSplitPreviewResult {
+  relationships: RelationalRelationship[]
+  tables: RelationalPreviewTable[]
 }
 
 export interface RelationalTable {
@@ -70,6 +93,35 @@ export function splitJsonToRelationalTables(
   overrides: Partial<MappingConfig> = {},
   onProgress?: (progress: ProcessingProgress) => void,
 ) {
+  const context = buildRelationalSplitContext(input, overrides, onProgress)
+
+  return {
+    relationships: buildRelationalRelationships(context),
+    tables: context.tables.map((table) => finalizeTable(table, context)),
+  } satisfies RelationalSplitResult
+}
+
+export function splitJsonToRelationalTablesPreview(
+  input: unknown,
+  overrides: Partial<MappingConfig> = {},
+  options: RelationalSplitPreviewOptions,
+  onProgress?: (progress: ProcessingProgress) => void,
+) {
+  const context = buildRelationalSplitContext(input, overrides, onProgress)
+
+  return {
+    relationships: buildRelationalRelationships(context),
+    tables: context.tables.map((table) =>
+      finalizePreviewTable(table, context, options),
+    ),
+  } satisfies RelationalSplitPreviewResult
+}
+
+function buildRelationalSplitContext(
+  input: unknown,
+  overrides: Partial<MappingConfig> = {},
+  onProgress?: (progress: ProcessingProgress) => void,
+) {
   const config = createMappingConfig(overrides)
   const context: RelationalSplitContext = {
     config,
@@ -103,30 +155,31 @@ export function splitJsonToRelationalTables(
     onProgress?.({ completed: totalRoots, total: totalRoots })
   }
 
-  return {
-    relationships: context.tables.flatMap((table) => {
-      if (!table.parentIdColumn || !table.parentKey) {
-        return []
-      }
+  return context
+}
 
-      const parentTable = context.tableByKey.get(table.parentKey)
+function buildRelationalRelationships(context: RelationalSplitContext) {
+  return context.tables.flatMap((table) => {
+    if (!table.parentIdColumn || !table.parentKey) {
+      return []
+    }
 
-      if (!parentTable) {
-        return []
-      }
+    const parentTable = context.tableByKey.get(table.parentKey)
 
-      return [
-        {
-          childTable: table.tableName,
-          foreignKeyColumn: table.parentIdColumn,
-          parentIdColumn: parentTable.idColumn,
-          parentTable: parentTable.tableName,
-          sourcePath: table.sourcePath,
-        },
-      ] satisfies RelationalRelationship[]
-    }),
-    tables: context.tables.map((table) => finalizeTable(table, context)),
-  } satisfies RelationalSplitResult
+    if (!parentTable) {
+      return []
+    }
+
+    return [
+      {
+        childTable: table.tableName,
+        foreignKeyColumn: table.parentIdColumn,
+        parentIdColumn: parentTable.idColumn,
+        parentTable: parentTable.tableName,
+        sourcePath: table.sourcePath,
+      },
+    ] satisfies RelationalRelationship[]
+  })
 }
 
 function projectEntity(
@@ -227,36 +280,10 @@ function finalizeTable(
   table: DraftTable,
   context: RelationalSplitContext,
 ): RelationalTable {
-  const includedDataPaths = selectIncludedDataPaths(table, context)
-  const usedHeaders = new Set<string>([
-    table.idColumn,
-    ...(table.parentIdColumn ? [table.parentIdColumn] : []),
-  ])
-  const headerByPath = new Map<string, string>()
-
-  for (const sourcePath of includedDataPaths) {
-    const alias = context.normalizedAliases[sourcePath]?.trim()
-    const baseHeader = alias || createRelativeHeader(sourcePath, table, context)
-    let nextHeader = baseHeader
-    let collisionIndex = 1
-
-    while (usedHeaders.has(nextHeader)) {
-      nextHeader = `${baseHeader}_${collisionIndex}`
-      collisionIndex += 1
-    }
-
-    usedHeaders.add(nextHeader)
-    headerByPath.set(sourcePath, nextHeader)
-  }
-
-  const dataHeaders = includedDataPaths
-    .map((sourcePath) => headerByPath.get(sourcePath))
-    .filter((header): header is string => header !== undefined)
-  const headers = [
-    table.idColumn,
-    ...(table.parentIdColumn ? [table.parentIdColumn] : []),
-    ...dataHeaders,
-  ]
+  const { headerByPath, headers, includedDataPaths } = resolveTableProjection(
+    table,
+    context,
+  )
   const rawRows = table.rows.map((row) => {
     const rawRow: Record<string, ScalarValue> = {
       [table.idColumn]: row.id,
@@ -302,6 +329,131 @@ function finalizeTable(
     sourcePath: table.sourcePath,
     tableName: table.tableName,
   }
+}
+
+function finalizePreviewTable(
+  table: DraftTable,
+  context: RelationalSplitContext,
+  options: RelationalSplitPreviewOptions,
+): RelationalPreviewTable {
+  const { headerByPath, headers, includedDataPaths } = resolveTableProjection(
+    table,
+    context,
+  )
+  const previewRows = table.rows.slice(0, Math.max(1, options.previewRowLimit))
+  const records = previewRows.map((row) => {
+    const record: Record<string, string> = {
+      [table.idColumn]: row.id,
+    }
+
+    if (table.parentIdColumn) {
+      record[table.parentIdColumn] = row.parentId ?? ''
+    }
+
+    for (const sourcePath of includedDataPaths) {
+      const header = headerByPath.get(sourcePath)
+
+      if (!header) {
+        continue
+      }
+
+      record[header] = formatValue(row.data[sourcePath], context.config)
+    }
+
+    return record
+  })
+
+  return {
+    csvPreview: buildRelationalCsvPreview(
+      headers,
+      records,
+      table.rows.length,
+      options.csvPreviewCharacterLimit,
+      context.config,
+    ),
+    headers,
+    idColumn: table.idColumn,
+    parentIdColumn: table.parentIdColumn,
+    parentTable: table.parentKey
+      ? (context.tableByKey.get(table.parentKey)?.tableName ?? null)
+      : null,
+    records,
+    rowCount: table.rows.length,
+    sourcePath: table.sourcePath,
+    tableName: table.tableName,
+  }
+}
+
+function resolveTableProjection(
+  table: DraftTable,
+  context: RelationalSplitContext,
+) {
+  const includedDataPaths = selectIncludedDataPaths(table, context)
+  const usedHeaders = new Set<string>([
+    table.idColumn,
+    ...(table.parentIdColumn ? [table.parentIdColumn] : []),
+  ])
+  const headerByPath = new Map<string, string>()
+
+  for (const sourcePath of includedDataPaths) {
+    const alias = context.normalizedAliases[sourcePath]?.trim()
+    const baseHeader = alias || createRelativeHeader(sourcePath, table, context)
+    let nextHeader = baseHeader
+    let collisionIndex = 1
+
+    while (usedHeaders.has(nextHeader)) {
+      nextHeader = `${baseHeader}_${collisionIndex}`
+      collisionIndex += 1
+    }
+
+    usedHeaders.add(nextHeader)
+    headerByPath.set(sourcePath, nextHeader)
+  }
+
+  const dataHeaders = includedDataPaths
+    .map((sourcePath) => headerByPath.get(sourcePath))
+    .filter((header): header is string => header !== undefined)
+
+  return {
+    headerByPath,
+    headers: [
+      table.idColumn,
+      ...(table.parentIdColumn ? [table.parentIdColumn] : []),
+      ...dataHeaders,
+    ],
+    includedDataPaths,
+  }
+}
+
+function buildRelationalCsvPreview(
+  headers: string[],
+  previewRecords: Array<Record<string, string>>,
+  totalRows: number,
+  maxCharacters: number,
+  config: MappingConfig,
+) {
+  const previewCsv = toCsv(headers, previewRecords, config)
+  const preview = createTextPreview(previewCsv, maxCharacters)
+
+  if (previewRecords.length === totalRows) {
+    return preview
+  }
+
+  if (preview.truncated) {
+    return {
+      omittedCharacters: preview.omittedCharacters,
+      omittedCharactersKnown: false,
+      text: preview.text,
+      truncated: true,
+    } satisfies TextPreview
+  }
+
+  return {
+    omittedCharacters: 0,
+    omittedCharactersKnown: false,
+    text: `${previewCsv.trimEnd()}\n\n[Preview truncated]`,
+    truncated: true,
+  } satisfies TextPreview
 }
 
 function selectIncludedDataPaths(

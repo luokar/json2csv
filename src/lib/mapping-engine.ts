@@ -1,3 +1,5 @@
+import { createTextPreview, type TextPreview } from '@/lib/preview'
+
 export const flattenModes = [
   'parallel',
   'cross_product',
@@ -117,6 +119,20 @@ export interface MappingResult {
   schema: MappingSchema
 }
 
+export interface MappingPreviewOptions {
+  csvPreviewCharacterLimit: number
+  previewRowLimit: number
+}
+
+export interface MappingPreviewResult {
+  config: MappingConfig
+  csvPreview: TextPreview
+  headers: string[]
+  records: Array<Record<string, string>>
+  rowCount: number
+  schema: MappingSchema
+}
+
 export interface RowLineageSegment {
   index: number
   path: string
@@ -161,6 +177,7 @@ export interface MappingProjectionSession {
   ) => MappingStreamChunk
   config: MappingConfig
   finalize: () => MappingResult
+  finalizePreview: (options: MappingPreviewOptions) => MappingPreviewResult
   getProcessedRoots: () => number
   getRenderedRowCount: () => number
 }
@@ -312,6 +329,15 @@ export function createMappingProjectionSession(
         config,
       )
     },
+    finalizePreview(options) {
+      return finalizePreviewProjectionResult(
+        projectedRows,
+        renderedRows,
+        registry,
+        config,
+        options,
+      )
+    },
     getProcessedRoots() {
       return processedRootCount
     },
@@ -356,6 +382,44 @@ export function convertJsonToCsvTable(
   }
 
   return session.finalize()
+}
+
+export function convertJsonToCsvPreviewTable(
+  input: unknown,
+  overrides: Partial<MappingConfig> = {},
+  options: MappingPreviewOptions,
+  handlersOrProgress:
+    | MappingConversionHandlers
+    | ((progress: ProcessingProgress) => void) = {},
+) {
+  const handlers = normalizeMappingConversionHandlers(handlersOrProgress)
+  const session = createMappingProjectionSession(overrides)
+  const config = session.config
+
+  const rootNodes = selectRootNodes(input, config.rootPath)
+  const totalRoots = Math.max(rootNodes.length, 1)
+  const streamChunkSize = resolveStreamChunkSize(
+    totalRoots,
+    handlers.streamChunkSize,
+  )
+
+  handlers.onProgress?.({ completed: 0, total: totalRoots })
+
+  for (const [rootIndex, rootNode] of rootNodes.entries()) {
+    session.appendRoot(rootNode)
+    handlers.onProgress?.({ completed: rootIndex + 1, total: totalRoots })
+
+    if (shouldEmitStreamChunk(rootIndex + 1, totalRoots, streamChunkSize)) {
+      emitMappingStreamChunk(session, handlers, totalRoots)
+    }
+  }
+
+  if (rootNodes.length === 0) {
+    handlers.onProgress?.({ completed: totalRoots, total: totalRoots })
+    emitMappingStreamChunk(session, handlers, totalRoots)
+  }
+
+  return session.finalizePreview(options)
 }
 
 export function inspectMappingPaths(
@@ -417,7 +481,7 @@ function finalizeProjectionResult(
     selectedHeaders,
     sourceRegistry,
     registry,
-    projectedRows,
+    collectPrimaryKeys(projectedRows),
     config,
   )
 
@@ -431,6 +495,49 @@ function finalizeProjectionResult(
     rowProvenance: renderedRows.map(toRowProvenance),
     schema,
   } satisfies MappingResult
+}
+
+function finalizePreviewProjectionResult(
+  projectedRows: ProjectedRow[],
+  renderedRows: ProjectedRow[],
+  registry: ColumnRegistry,
+  config: MappingConfig,
+  options: MappingPreviewOptions,
+) {
+  const renderedRawRows = renderedRows.map((row) => ({ ...row.data }))
+  const sourceRegistry = cloneColumnRegistry(registry)
+  const splitRows = applyTypeMismatchStrategy(
+    renderedRawRows.map((row) => ({ ...row })),
+    registry,
+    config,
+  )
+  const selectedHeaders = selectHeaders(splitRows, registry, config)
+  const previewRows = splitRows.slice(0, Math.max(1, options.previewRowLimit))
+  const records = renderRecords(previewRows, selectedHeaders, config)
+  const schema = buildSchema(
+    renderedRawRows,
+    splitRows,
+    selectedHeaders,
+    sourceRegistry,
+    registry,
+    collectPrimaryKeys(projectedRows),
+    config,
+  )
+
+  return {
+    config,
+    csvPreview: buildCsvPreview(
+      selectedHeaders,
+      splitRows,
+      records,
+      config,
+      options.csvPreviewCharacterLimit,
+    ),
+    headers: selectedHeaders,
+    records,
+    rowCount: renderedRows.length,
+    schema,
+  } satisfies MappingPreviewResult
 }
 
 function emitMappingStreamChunk(
@@ -1121,13 +1228,44 @@ function renderRecords(
   })
 }
 
+function buildCsvPreview(
+  headers: string[],
+  rows: Array<Record<string, ScalarValue>>,
+  previewRecords: Array<Record<string, string>>,
+  config: MappingConfig,
+  maxCharacters: number,
+) {
+  const previewCsv = toCsv(headers, previewRecords, config)
+  const preview = createTextPreview(previewCsv, maxCharacters)
+
+  if (previewRecords.length === rows.length) {
+    return preview
+  }
+
+  if (preview.truncated) {
+    return {
+      omittedCharacters: preview.omittedCharacters,
+      omittedCharactersKnown: false,
+      text: preview.text,
+      truncated: true,
+    } satisfies TextPreview
+  }
+
+  return {
+    omittedCharacters: 0,
+    omittedCharactersKnown: false,
+    text: `${previewCsv.trimEnd()}\n\n[Preview truncated]`,
+    truncated: true,
+  } satisfies TextPreview
+}
+
 function buildSchema(
   sourceRows: Array<Record<string, ScalarValue>>,
   rows: Array<Record<string, ScalarValue>>,
   headers: string[],
   sourceRegistry: ColumnRegistry,
   registry: ColumnRegistry,
-  projectedRows: ProjectedRow[],
+  primaryKeys: string[],
   config: MappingConfig,
 ): MappingSchema {
   const kindsByHeader = inferKindsByHeader(rows)
@@ -1141,7 +1279,7 @@ function buildSchema(
         (row) => row[header] === null || row[header] === undefined,
       ),
     })),
-    primaryKeys: collectPrimaryKeys(projectedRows),
+    primaryKeys,
     typeReports: buildTypeReports(sourceRows, sourceRegistry, registry, config),
   }
 }

@@ -2934,8 +2934,9 @@ function App() {
                         Showing the first{' '}
                         {projectionFlatCsvPreviewCharacterLimit.toLocaleString()}{' '}
                         characters.{' '}
-                        {csvPreview.omittedCharacters.toLocaleString()} more
-                        characters are hidden from the live preview.
+                        {csvPreview.omittedCharactersKnown === false
+                          ? 'Additional rows are hidden from the live preview.'
+                          : `${csvPreview.omittedCharacters.toLocaleString()} more characters are hidden from the live preview.`}
                       </div>
                     ) : null}
                     <Textarea

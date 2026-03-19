@@ -5,12 +5,13 @@ import {
   streamJsonPath,
 } from '@/lib/json-root-stream'
 import {
-  convertJsonToCsvTable,
+  convertJsonToCsvPreviewTable,
   createMappingProjectionSession,
   type InspectedPath,
   inspectMappingPaths,
   type JsonValue,
   type MappingConfig,
+  type MappingPreviewResult,
   type MappingResult,
   type MappingSchema,
   type MappingStreamChunk,
@@ -18,9 +19,11 @@ import {
 import { createTextPreview, type TextPreview } from '@/lib/preview'
 import {
   type RelationalRelationship,
+  type RelationalSplitPreviewResult,
   type RelationalSplitResult,
   type RelationalTable,
   splitJsonToRelationalTables,
+  splitJsonToRelationalTablesPreview,
 } from '@/lib/relational-split'
 
 export const projectionPhases = [
@@ -174,9 +177,14 @@ export function computeRelationalProjectionPayload(
   return {
     parseError: resolvedInput.error ?? null,
     relationalSplitResult: compactRelationalSplitResult(
-      splitJsonToRelationalTables(
+      splitJsonToRelationalTablesPreview(
         resolvedInput.value,
         request.config,
+        {
+          csvPreviewCharacterLimit:
+            projectionRelationalCsvPreviewCharacterLimit,
+          previewRowLimit: projectionRelationalRowPreviewLimit,
+        },
         (progress) => {
           reportProgress('relational', progress.completed, progress.total)
         },
@@ -238,13 +246,21 @@ export function streamProjectionPayload(
     },
   )
   const conversionResult = request.config
-    ? convertJsonToCsvTable(resolvedInput.value, request.config, {
-        onProgress: (progress) => {
-          reportProgress('flat', progress.completed, progress.total)
+    ? convertJsonToCsvPreviewTable(
+        resolvedInput.value,
+        request.config,
+        {
+          csvPreviewCharacterLimit: projectionFlatCsvPreviewCharacterLimit,
+          previewRowLimit: projectionFlatRowPreviewLimit,
         },
-        onStreamChunk: handlers.onFlatStreamPreview,
-        streamPreviewRowLimit: projectionStreamPreviewRowLimit,
-      })
+        {
+          onProgress: (progress) => {
+            reportProgress('flat', progress.completed, progress.total)
+          },
+          onStreamChunk: handlers.onFlatStreamPreview,
+          streamPreviewRowLimit: projectionStreamPreviewRowLimit,
+        },
+      )
     : null
   const relationalSplitResult =
     request.config && shouldIncludeRelationalProjection(request)
@@ -398,7 +414,7 @@ function streamCustomSelectorProjectionPayload(
 }
 
 function compactProjectionPayload(payload: {
-  conversionResult: MappingResult | null
+  conversionResult: MappingPreviewResult | MappingResult | null
   discoveredPaths: InspectedPath[]
   parseError: string | null
   relationalSplitResult: RelationalSplitResult | null
@@ -416,8 +432,12 @@ function compactProjectionPayload(payload: {
 }
 
 function compactProjectionResult(
-  result: MappingResult,
+  result: MappingPreviewResult | MappingResult,
 ): ProjectionConversionResult {
+  if ('csvPreview' in result) {
+    return result
+  }
+
   return {
     config: result.config,
     csvPreview: createTextPreview(
@@ -432,12 +452,25 @@ function compactProjectionResult(
 }
 
 function compactRelationalSplitResult(
-  result: RelationalSplitResult,
+  result: RelationalSplitPreviewResult | RelationalSplitResult,
 ): ProjectionRelationalSplitResult {
+  if (isRelationalSplitPreviewResult(result)) {
+    return {
+      relationships: result.relationships,
+      tables: result.tables,
+    }
+  }
+
   return {
     relationships: result.relationships,
     tables: result.tables.map(compactRelationalTable),
   }
+}
+
+function isRelationalSplitPreviewResult(
+  result: RelationalSplitPreviewResult | RelationalSplitResult,
+): result is RelationalSplitPreviewResult {
+  return result.tables.length === 0 || 'csvPreview' in result.tables[0]
 }
 
 function compactRelationalTable(
@@ -472,7 +505,10 @@ function finalizeFlatProjectionSession(
   }
 
   reportProgress('flat', 0, 1)
-  const result = session.finalize()
+  const result = session.finalizePreview({
+    csvPreviewCharacterLimit: projectionFlatCsvPreviewCharacterLimit,
+    previewRowLimit: projectionFlatRowPreviewLimit,
+  })
   reportProgress('flat', 1, 1)
 
   return result

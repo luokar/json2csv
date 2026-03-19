@@ -497,6 +497,55 @@ describe('projection pipeline', () => {
     )
   })
 
+  it('caps standalone relational preview payloads to preview-sized slices', () => {
+    const customJson = JSON.stringify(
+      {
+        records: Array.from(
+          { length: projectionRelationalRowPreviewLimit + 25 },
+          (_, index) => ({
+            id: String(index + 1),
+            note: `row-${index + 1}-${'x'.repeat(320)}`,
+            tags: [`tag-${index % 5}`, `tag-${(index + 1) % 5}`],
+          }),
+        ),
+      },
+      null,
+      2,
+    )
+
+    const result = computeRelationalProjectionPayload({
+      config: createMappingConfig({
+        flattenMode: 'parallel',
+        rootPath: '$.records[*]',
+      }),
+      customJson,
+      rootPath: '$.records[*]',
+      sampleJson: donutSample.json,
+      sourceMode: 'custom',
+    })
+
+    expect(result.parseError).toBeNull()
+    expect(result.relationalSplitResult?.tables[0]).toEqual(
+      expect.objectContaining({
+        rowCount: projectionRelationalRowPreviewLimit + 25,
+        tableName: 'root',
+      }),
+    )
+    expect(result.relationalSplitResult?.tables[0]?.records).toHaveLength(
+      projectionRelationalRowPreviewLimit,
+    )
+    expect(result.relationalSplitResult?.tables[0]?.csvPreview.truncated).toBe(
+      true,
+    )
+    expect(
+      result.relationalSplitResult?.tables[0]?.csvPreview.text.length,
+    ).toBeLessThanOrEqual(
+      projectionRelationalCsvPreviewCharacterLimit +
+        '[Preview truncated]'.length +
+        2,
+    )
+  })
+
   it('emits incremental flat preview snapshots before the final payload is ready', () => {
     const streamPreviews: Array<{
       headers: string[]

@@ -62,6 +62,7 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { useOutputExport } from '@/hooks/use-output-export'
 import { useProjectionPreview } from '@/hooks/use-projection-preview'
+import { useRelationalPreview } from '@/hooks/use-relational-preview'
 import {
   createPreset,
   listPresets,
@@ -597,6 +598,7 @@ function App() {
     {
       config: activeConfig,
       customJson: liveValues.customJson,
+      includeRelational: false,
       rootPath: liveValues.rootPath,
       sampleJson: activeSample.json,
       sourceMode: liveValues.sourceMode,
@@ -606,12 +608,30 @@ function App() {
       enabled: !isProjectionDebugDisabled,
     },
   )
+  const relationalPreview = useRelationalPreview(
+    {
+      config: activeConfig,
+      customJson: liveValues.customJson,
+      rootPath: liveValues.rootPath,
+      sampleJson: activeSample.json,
+      sourceMode: liveValues.sourceMode,
+    },
+    activeConfig ? JSON.stringify(activeConfig) : 'invalid-config',
+    {
+      enabled:
+        !isProjectionDebugDisabled &&
+        activeConfig !== undefined &&
+        !projection.isProjecting &&
+        projection.parseError === null,
+    },
+  )
   const discoveredPaths = projection.discoveredPaths
   const conversionResult = projection.conversionResult
-  const relationalSplitResult = projection.relationalSplitResult
+  const relationalSplitResult = relationalPreview.relationalSplitResult
   const streamingFlatPreview = projection.streamingFlatPreview
   const isStreamingFlatPreview =
     projection.isProjecting && streamingFlatPreview !== null
+  const isRelationalPreviewProjecting = relationalPreview.isProjecting
   const headerSuggestions = buildHeaderSuggestions(
     conversionResult?.schema.columns ?? [],
     discoveredPaths,
@@ -665,6 +685,19 @@ function App() {
     text: 'No relational tables generated.',
     truncated: false,
   }
+  const relationalPreviewStatusMessage = isProjectionDebugDisabled
+    ? 'Relational split preview is paused while projection debugging is disabled.'
+    : activeConfig === undefined
+      ? 'Relational split preview is unavailable while the current mapping config is invalid.'
+      : projection.parseError
+        ? 'Relational split preview starts after the current JSON parses successfully.'
+        : projection.isProjecting
+          ? 'Relational split preview starts after the flat preview finishes rebuilding.'
+          : isRelationalPreviewProjecting
+            ? relationalPreview.progress
+              ? `${relationalPreview.progress.label} ${formatProjectionProgressDetail(relationalPreview.progress)}.`
+              : 'Building relational tables in the background.'
+            : 'No relational tables were generated for the current form values.'
   const outputExportBlockedReason =
     activeConfig === undefined
       ? 'Fix the current mapping config before exporting.'
@@ -2588,6 +2621,13 @@ function App() {
                     </div>
 
                     <div className="flex flex-wrap items-center justify-end gap-2">
+                      {isRelationalPreviewProjecting ? (
+                        <Badge variant="outline">
+                          {relationalPreview.progress
+                            ? `${relationalPreview.progress.label} ${formatProjectionProgressDetail(relationalPreview.progress)}`
+                            : 'Building relational preview'}
+                        </Badge>
+                      ) : null}
                       <Badge variant="secondary">
                         {relationalSplitResult?.tables.length ?? 0} tables
                       </Badge>
@@ -2835,8 +2875,7 @@ function App() {
                     </>
                   ) : (
                     <div className="rounded-[24px] border border-dashed border-border/70 bg-background/70 p-4 text-sm text-muted-foreground">
-                      Relational split preview is unavailable while the current
-                      mapping config is invalid.
+                      {relationalPreviewStatusMessage}
                     </div>
                   )}
                 </CardContent>

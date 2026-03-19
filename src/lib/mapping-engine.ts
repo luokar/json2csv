@@ -162,6 +162,7 @@ export interface MappingProjectionSession {
   config: MappingConfig
   finalize: () => MappingResult
   getProcessedRoots: () => number
+  getRenderedRowCount: () => number
 }
 
 interface ProjectedRow {
@@ -314,6 +315,9 @@ export function createMappingProjectionSession(
     getProcessedRoots() {
       return processedRootCount
     },
+    getRenderedRowCount() {
+      return renderedRows.length
+    },
   }
 }
 
@@ -451,7 +455,8 @@ function buildMappingStreamChunk(
   totalRoots: number | null,
   previewRowLimit: number,
 ) {
-  const previewRawRows = renderedRows.map((row) => ({ ...row.data }))
+  const previewRows = renderedRows.slice(0, Math.max(1, previewRowLimit))
+  const previewRawRows = previewRows.map((row) => ({ ...row.data }))
   const previewRegistry = cloneColumnRegistry(registry)
   const splitPreviewRows = applyTypeMismatchStrategy(
     previewRawRows,
@@ -464,7 +469,7 @@ function buildMappingStreamChunk(
     config,
   )
   const previewRecords = renderRecords(
-    splitPreviewRows.slice(0, Math.max(1, previewRowLimit)),
+    splitPreviewRows,
     selectedHeaders,
     config,
   )

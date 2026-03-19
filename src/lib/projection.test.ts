@@ -2,6 +2,7 @@ import { createMappingConfig } from '@/lib/mapping-engine'
 import { mappingSamples } from '@/lib/mapping-samples'
 import {
   computeProjectionPayload,
+  computeRelationalProjectionPayload,
   projectionFlatCsvPreviewCharacterLimit,
   projectionFlatRowPreviewLimit,
   projectionRelationalCsvPreviewCharacterLimit,
@@ -75,6 +76,47 @@ describe('projection pipeline', () => {
     expect(result.conversionResult).toBeNull()
     expect(result.discoveredPaths).toEqual([])
     expect(result.relationalSplitResult).toBeNull()
+  })
+
+  it('can skip relational work during the initial projection pass', () => {
+    const progressEvents: Array<{
+      label: string
+      percent: number
+      phase: string
+      phaseCompleted: number
+      phaseTotal: number
+    }> = []
+
+    const result = computeProjectionPayload(
+      {
+        config: createMappingConfig({
+          flattenMode: 'parallel',
+          rootPath: '$.items.item[*]',
+        }),
+        customJson: '',
+        includeRelational: false,
+        rootPath: '$.items.item[*]',
+        sampleJson: donutSample.json,
+        sourceMode: 'sample',
+      },
+      (progress) => {
+        progressEvents.push(progress)
+      },
+    )
+
+    expect(result.parseError).toBeNull()
+    expect(result.conversionResult?.rowCount).toBe(10)
+    expect(result.relationalSplitResult).toBeNull()
+    expect(
+      progressEvents.some((progress) => progress.phase === 'relational'),
+    ).toBe(false)
+    expect(progressEvents.at(-1)).toEqual(
+      expect.objectContaining({
+        label: 'Projecting flat CSV rows',
+        percent: 65,
+        phase: 'flat',
+      }),
+    )
   })
 
   it('projects null custom JSON at the root path as a single scalar row', () => {
@@ -422,6 +464,36 @@ describe('projection pipeline', () => {
         percent: 100,
         phase: 'relational',
       }),
+    )
+  })
+
+  it('computes relational preview in a separate pass', () => {
+    const result = computeRelationalProjectionPayload({
+      config: createMappingConfig({
+        flattenMode: 'parallel',
+        rootPath: '$.items.item[*]',
+      }),
+      customJson: '',
+      rootPath: '$.items.item[*]',
+      sampleJson: donutSample.json,
+      sourceMode: 'sample',
+    })
+
+    expect(result.parseError).toBeNull()
+    expect(
+      result.relationalSplitResult?.tables.map((table) => table.tableName),
+    ).toEqual(['root', 'batters_batter', 'topping'])
+    expect(result.relationalSplitResult?.relationships).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          childTable: 'batters_batter',
+          parentTable: 'root',
+        }),
+        expect.objectContaining({
+          childTable: 'topping',
+          parentTable: 'root',
+        }),
+      ]),
     )
   })
 

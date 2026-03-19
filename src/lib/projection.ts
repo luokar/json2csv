@@ -43,6 +43,7 @@ export interface ProjectionProgress {
 export interface ProjectionRequest {
   config?: MappingConfig
   customJson: string
+  includeRelational?: boolean
   rootPath: string
   sampleJson: JsonValue
   sourceMode: 'custom' | 'sample'
@@ -81,6 +82,11 @@ export interface ProjectionPayload {
   relationalSplitResult: ProjectionRelationalSplitResult | null
 }
 
+export interface ProjectionRelationalPayload {
+  parseError: string | null
+  relationalSplitResult: ProjectionRelationalSplitResult | null
+}
+
 export interface ProjectionFlatStreamPreview extends MappingStreamChunk {}
 
 export interface ProjectionWorkerRequest {
@@ -106,16 +112,77 @@ export interface ProjectionWorkerResultResponse {
   type: 'result'
 }
 
+export interface ProjectionRelationalWorkerRequest {
+  payload: ProjectionRequest
+  requestId: number
+}
+
+export interface ProjectionRelationalWorkerProgressResponse {
+  progress: ProjectionProgress
+  requestId: number
+  type: 'progress'
+}
+
+export interface ProjectionRelationalWorkerResultResponse {
+  payload: ProjectionRelationalPayload
+  requestId: number
+  type: 'result'
+}
+
 export type ProjectionWorkerResponse =
   | ProjectionWorkerProgressResponse
   | ProjectionWorkerStreamResponse
   | ProjectionWorkerResultResponse
+
+export type ProjectionRelationalWorkerResponse =
+  | ProjectionRelationalWorkerProgressResponse
+  | ProjectionRelationalWorkerResultResponse
 
 export function computeProjectionPayload(
   request: ProjectionRequest,
   onProgress?: (progress: ProjectionProgress) => void,
 ): ProjectionPayload {
   return streamProjectionPayload(request, { onProgress })
+}
+
+export function computeRelationalProjectionPayload(
+  request: ProjectionRequest,
+  onProgress?: (progress: ProjectionProgress) => void,
+): ProjectionRelationalPayload {
+  const reportProgress = createProjectionProgressReporter(onProgress)
+
+  reportProgress('parse', 0, 1)
+
+  const resolvedInput = resolveProjectionInput(request)
+
+  reportProgress('parse', 1, 1)
+
+  if (resolvedInput.value === undefined) {
+    return {
+      parseError: resolvedInput.error ?? 'Invalid JSON input.',
+      relationalSplitResult: null,
+    }
+  }
+
+  if (!request.config) {
+    return {
+      parseError: resolvedInput.error ?? null,
+      relationalSplitResult: null,
+    }
+  }
+
+  return {
+    parseError: resolvedInput.error ?? null,
+    relationalSplitResult: compactRelationalSplitResult(
+      splitJsonToRelationalTables(
+        resolvedInput.value,
+        request.config,
+        (progress) => {
+          reportProgress('relational', progress.completed, progress.total)
+        },
+      ),
+    ),
+  }
 }
 
 export const projectionFlatRowPreviewLimit = 100
@@ -150,10 +217,7 @@ export function streamProjectionPayload(
     )
   }
 
-  const resolvedInput =
-    request.sourceMode === 'custom'
-      ? parseJsonInput(request.customJson)
-      : { error: null, value: request.sampleJson }
+  const resolvedInput = resolveProjectionInput(request)
 
   reportProgress('parse', 1, 1)
 
@@ -182,15 +246,16 @@ export function streamProjectionPayload(
         streamPreviewRowLimit: projectionStreamPreviewRowLimit,
       })
     : null
-  const relationalSplitResult = request.config
-    ? splitJsonToRelationalTables(
-        resolvedInput.value,
-        request.config,
-        (progress) => {
-          reportProgress('relational', progress.completed, progress.total)
-        },
-      )
-    : null
+  const relationalSplitResult =
+    request.config && shouldIncludeRelationalProjection(request)
+      ? splitJsonToRelationalTables(
+          resolvedInput.value,
+          request.config,
+          (progress) => {
+            reportProgress('relational', progress.completed, progress.total)
+          },
+        )
+      : null
 
   return compactProjectionPayload({
     conversionResult,
@@ -201,7 +266,9 @@ export function streamProjectionPayload(
 }
 
 const projectionStreamPreviewRowLimit = projectionFlatRowPreviewLimit
-const projectionStreamParseChunkInterval = 8
+const projectionStreamPreviewWarmupRootCount = 3
+const projectionStreamPreviewWarmupInterval = 8
+const projectionStreamPreviewSteadyInterval = 128
 
 const projectionPhaseLabels: Record<ProjectionPhase, string> = {
   flat: 'Projecting flat CSV rows',
@@ -264,6 +331,8 @@ function streamCustomSelectorProjectionPayload(
           handlers.onFlatStreamPreview &&
           shouldEmitProjectionStreamPreview(
             flatProjectionSession.getProcessedRoots(),
+            flatProjectionSession.getRenderedRowCount(),
+            projectionStreamPreviewRowLimit,
           )
         ) {
           handlers.onFlatStreamPreview(
@@ -306,18 +375,19 @@ function streamCustomSelectorProjectionPayload(
   const conversionResult = request.config
     ? finalizeFlatProjectionSession(flatProjectionSession, reportProgress)
     : null
-  const relationalSplitResult = request.config
-    ? splitJsonToRelationalTables(
-        rootNodes,
-        {
-          ...request.config,
-          rootPath: undefined,
-        },
-        (progress) => {
-          reportProgress('relational', progress.completed, progress.total)
-        },
-      )
-    : null
+  const relationalSplitResult =
+    request.config && shouldIncludeRelationalProjection(request)
+      ? splitJsonToRelationalTables(
+          rootNodes,
+          {
+            ...request.config,
+            rootPath: undefined,
+          },
+          (progress) => {
+            reportProgress('relational', progress.completed, progress.total)
+          },
+        )
+      : null
 
   return {
     conversionResult,
@@ -408,11 +478,31 @@ function finalizeFlatProjectionSession(
   return result
 }
 
-function shouldEmitProjectionStreamPreview(processedRoots: number) {
-  return (
-    processedRoots <= 3 ||
-    processedRoots % projectionStreamParseChunkInterval === 0
-  )
+function resolveProjectionInput(request: ProjectionRequest) {
+  return request.sourceMode === 'custom'
+    ? parseJsonInput(request.customJson)
+    : { error: null, value: request.sampleJson }
+}
+
+function shouldIncludeRelationalProjection(request: ProjectionRequest) {
+  return request.includeRelational !== false
+}
+
+function shouldEmitProjectionStreamPreview(
+  processedRoots: number,
+  previewRowCount: number,
+  previewRowLimit: number,
+) {
+  if (processedRoots <= projectionStreamPreviewWarmupRootCount) {
+    return true
+  }
+
+  const chunkInterval =
+    previewRowCount >= previewRowLimit
+      ? projectionStreamPreviewSteadyInterval
+      : projectionStreamPreviewWarmupInterval
+
+  return processedRoots % chunkInterval === 0
 }
 
 function createProjectionProgressReporter(

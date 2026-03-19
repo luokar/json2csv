@@ -1,5 +1,5 @@
 import { Plus, Trash2 } from 'lucide-react'
-import { memo, useMemo } from 'react'
+import { memo, useDeferredValue, useMemo, useState } from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -11,11 +11,14 @@ import {
   type InspectedPath,
 } from '@/lib/mapping-engine'
 import {
+  buildPlannerSuggestionFamilies,
   buildPlannerSuggestionTree,
   createPlannerRule,
   normalizePlannerPath,
   type PlannerRule,
+  type PlannerSuggestionFamily,
   type PlannerSuggestionTreeNode,
+  plannerFamilyModeSuggestionThreshold,
 } from '@/lib/path-planner'
 
 interface PathPlannerProps {
@@ -31,6 +34,10 @@ export const PathPlanner = memo(function PathPlanner({
   rules,
   suggestions,
 }: PathPlannerProps) {
+  const [showLiteralTree, setShowLiteralTree] = useState(false)
+  const [groupedFamilyQuery, setGroupedFamilyQuery] = useState('')
+  const deferredGroupedFamilyQuery = useDeferredValue(groupedFamilyQuery)
+
   function addRule() {
     onChange([...rules, createPlannerRule({ mode: defaultMode })])
   }
@@ -80,9 +87,59 @@ export const PathPlanner = memo(function PathPlanner({
     onChange(rules.filter((rule) => normalizePlannerPath(rule.path) !== path))
   }
 
+  const rulesByPath = useMemo(() => {
+    const nextRulesByPath = new Map<string, PlannerRule>()
+
+    for (const rule of rules) {
+      const normalizedPath = normalizePlannerPath(rule.path)
+
+      if (!normalizedPath) {
+        continue
+      }
+
+      nextRulesByPath.set(normalizedPath, {
+        ...rule,
+        path: normalizedPath,
+      })
+    }
+
+    return nextRulesByPath
+  }, [rules])
+
+  const isGroupedFamilyMode =
+    !showLiteralTree &&
+    suggestions.length >= plannerFamilyModeSuggestionThreshold
+
+  const suggestionFamilies = useMemo(
+    () =>
+      isGroupedFamilyMode ? buildPlannerSuggestionFamilies(suggestions) : [],
+    [isGroupedFamilyMode, suggestions],
+  )
+
+  const visibleSuggestionFamilies = useMemo(() => {
+    if (!isGroupedFamilyMode) {
+      return []
+    }
+
+    const normalizedQuery = deferredGroupedFamilyQuery.trim().toLowerCase()
+
+    if (!normalizedQuery) {
+      return suggestionFamilies
+    }
+
+    return suggestionFamilies.filter(
+      (family) =>
+        family.path.toLowerCase().includes(normalizedQuery) ||
+        family.examplePaths.some((examplePath) =>
+          examplePath.toLowerCase().includes(normalizedQuery),
+        ),
+    )
+  }, [deferredGroupedFamilyQuery, isGroupedFamilyMode, suggestionFamilies])
+
   const suggestionTree = useMemo(
-    () => buildPlannerSuggestionTree(suggestions, rules),
-    [rules, suggestions],
+    () =>
+      isGroupedFamilyMode ? [] : buildPlannerSuggestionTree(suggestions, rules),
+    [isGroupedFamilyMode, rules, suggestions],
   )
 
   return (
@@ -188,16 +245,76 @@ export const PathPlanner = memo(function PathPlanner({
       )}
 
       <div className="space-y-3 border-t border-border/70 pt-4">
-        <div className="space-y-1">
-          <p className="text-sm font-semibold text-foreground">Workflow tree</p>
-          <p className="text-sm text-muted-foreground">
-            Browse nested branches from the active payload, whitelist the
-            branches you need, drop noisy paths, and flag one-to-many arrays
-            before they bloat the flat CSV.
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-foreground">
+              {isGroupedFamilyMode ? 'Grouped families' : 'Workflow tree'}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {isGroupedFamilyMode
+                ? 'This root exposes too many discovered paths for the literal tree to stay ergonomic. Start with grouped families, then open the raw tree only when you need exact path nodes.'
+                : 'Browse nested branches from the active payload, whitelist the branches you need, drop noisy paths, and flag one-to-many arrays before they bloat the flat CSV.'}
+            </p>
+          </div>
+
+          {suggestions.length >= plannerFamilyModeSuggestionThreshold ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                setShowLiteralTree((currentValue) => !currentValue)
+              }
+            >
+              {isGroupedFamilyMode
+                ? 'Show literal tree anyway'
+                : 'Back to grouped families'}
+            </Button>
+          ) : null}
         </div>
 
-        {suggestionTree.length === 0 ? (
+        {isGroupedFamilyMode ? (
+          <div className="space-y-3">
+            <div className="rounded-[20px] border border-border/70 bg-background/80 p-4 text-sm text-muted-foreground">
+              Grouped family mode is active for{' '}
+              {suggestions.length.toLocaleString()} discovered paths. Family
+              actions still create ordinary planner rules, but the overview
+              hides high-cardinality one-off keys so large documents stay
+              navigable.
+            </div>
+
+            <div className="space-y-2 rounded-[20px] border border-border/70 bg-background/80 p-4">
+              <Label htmlFor="grouped-family-filter">Filter families</Label>
+              <Input
+                id="grouped-family-filter"
+                placeholder="Search by family path or example path"
+                value={groupedFamilyQuery}
+                onChange={(event) => setGroupedFamilyQuery(event.target.value)}
+              />
+            </div>
+
+            {visibleSuggestionFamilies.length === 0 ? (
+              <div className="rounded-[20px] border border-dashed border-border/70 bg-background/70 p-4 text-sm text-muted-foreground">
+                {groupedFamilyQuery.trim()
+                  ? 'No grouped families match the current filter.'
+                  : 'No grouped families are available for the current input and root path.'}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {visibleSuggestionFamilies.map((family) => (
+                  <PlannerFamilyCard
+                    key={family.path}
+                    defaultMode={defaultMode}
+                    family={family}
+                    onClearRule={clearSuggestedRule}
+                    onUpsertRule={upsertSuggestedRule}
+                    rule={rulesByPath.get(family.path) ?? null}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        ) : suggestionTree.length === 0 ? (
           <div className="rounded-[20px] border border-dashed border-border/70 bg-background/70 p-4 text-sm text-muted-foreground">
             No paths discovered for the current input and root path.
           </div>
@@ -218,6 +335,118 @@ export const PathPlanner = memo(function PathPlanner({
     </div>
   )
 })
+
+function PlannerFamilyCard({
+  defaultMode,
+  family,
+  onClearRule,
+  onUpsertRule,
+  rule,
+}: {
+  defaultMode: FlattenMode
+  family: PlannerSuggestionFamily
+  onClearRule: (path: string) => void
+  onUpsertRule: (
+    path: string,
+    action: PlannerRule['action'],
+    mode?: FlattenMode,
+  ) => void
+  rule: PlannerRule | null
+}) {
+  const supportsMode = family.hasArray
+  const supportsStringify = family.hasArray || family.hasObject
+  const ruleLabel = describePlannerRule(rule)
+
+  return (
+    <div className="rounded-[20px] border border-border/70 bg-background/80 p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <code className="rounded-full bg-secondary px-3 py-1 text-xs font-semibold text-foreground">
+          {family.path}
+        </code>
+        <Badge variant="secondary">
+          {family.suggestionCount.toLocaleString()} paths
+        </Badge>
+        <Badge variant="secondary">
+          {family.totalHits.toLocaleString()} hits
+        </Badge>
+        <Badge variant="outline">Max depth {family.maxDepth}</Badge>
+        {family.hasArray ? <Badge variant="outline">array</Badge> : null}
+        {family.hasObject ? <Badge variant="outline">object</Badge> : null}
+        {ruleLabel ? <Badge variant="secondary">{ruleLabel}</Badge> : null}
+      </div>
+
+      <p className="mt-3 text-sm text-muted-foreground">
+        Example paths: {family.examplePaths.join(', ')}
+      </p>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant={rule?.action === 'include' ? 'default' : 'outline'}
+          size="sm"
+          aria-label={`Include ${family.path}`}
+          onClick={() => onUpsertRule(family.path, 'include')}
+        >
+          Include
+        </Button>
+        {supportsMode ? (
+          <Button
+            type="button"
+            variant={rule?.action === 'mode' ? 'default' : 'outline'}
+            size="sm"
+            aria-label={`Add mode ${family.path}`}
+            onClick={() => onUpsertRule(family.path, 'mode', defaultMode)}
+          >
+            Use {defaultMode.replaceAll('_', ' ')}
+          </Button>
+        ) : null}
+        {supportsStringify ? (
+          <Button
+            type="button"
+            variant={rule?.action === 'stringify' ? 'default' : 'outline'}
+            size="sm"
+            aria-label={`Stringify ${family.path}`}
+            onClick={() => onUpsertRule(family.path, 'stringify')}
+          >
+            Stringify
+          </Button>
+        ) : null}
+        {rule?.action === 'drop' ? (
+          <Button
+            type="button"
+            variant="default"
+            size="sm"
+            aria-label={`Keep ${family.path}`}
+            onClick={() => onClearRule(family.path)}
+          >
+            Keep
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            aria-label={`Drop ${family.path}`}
+            onClick={() => onUpsertRule(family.path, 'drop')}
+          >
+            Drop
+          </Button>
+        )}
+        {rule && rule.action !== 'drop' ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            aria-label={`Clear ${family.path}`}
+            onClick={() => onClearRule(family.path)}
+          >
+            Clear rule
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  )
+}
 
 function PlannerTreeBranch({
   defaultMode,

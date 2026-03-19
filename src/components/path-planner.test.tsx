@@ -4,7 +4,19 @@ import { vi } from 'vitest'
 
 import { PathPlanner } from '@/components/path-planner'
 import type { InspectedPath } from '@/lib/mapping-engine'
-import { createPlannerRule } from '@/lib/path-planner'
+import {
+  createPlannerRule,
+  plannerFamilyModeSuggestionThreshold,
+} from '@/lib/path-planner'
+
+function createInspectedPath(path: string, kinds: InspectedPath['kinds']) {
+  return {
+    count: 1,
+    depth: path.split('.').length,
+    kinds: [...kinds],
+    path,
+  } satisfies InspectedPath
+}
 
 describe('PathPlanner', () => {
   const suggestions: InspectedPath[] = [
@@ -84,5 +96,70 @@ describe('PathPlanner', () => {
     await user.click(screen.getByRole('button', { name: /keep metadata/i }))
 
     expect(handleChange).toHaveBeenCalledWith([])
+  })
+
+  it('switches to grouped families for very large suggestion sets', () => {
+    const largeSuggestions: InspectedPath[] = Array.from(
+      { length: plannerFamilyModeSuggestionThreshold },
+      (_, index) =>
+        createInspectedPath(`paths.route_${index}.get.operationId`, ['string']),
+    )
+
+    render(
+      <PathPlanner
+        defaultMode="parallel"
+        onChange={() => undefined}
+        rules={[]}
+        suggestions={largeSuggestions}
+      />,
+    )
+
+    expect(screen.getByText('Grouped families')).toBeInTheDocument()
+    expect(
+      screen.getByText(/grouped family mode is active for/i),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /show literal tree anyway/i }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /include paths\.route_0/i }),
+    ).toBeNull()
+  })
+
+  it('filters grouped families by query', async () => {
+    const user = userEvent.setup()
+    const largeSuggestions: InspectedPath[] = [
+      ...Array.from(
+        { length: plannerFamilyModeSuggestionThreshold },
+        (_, index) =>
+          createInspectedPath(`paths.route_${index}.get.operationId`, [
+            'string',
+          ]),
+      ),
+      ...Array.from({ length: 40 }, (_, index) =>
+        createInspectedPath(`components.schemas.Model_${index}.properties.id`, [
+          'object',
+        ]),
+      ),
+    ]
+
+    render(
+      <PathPlanner
+        defaultMode="parallel"
+        onChange={() => undefined}
+        rules={[]}
+        suggestions={largeSuggestions}
+      />,
+    )
+
+    await user.type(
+      screen.getByRole('textbox', { name: /filter families/i }),
+      'components.schemas',
+    )
+
+    expect(
+      screen.getByRole('button', { name: /include components\.schemas/i }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /include paths$/i })).toBeNull()
   })
 })

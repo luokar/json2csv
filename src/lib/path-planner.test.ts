@@ -1,11 +1,25 @@
-import { inspectMappingPaths, type MappingConfig } from '@/lib/mapping-engine'
+import {
+  type InspectedPath,
+  inspectMappingPaths,
+  type MappingConfig,
+} from '@/lib/mapping-engine'
 import { mappingSamples } from '@/lib/mapping-samples'
 import {
+  buildPlannerSuggestionFamilies,
   buildPlannerSuggestionTree,
   createPlannerRule,
   plannerRulesFromConfig,
   plannerRulesToConfig,
 } from '@/lib/path-planner'
+
+function createInspectedPath(path: string, kinds: InspectedPath['kinds']) {
+  return {
+    count: 1,
+    depth: path.split('.').length,
+    kinds: [...kinds],
+    path,
+  } satisfies InspectedPath
+}
 
 describe('path planner helpers', () => {
   it('serializes planner rules into mapping config overrides', () => {
@@ -165,5 +179,27 @@ describe('path planner helpers', () => {
         }),
       ]),
     )
+  })
+
+  it('builds grouped planner families for large path sets', () => {
+    const families = buildPlannerSuggestionFamilies([
+      ...Array.from({ length: 800 }, (_, index) =>
+        createInspectedPath(`paths.route_${index}.get.operationId`, ['string']),
+      ),
+      ...Array.from({ length: 800 }, (_, index) =>
+        createInspectedPath(`paths.route_${index}.get.summary`, ['string']),
+      ),
+      ...Array.from({ length: 250 }, (_, index) =>
+        createInspectedPath(`components.schemas.Model_${index}.properties.id`, [
+          'object',
+        ]),
+      ),
+    ])
+
+    expect(families.map((family) => family.path)).toContain('paths')
+    expect(families.map((family) => family.path)).toContain(
+      'components.schemas',
+    )
+    expect(families.map((family) => family.path)).not.toContain('paths.route_0')
   })
 })

@@ -61,11 +61,13 @@ Status: Completed in the first execution pass.
 - Added bounded live-preview limits for extreme column-count payloads so the row table and schema sidecar do not try to render every column at once.
 - Added a staged complex-root gate for broad `$` documents so the full planner and preview stay hidden until the user narrows the scope or explicitly continues.
 - Ranked suggested roots by reusable structural breadth and suppressed high-cardinality keyed children such as individual OpenAPI routes.
+- Added a grouped-family mode for very large planner suggestion sets so the planner shows structural families first and only builds the literal tree on demand.
+- Added grouped-family filtering so users can search large family summaries before they fall back to the literal path tree.
 
 ### Next pass
 
 - Replace the large controlled custom JSON textarea in the main workbench with the existing buffered editor path so typing no longer rerenders the whole root component on every keystroke.
-- Replace the literal large-path planner with a browse/filter workflow based on grouped path families once the root has been narrowed.
+- Add drill-down controls on top of grouped planner families so users can expand one family into the next layer without loading the full literal tree.
 - Extract the relational preview and CSV/schema side panels into memoized subcomponents if profiler traces still show expensive progress-only rerenders.
 - Validate the impact with browser profiling on large nested custom payloads, especially while streaming preview is active.
 
@@ -92,4 +94,5 @@ What this means:
 - It is a “far too many paths and columns” case.
 - The new bounded table/schema preview limits should reduce the row-preview and sidecar cost.
 - The new staged overview gate now prevents the heaviest planner/preview surfaces from mounting immediately at root `$`.
-- The next likely UI hotspot for this document is the literal path-planner tree after narrowing, because it still works with a very large discovered-path set.
+- The grouped planner now prevents the narrow-root path browser from eagerly rendering the full literal tree when the path set is still huge.
+- The next likely UI hotspot for this document is the large custom JSON editor path, especially while users are typing or applying very large payloads.

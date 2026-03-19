@@ -37,6 +37,22 @@ export interface PlannerSuggestionTreeNode {
   segment: string
 }
 
+export interface PlannerSuggestionFamily {
+  depth: number
+  examplePaths: string[]
+  hasArray: boolean
+  hasObject: boolean
+  maxDepth: number
+  path: string
+  suggestionCount: number
+  totalHits: number
+}
+
+export const plannerFamilyModeSuggestionThreshold = 600
+export const plannerSuggestionFamilyLimit = 10
+export const plannerSuggestionFamilySiblingThreshold = 12
+export const plannerSuggestionFamilyMinParentShare = 0.12
+
 let plannerRuleCount = 0
 
 export function createPlannerRule(
@@ -256,6 +272,87 @@ export function buildPlannerSuggestionTree(
   return roots
 }
 
+export function buildPlannerSuggestionFamilies(suggestions: InspectedPath[]) {
+  const familiesByPath = new Map<string, PlannerSuggestionFamily>()
+
+  for (const suggestion of suggestions) {
+    const normalizedPath = normalizePlannerPath(suggestion.path)
+
+    if (!normalizedPath) {
+      continue
+    }
+
+    const segments = normalizedPath.split('.')
+
+    for (
+      let segmentIndex = 0;
+      segmentIndex < Math.min(segments.length, 2);
+      segmentIndex += 1
+    ) {
+      const path = segments.slice(0, segmentIndex + 1).join('.')
+      const existingFamily = familiesByPath.get(path)
+
+      if (existingFamily) {
+        existingFamily.suggestionCount += 1
+        existingFamily.totalHits += suggestion.count
+        existingFamily.maxDepth = Math.max(
+          existingFamily.maxDepth,
+          suggestion.depth,
+        )
+        existingFamily.hasArray ||= suggestion.kinds.includes('array')
+        existingFamily.hasObject ||= suggestion.kinds.includes('object')
+
+        if (
+          existingFamily.examplePaths.length < 3 &&
+          !existingFamily.examplePaths.includes(normalizedPath)
+        ) {
+          existingFamily.examplePaths.push(normalizedPath)
+        }
+
+        continue
+      }
+
+      familiesByPath.set(path, {
+        depth: segmentIndex + 1,
+        examplePaths: [normalizedPath],
+        hasArray: suggestion.kinds.includes('array'),
+        hasObject: suggestion.kinds.includes('object'),
+        maxDepth: suggestion.depth,
+        path,
+        suggestionCount: 1,
+        totalHits: suggestion.count,
+      })
+    }
+  }
+
+  const families = [...familiesByPath.values()]
+  const siblingCountByParentPath = new Map<string, number>()
+
+  for (const family of families) {
+    if (family.depth !== 2) {
+      continue
+    }
+
+    const parentPath = family.path.split('.').slice(0, -1).join('.')
+
+    siblingCountByParentPath.set(
+      parentPath,
+      (siblingCountByParentPath.get(parentPath) ?? 0) + 1,
+    )
+  }
+
+  return families
+    .filter((family) =>
+      isPlannerSuggestionFamilyCandidate(
+        family,
+        familiesByPath,
+        siblingCountByParentPath,
+      ),
+    )
+    .sort(comparePlannerSuggestionFamilies)
+    .slice(0, plannerSuggestionFamilyLimit)
+}
+
 function buildPlannerRecommendation(suggestion: InspectedPath) {
   if (!suggestion.kinds.includes('array')) {
     return null
@@ -272,6 +369,52 @@ function buildPlannerRecommendation(suggestion: InspectedPath) {
 
 function compareInspectedPaths(left: InspectedPath, right: InspectedPath) {
   return left.depth - right.depth || left.path.localeCompare(right.path)
+}
+
+function comparePlannerSuggestionFamilies(
+  left: PlannerSuggestionFamily,
+  right: PlannerSuggestionFamily,
+) {
+  return (
+    right.suggestionCount - left.suggestionCount ||
+    right.totalHits - left.totalHits ||
+    right.depth - left.depth ||
+    Number(right.hasArray) - Number(left.hasArray) ||
+    Number(right.hasObject) - Number(left.hasObject) ||
+    left.path.localeCompare(right.path)
+  )
+}
+
+function isPlannerSuggestionFamilyCandidate(
+  family: PlannerSuggestionFamily,
+  familiesByPath: Map<string, PlannerSuggestionFamily>,
+  siblingCountByParentPath: Map<string, number>,
+) {
+  if (family.depth === 1) {
+    return true
+  }
+
+  const parentPath = family.path.split('.').slice(0, -1).join('.')
+  const siblingCount = siblingCountByParentPath.get(parentPath) ?? 0
+
+  if (siblingCount <= plannerSuggestionFamilySiblingThreshold) {
+    return true
+  }
+
+  const parentFamily = familiesByPath.get(parentPath)
+
+  if (!parentFamily) {
+    return true
+  }
+
+  const suggestionShare =
+    family.suggestionCount / Math.max(parentFamily.suggestionCount, 1)
+  const hitShare = family.totalHits / Math.max(parentFamily.totalHits, 1)
+
+  return (
+    suggestionShare >= plannerSuggestionFamilyMinParentShare ||
+    hitShare >= plannerSuggestionFamilyMinParentShare
+  )
 }
 
 export function normalizePlannerPath(path: string) {

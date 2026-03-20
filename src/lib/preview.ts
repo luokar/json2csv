@@ -1,14 +1,14 @@
 export interface TextPreview {
-  omittedCharacters: number
-  omittedCharactersKnown?: boolean
-  text: string
-  truncated: boolean
+  omittedCharacters: number;
+  omittedCharactersKnown?: boolean;
+  text: string;
+  truncated: boolean;
 }
 
 export interface RowPreview<T> {
-  omittedRows: number
-  rows: T[]
-  truncated: boolean
+  omittedRows: number;
+  rows: T[];
+  truncated: boolean;
 }
 
 export function createTextPreview(text: string, maxCharacters: number) {
@@ -18,7 +18,7 @@ export function createTextPreview(text: string, maxCharacters: number) {
       omittedCharactersKnown: true,
       text,
       truncated: false,
-    } satisfies TextPreview
+    } satisfies TextPreview;
   }
 
   return {
@@ -26,7 +26,7 @@ export function createTextPreview(text: string, maxCharacters: number) {
     omittedCharactersKnown: true,
     text: `${text.slice(0, maxCharacters).trimEnd()}\n\n[Preview truncated]`,
     truncated: true,
-  } satisfies TextPreview
+  } satisfies TextPreview;
 }
 
 export function createRowPreview<T>(rows: T[], maxRows: number) {
@@ -35,12 +35,12 @@ export function createRowPreview<T>(rows: T[], maxRows: number) {
       omittedRows: 0,
       rows,
       truncated: false,
-    } satisfies RowPreview<T>
+    } satisfies RowPreview<T>;
   }
 
   return {
     omittedRows: rows.length - maxRows,
     rows: rows.slice(0, maxRows),
     truncated: true,
-  } satisfies RowPreview<T>
+  } satisfies RowPreview<T>;
 }

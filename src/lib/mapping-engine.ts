@@ -1,266 +1,248 @@
-import { createTextPreview, type TextPreview } from '@/lib/preview'
+import { createTextPreview, type TextPreview } from "@/lib/preview";
 
-export const flattenModes = [
-  'parallel',
-  'cross_product',
-  'stringify',
-  'strict_leaf',
-] as const
+export const flattenModes = ["parallel", "cross_product", "stringify", "strict_leaf"] as const;
 
-export const placeholderStrategies = ['repeat', 'empty', 'custom'] as const
-export const missingKeyStrategies = ['omit', 'include'] as const
-export const typeMismatchStrategies = ['coerce', 'split'] as const
-export const headerPolicies = ['full_scan', 'sampled_scan', 'explicit'] as const
-export const booleanRepresentations = [
-  'true_false',
-  'yes_no',
-  'one_zero',
-] as const
-export const dateFormats = ['iso8601', 'yyyy-mm-dd'] as const
-export const collisionStrategies = ['rename_duplicate', 'path_force'] as const
-export const emptyArrayBehaviors = ['skip_row', 'include_null'] as const
+export const placeholderStrategies = ["repeat", "empty", "custom"] as const;
+export const missingKeyStrategies = ["omit", "include"] as const;
+export const typeMismatchStrategies = ["coerce", "split"] as const;
+export const headerPolicies = ["full_scan", "sampled_scan", "explicit"] as const;
+export const booleanRepresentations = ["true_false", "yes_no", "one_zero"] as const;
+export const dateFormats = ["iso8601", "yyyy-mm-dd"] as const;
+export const collisionStrategies = ["rename_duplicate", "path_force"] as const;
+export const emptyArrayBehaviors = ["skip_row", "include_null"] as const;
 
-export type FlattenMode = (typeof flattenModes)[number]
-export type PlaceholderStrategy = (typeof placeholderStrategies)[number]
-export type MissingKeyStrategy = (typeof missingKeyStrategies)[number]
-export type TypeMismatchStrategy = (typeof typeMismatchStrategies)[number]
-export type HeaderPolicy = (typeof headerPolicies)[number]
-export type BooleanRepresentation = (typeof booleanRepresentations)[number]
-export type DateFormat = (typeof dateFormats)[number]
-export type CollisionStrategy = (typeof collisionStrategies)[number]
-export type EmptyArrayBehavior = (typeof emptyArrayBehaviors)[number]
+export type FlattenMode = (typeof flattenModes)[number];
+export type PlaceholderStrategy = (typeof placeholderStrategies)[number];
+export type MissingKeyStrategy = (typeof missingKeyStrategies)[number];
+export type TypeMismatchStrategy = (typeof typeMismatchStrategies)[number];
+export type HeaderPolicy = (typeof headerPolicies)[number];
+export type BooleanRepresentation = (typeof booleanRepresentations)[number];
+export type DateFormat = (typeof dateFormats)[number];
+export type CollisionStrategy = (typeof collisionStrategies)[number];
+export type EmptyArrayBehavior = (typeof emptyArrayBehaviors)[number];
 
-export type ScalarValue = boolean | null | number | string
+export type ScalarValue = boolean | null | number | string;
 export type JsonValue =
   | ScalarValue
   | JsonValue[]
   | {
-      [key: string]: JsonValue
-    }
+      [key: string]: JsonValue;
+    };
 
-export type ValueKind =
-  | 'array'
-  | 'boolean'
-  | 'date'
-  | 'null'
-  | 'number'
-  | 'object'
-  | 'string'
+export type ValueKind = "array" | "boolean" | "date" | "null" | "number" | "object" | "string";
 
 export interface MappingConfig {
-  rootPath?: string
-  flattenMode: FlattenMode
-  pathModes?: Record<string, FlattenMode>
-  pathSeparator: string
-  arrayIndexSuffix: boolean
-  placeholderStrategy: PlaceholderStrategy
-  customPlaceholder?: string
-  onMissingKey: MissingKeyStrategy
-  onTypeMismatch: TypeMismatchStrategy
-  headerPolicy: HeaderPolicy
-  headerSampleSize: number
-  headerWhitelist?: string[]
-  headerAliases?: Record<string, string>
+  rootPath?: string;
+  flattenMode: FlattenMode;
+  pathModes?: Record<string, FlattenMode>;
+  pathSeparator: string;
+  arrayIndexSuffix: boolean;
+  placeholderStrategy: PlaceholderStrategy;
+  customPlaceholder?: string;
+  onMissingKey: MissingKeyStrategy;
+  onTypeMismatch: TypeMismatchStrategy;
+  headerPolicy: HeaderPolicy;
+  headerSampleSize: number;
+  headerWhitelist?: string[];
+  headerAliases?: Record<string, string>;
   reservedColumns?: Array<{
-    header: string
-    sourcePath: string
-  }>
-  strictNaming: boolean
-  collisionStrategy: CollisionStrategy
-  booleanRepresentation: BooleanRepresentation
-  dateFormat: DateFormat
-  delimiter: string
-  quoteAll: boolean
-  emptyArrayBehavior: EmptyArrayBehavior
-  maxDepth: number
-  includePaths: string[]
-  dropPaths: string[]
-  stringifyPaths: string[]
+    header: string;
+    sourcePath: string;
+  }>;
+  strictNaming: boolean;
+  collisionStrategy: CollisionStrategy;
+  booleanRepresentation: BooleanRepresentation;
+  dateFormat: DateFormat;
+  delimiter: string;
+  quoteAll: boolean;
+  emptyArrayBehavior: EmptyArrayBehavior;
+  maxDepth: number;
+  includePaths: string[];
+  dropPaths: string[];
+  stringifyPaths: string[];
 }
 
 export interface ColumnSchema {
-  header: string
-  sourcePath: string
-  kinds: ValueKind[]
-  nullable: boolean
+  header: string;
+  sourcePath: string;
+  kinds: ValueKind[];
+  nullable: boolean;
 }
 
 export interface ColumnTypeBreakdown {
-  count: number
-  kind: ValueKind
-  percentage: number
+  count: number;
+  kind: ValueKind;
+  percentage: number;
 }
 
 export interface ColumnTypeReport {
-  coercedTo: 'string' | null
-  dominantKind: ValueKind | null
-  exportHeaders: string[]
-  header: string
-  missingCount: number
-  observedCount: number
-  sourcePath: string
-  typeBreakdown: ColumnTypeBreakdown[]
+  coercedTo: "string" | null;
+  dominantKind: ValueKind | null;
+  exportHeaders: string[];
+  header: string;
+  missingCount: number;
+  observedCount: number;
+  sourcePath: string;
+  typeBreakdown: ColumnTypeBreakdown[];
 }
 
 export interface MappingSchema {
-  columns: ColumnSchema[]
-  primaryKeys: string[]
-  typeReports: ColumnTypeReport[]
+  columns: ColumnSchema[];
+  primaryKeys: string[];
+  typeReports: ColumnTypeReport[];
 }
 
 export interface MappingResult {
-  config: MappingConfig
-  csv: string
-  headers: string[]
-  rawRows: Array<Record<string, ScalarValue>>
-  records: Array<Record<string, string>>
-  rowProvenance: RowProvenance[]
-  rowCount: number
-  schema: MappingSchema
+  config: MappingConfig;
+  csv: string;
+  headers: string[];
+  rawRows: Array<Record<string, ScalarValue>>;
+  records: Array<Record<string, string>>;
+  rowProvenance: RowProvenance[];
+  rowCount: number;
+  schema: MappingSchema;
 }
 
 export interface MappingPreviewOptions {
-  csvPreviewCharacterLimit: number
-  previewRowLimit: number
+  csvPreviewCharacterLimit: number;
+  previewRowLimit: number;
 }
 
 export interface MappingPreviewResult {
-  config: MappingConfig
-  csvPreview: TextPreview
-  headers: string[]
-  records: Array<Record<string, string>>
-  rowCount: number
-  schema: MappingSchema
+  config: MappingConfig;
+  csvPreview: TextPreview;
+  headers: string[];
+  records: Array<Record<string, string>>;
+  rowCount: number;
+  schema: MappingSchema;
 }
 
 export interface RowLineageSegment {
-  index: number
-  path: string
+  index: number;
+  path: string;
 }
 
 export interface RowProvenance {
-  lineage: RowLineageSegment[]
+  lineage: RowLineageSegment[];
 }
 
 export interface InspectedPath {
-  count: number
-  depth: number
-  kinds: ValueKind[]
-  path: string
+  count: number;
+  depth: number;
+  kinds: ValueKind[];
+  path: string;
 }
 
 export interface ProcessingProgress {
-  completed: number
-  total: number
+  completed: number;
+  total: number;
 }
 
 export interface MappingStreamChunk {
-  csvPreview: TextPreview
-  headers: string[]
-  previewRecords: Array<Record<string, string>>
-  processedRoots: number
-  rowCount: number
-  totalRoots: number | null
+  csvPreview: TextPreview;
+  headers: string[];
+  previewRecords: Array<Record<string, string>>;
+  processedRoots: number;
+  rowCount: number;
+  totalRoots: number | null;
 }
 
 export interface MappingConversionHandlers {
-  onProgress?: (progress: ProcessingProgress) => void
-  onStreamChunk?: (chunk: MappingStreamChunk) => void
-  streamChunkSize?: number
-  streamPreviewCharacterLimit?: number
-  streamPreviewRowLimit?: number
+  onProgress?: (progress: ProcessingProgress) => void;
+  onStreamChunk?: (chunk: MappingStreamChunk) => void;
+  streamChunkSize?: number;
+  streamPreviewCharacterLimit?: number;
+  streamPreviewRowLimit?: number;
 }
 
 export interface MappingProjectionSession {
-  appendRoot: (rootNode: unknown) => void
+  appendRoot: (rootNode: unknown) => void;
   buildStreamChunk: (
     totalRoots?: number | null,
     previewRowLimit?: number,
     previewCharacterLimit?: number,
-  ) => MappingStreamChunk
-  config: MappingConfig
-  finalize: () => MappingResult
-  finalizePreview: (options: MappingPreviewOptions) => MappingPreviewResult
-  getProcessedRoots: () => number
-  getRenderedRowCount: () => number
+  ) => MappingStreamChunk;
+  config: MappingConfig;
+  finalize: () => MappingResult;
+  finalizePreview: (options: MappingPreviewOptions) => MappingPreviewResult;
+  getProcessedRoots: () => number;
+  getRenderedRowCount: () => number;
 }
 
 interface ProjectedRow {
-  data: Record<string, ScalarValue>
-  lineage: Record<string, ProvenanceSegment>
-  owners: Record<string, CellOwner>
+  data: Record<string, ScalarValue>;
+  lineage: Record<string, ProvenanceSegment>;
+  owners: Record<string, CellOwner>;
 }
 
 interface CellOwner {
-  path: string
-  token: string
+  path: string;
+  token: string;
 }
 
 interface ProvenanceSegment {
-  index: number
-  path: string
-  token: string
+  index: number;
+  path: string;
+  token: string;
 }
 
 interface ColumnRegistry {
-  headers: string[]
-  headerByPath: Map<string, string>
-  pathByHeader: Map<string, string>
+  headers: string[];
+  headerByPath: Map<string, string>;
+  pathByHeader: Map<string, string>;
 }
 
 interface EngineContext {
-  config: MappingConfig
-  registry: ColumnRegistry
+  config: MappingConfig;
+  registry: ColumnRegistry;
 }
 
 interface TraversalState {
-  activeOwner: CellOwner
-  lineage: Record<string, ProvenanceSegment>
+  activeOwner: CellOwner;
+  lineage: Record<string, ProvenanceSegment>;
 }
 
 interface PathMatch {
-  index: number
-  mode: FlattenMode
+  index: number;
+  mode: FlattenMode;
 }
 
 export type PathToken =
-  | { type: 'property'; value: string }
-  | { type: 'wildcard' }
-  | { type: 'index'; value: number }
+  | { type: "property"; value: string }
+  | { type: "wildcard" }
+  | { type: "index"; value: number };
 
-export const objectMapEntryKeyField = '__entryKey'
+export const objectMapEntryKeyField = "__entryKey";
 
 export const defaultMappingConfig: MappingConfig = {
-  rootPath: '$.items.item[*]',
-  flattenMode: 'parallel',
+  rootPath: "$.items.item[*]",
+  flattenMode: "parallel",
   pathModes: {},
-  pathSeparator: '.',
+  pathSeparator: ".",
   arrayIndexSuffix: false,
-  placeholderStrategy: 'repeat',
-  customPlaceholder: 'NULL',
-  onMissingKey: 'include',
-  onTypeMismatch: 'coerce',
-  headerPolicy: 'full_scan',
+  placeholderStrategy: "repeat",
+  customPlaceholder: "NULL",
+  onMissingKey: "include",
+  onTypeMismatch: "coerce",
+  headerPolicy: "full_scan",
   headerSampleSize: 25,
   headerWhitelist: [],
   headerAliases: {},
   reservedColumns: [],
   strictNaming: true,
-  collisionStrategy: 'rename_duplicate',
-  booleanRepresentation: 'true_false',
-  dateFormat: 'iso8601',
-  delimiter: ',',
+  collisionStrategy: "rename_duplicate",
+  booleanRepresentation: "true_false",
+  dateFormat: "iso8601",
+  delimiter: ",",
   quoteAll: true,
-  emptyArrayBehavior: 'include_null',
+  emptyArrayBehavior: "include_null",
   maxDepth: 12,
   includePaths: [],
   dropPaths: [],
   stringifyPaths: [],
-}
+};
 
-export function createMappingConfig(
-  overrides: Partial<MappingConfig> = {},
-): MappingConfig {
+export function createMappingConfig(overrides: Partial<MappingConfig> = {}): MappingConfig {
   return {
     ...defaultMappingConfig,
     ...overrides,
@@ -268,37 +250,34 @@ export function createMappingConfig(
       ...defaultMappingConfig.pathModes,
       ...overrides.pathModes,
     },
-    headerWhitelist:
-      overrides.headerWhitelist ?? defaultMappingConfig.headerWhitelist,
+    headerWhitelist: overrides.headerWhitelist ?? defaultMappingConfig.headerWhitelist,
     headerAliases: {
       ...defaultMappingConfig.headerAliases,
       ...overrides.headerAliases,
     },
-    reservedColumns:
-      overrides.reservedColumns ?? defaultMappingConfig.reservedColumns,
+    reservedColumns: overrides.reservedColumns ?? defaultMappingConfig.reservedColumns,
     includePaths: overrides.includePaths ?? defaultMappingConfig.includePaths,
     dropPaths: overrides.dropPaths ?? defaultMappingConfig.dropPaths,
-    stringifyPaths:
-      overrides.stringifyPaths ?? defaultMappingConfig.stringifyPaths,
-  }
+    stringifyPaths: overrides.stringifyPaths ?? defaultMappingConfig.stringifyPaths,
+  };
 }
 
 export function createMappingProjectionSession(
   overrides: Partial<MappingConfig> = {},
 ): MappingProjectionSession {
-  const config = createMappingConfig(overrides)
-  const registry = createColumnRegistry(config)
+  const config = createMappingConfig(overrides);
+  const registry = createColumnRegistry(config);
   const context: EngineContext = {
     config,
     registry,
-  }
-  const projectedRows: ProjectedRow[] = []
-  const renderedRows: ProjectedRow[] = []
-  let processedRootCount = 0
+  };
+  const projectedRows: ProjectedRow[] = [];
+  const renderedRows: ProjectedRow[] = [];
+  let processedRootCount = 0;
 
   return {
     appendRoot(rootNode) {
-      const traversalState = createRootTraversalState(processedRootCount)
+      const traversalState = createRootTraversalState(processedRootCount);
       const projectedGroup = appendNodeToRows(
         [createEmptyRow({ lineage: traversalState.lineage })],
         rootNode,
@@ -306,12 +285,12 @@ export function createMappingProjectionSession(
         context,
         0,
         traversalState,
-      )
-      const renderedGroup = applyPlaceholderStrategy(projectedGroup, config)
+      );
+      const renderedGroup = applyPlaceholderStrategy(projectedGroup, config);
 
-      projectedRows.push(...projectedGroup)
-      renderedRows.push(...renderedGroup)
-      processedRootCount += 1
+      projectedRows.push(...projectedGroup);
+      renderedRows.push(...renderedGroup);
+      processedRootCount += 1;
     },
     buildStreamChunk(
       totalRoots,
@@ -326,16 +305,11 @@ export function createMappingProjectionSession(
         totalRoots === undefined ? processedRootCount : totalRoots,
         previewRowLimit,
         previewCharacterLimit,
-      )
+      );
     },
     config,
     finalize() {
-      return finalizeProjectionResult(
-        projectedRows,
-        renderedRows,
-        registry,
-        config,
-      )
+      return finalizeProjectionResult(projectedRows, renderedRows, registry, config);
     },
     finalizePreview(options) {
       return finalizePreviewProjectionResult(
@@ -344,90 +318,80 @@ export function createMappingProjectionSession(
         registry,
         config,
         options,
-      )
+      );
     },
     getProcessedRoots() {
-      return processedRootCount
+      return processedRootCount;
     },
     getRenderedRowCount() {
-      return renderedRows.length
+      return renderedRows.length;
     },
-  }
+  };
 }
 
 export function convertJsonToCsvTable(
   input: unknown,
   overrides: Partial<MappingConfig> = {},
-  handlersOrProgress:
-    | MappingConversionHandlers
-    | ((progress: ProcessingProgress) => void) = {},
+  handlersOrProgress: MappingConversionHandlers | ((progress: ProcessingProgress) => void) = {},
 ): MappingResult {
-  const handlers = normalizeMappingConversionHandlers(handlersOrProgress)
-  const session = createMappingProjectionSession(overrides)
-  const config = session.config
+  const handlers = normalizeMappingConversionHandlers(handlersOrProgress);
+  const session = createMappingProjectionSession(overrides);
+  const config = session.config;
 
-  const rootNodes = selectRootNodes(input, config.rootPath)
-  const totalRoots = Math.max(rootNodes.length, 1)
-  const streamChunkSize = resolveStreamChunkSize(
-    totalRoots,
-    handlers.streamChunkSize,
-  )
+  const rootNodes = selectRootNodes(input, config.rootPath);
+  const totalRoots = Math.max(rootNodes.length, 1);
+  const streamChunkSize = resolveStreamChunkSize(totalRoots, handlers.streamChunkSize);
 
-  handlers.onProgress?.({ completed: 0, total: totalRoots })
+  handlers.onProgress?.({ completed: 0, total: totalRoots });
 
   for (const [rootIndex, rootNode] of rootNodes.entries()) {
-    session.appendRoot(rootNode)
-    handlers.onProgress?.({ completed: rootIndex + 1, total: totalRoots })
+    session.appendRoot(rootNode);
+    handlers.onProgress?.({ completed: rootIndex + 1, total: totalRoots });
 
     if (shouldEmitStreamChunk(rootIndex + 1, totalRoots, streamChunkSize)) {
-      emitMappingStreamChunk(session, handlers, totalRoots)
+      emitMappingStreamChunk(session, handlers, totalRoots);
     }
   }
 
   if (rootNodes.length === 0) {
-    handlers.onProgress?.({ completed: totalRoots, total: totalRoots })
-    emitMappingStreamChunk(session, handlers, totalRoots)
+    handlers.onProgress?.({ completed: totalRoots, total: totalRoots });
+    emitMappingStreamChunk(session, handlers, totalRoots);
   }
 
-  return session.finalize()
+  return session.finalize();
 }
 
 export function convertJsonToCsvPreviewTable(
   input: unknown,
   overrides: Partial<MappingConfig> = {},
   options: MappingPreviewOptions,
-  handlersOrProgress:
-    | MappingConversionHandlers
-    | ((progress: ProcessingProgress) => void) = {},
+  handlersOrProgress: MappingConversionHandlers | ((progress: ProcessingProgress) => void) = {},
 ) {
-  const handlers = normalizeMappingConversionHandlers(handlersOrProgress)
-  const session = createMappingProjectionSession(overrides)
-  const config = session.config
+  const handlers = normalizeMappingConversionHandlers(handlersOrProgress);
+  const session = createMappingProjectionSession(overrides);
+  const config = session.config;
 
-  const rootNodes = selectRootNodes(input, config.rootPath)
-  const totalRoots = Math.max(rootNodes.length, 1)
-  const streamChunkSize = resolveStreamChunkSize(
-    totalRoots,
-    handlers.streamChunkSize,
-  )
+  const rootNodes = selectRootNodes(input, config.rootPath);
+  const totalRoots = Math.max(rootNodes.length, 1);
+  const streamChunkSize = resolveStreamChunkSize(totalRoots, handlers.streamChunkSize);
 
-  handlers.onProgress?.({ completed: 0, total: totalRoots })
+  handlers.onProgress?.({ completed: 0, total: totalRoots });
 
   for (const [rootIndex, rootNode] of rootNodes.entries()) {
-    session.appendRoot(rootNode)
-    handlers.onProgress?.({ completed: rootIndex + 1, total: totalRoots })
+    session.appendRoot(rootNode);
+    handlers.onProgress?.({ completed: rootIndex + 1, total: totalRoots });
 
     if (shouldEmitStreamChunk(rootIndex + 1, totalRoots, streamChunkSize)) {
-      emitMappingStreamChunk(session, handlers, totalRoots)
+      emitMappingStreamChunk(session, handlers, totalRoots);
     }
   }
 
   if (rootNodes.length === 0) {
-    handlers.onProgress?.({ completed: totalRoots, total: totalRoots })
-    emitMappingStreamChunk(session, handlers, totalRoots)
+    handlers.onProgress?.({ completed: totalRoots, total: totalRoots });
+    emitMappingStreamChunk(session, handlers, totalRoots);
   }
 
-  return session.finalizePreview(options)
+  return session.finalizePreview(options);
 }
 
 export function inspectMappingPaths(
@@ -438,23 +402,23 @@ export function inspectMappingPaths(
   const registry = new Map<
     string,
     {
-      count: number
-      depth: number
-      kinds: Set<ValueKind>
+      count: number;
+      depth: number;
+      kinds: Set<ValueKind>;
     }
-  >()
-  const rootNodes = selectRootNodes(input, rootPath)
-  const totalRoots = Math.max(rootNodes.length, 1)
+  >();
+  const rootNodes = selectRootNodes(input, rootPath);
+  const totalRoots = Math.max(rootNodes.length, 1);
 
-  onProgress?.({ completed: 0, total: totalRoots })
+  onProgress?.({ completed: 0, total: totalRoots });
 
   for (const [index, rootNode] of rootNodes.entries()) {
-    inspectNodePaths(rootNode, [], registry)
-    onProgress?.({ completed: index + 1, total: totalRoots })
+    inspectNodePaths(rootNode, [], registry);
+    onProgress?.({ completed: index + 1, total: totalRoots });
   }
 
   if (rootNodes.length === 0) {
-    onProgress?.({ completed: totalRoots, total: totalRoots })
+    onProgress?.({ completed: totalRoots, total: totalRoots });
   }
 
   return [...registry.entries()]
@@ -466,9 +430,8 @@ export function inspectMappingPaths(
     }))
     .filter((entry) => entry.path.length > 0)
     .sort(
-      (left, right) =>
-        left.depth - right.depth || left.path.localeCompare(right.path),
-    ) satisfies InspectedPath[]
+      (left, right) => left.depth - right.depth || left.path.localeCompare(right.path),
+    ) satisfies InspectedPath[];
 }
 
 function finalizeProjectionResult(
@@ -477,12 +440,12 @@ function finalizeProjectionResult(
   registry: ColumnRegistry,
   config: MappingConfig,
 ) {
-  const renderedRawRows = renderedRows.map((row) => ({ ...row.data }))
-  const sourceRegistry = cloneColumnRegistry(registry)
-  const splitRows = applyTypeMismatchStrategy(renderedRawRows, registry, config)
-  const selectedHeaders = selectHeaders(splitRows, registry, config)
-  const records = renderRecords(splitRows, selectedHeaders, config)
-  const csv = toCsv(selectedHeaders, records, config)
+  const renderedRawRows = renderedRows.map((row) => ({ ...row.data }));
+  const sourceRegistry = cloneColumnRegistry(registry);
+  const splitRows = applyTypeMismatchStrategy(renderedRawRows, registry, config);
+  const selectedHeaders = selectHeaders(splitRows, registry, config);
+  const records = renderRecords(splitRows, selectedHeaders, config);
+  const csv = toCsv(selectedHeaders, records, config);
   const schema = buildSchema(
     renderedRawRows,
     splitRows,
@@ -491,7 +454,7 @@ function finalizeProjectionResult(
     registry,
     collectPrimaryKeys(projectedRows),
     config,
-  )
+  );
 
   return {
     config,
@@ -502,7 +465,7 @@ function finalizeProjectionResult(
     rowCount: renderedRows.length,
     rowProvenance: renderedRows.map(toRowProvenance),
     schema,
-  } satisfies MappingResult
+  } satisfies MappingResult;
 }
 
 function finalizePreviewProjectionResult(
@@ -512,16 +475,16 @@ function finalizePreviewProjectionResult(
   config: MappingConfig,
   options: MappingPreviewOptions,
 ) {
-  const renderedRawRows = renderedRows.map((row) => ({ ...row.data }))
-  const sourceRegistry = cloneColumnRegistry(registry)
+  const renderedRawRows = renderedRows.map((row) => ({ ...row.data }));
+  const sourceRegistry = cloneColumnRegistry(registry);
   const splitRows = applyTypeMismatchStrategy(
     renderedRawRows.map((row) => ({ ...row })),
     registry,
     config,
-  )
-  const selectedHeaders = selectHeaders(splitRows, registry, config)
-  const previewRows = splitRows.slice(0, Math.max(1, options.previewRowLimit))
-  const records = renderRecords(previewRows, selectedHeaders, config)
+  );
+  const selectedHeaders = selectHeaders(splitRows, registry, config);
+  const previewRows = splitRows.slice(0, Math.max(1, options.previewRowLimit));
+  const records = renderRecords(previewRows, selectedHeaders, config);
   const schema = buildSchema(
     renderedRawRows,
     splitRows,
@@ -530,7 +493,7 @@ function finalizePreviewProjectionResult(
     registry,
     collectPrimaryKeys(projectedRows),
     config,
-  )
+  );
 
   return {
     config,
@@ -545,7 +508,7 @@ function finalizePreviewProjectionResult(
     records,
     rowCount: renderedRows.length,
     schema,
-  } satisfies MappingPreviewResult
+  } satisfies MappingPreviewResult;
 }
 
 function emitMappingStreamChunk(
@@ -554,7 +517,7 @@ function emitMappingStreamChunk(
   totalRoots: number | null,
 ) {
   if (!handlers.onStreamChunk) {
-    return
+    return;
   }
 
   handlers.onStreamChunk(
@@ -563,7 +526,7 @@ function emitMappingStreamChunk(
       handlers.streamPreviewRowLimit,
       handlers.streamPreviewCharacterLimit,
     ),
-  )
+  );
 }
 
 function buildMappingStreamChunk(
@@ -575,24 +538,12 @@ function buildMappingStreamChunk(
   previewRowLimit: number,
   previewCharacterLimit: number,
 ) {
-  const previewRows = renderedRows.slice(0, Math.max(1, previewRowLimit))
-  const previewRawRows = previewRows.map((row) => ({ ...row.data }))
-  const previewRegistry = cloneColumnRegistry(registry)
-  const splitPreviewRows = applyTypeMismatchStrategy(
-    previewRawRows,
-    previewRegistry,
-    config,
-  )
-  const selectedHeaders = selectHeaders(
-    splitPreviewRows,
-    previewRegistry,
-    config,
-  )
-  const previewRecords = renderRecords(
-    splitPreviewRows,
-    selectedHeaders,
-    config,
-  )
+  const previewRows = renderedRows.slice(0, Math.max(1, previewRowLimit));
+  const previewRawRows = previewRows.map((row) => ({ ...row.data }));
+  const previewRegistry = cloneColumnRegistry(registry);
+  const splitPreviewRows = applyTypeMismatchStrategy(previewRawRows, previewRegistry, config);
+  const selectedHeaders = selectHeaders(splitPreviewRows, previewRegistry, config);
+  const previewRecords = renderRecords(splitPreviewRows, selectedHeaders, config);
 
   return {
     csvPreview: createTextPreview(
@@ -604,28 +555,23 @@ function buildMappingStreamChunk(
     processedRoots,
     rowCount: renderedRows.length,
     totalRoots,
-  } satisfies MappingStreamChunk
+  } satisfies MappingStreamChunk;
 }
 
 function normalizeMappingConversionHandlers(
-  handlersOrProgress:
-    | MappingConversionHandlers
-    | ((progress: ProcessingProgress) => void),
+  handlersOrProgress: MappingConversionHandlers | ((progress: ProcessingProgress) => void),
 ) {
-  return typeof handlersOrProgress === 'function'
+  return typeof handlersOrProgress === "function"
     ? { onProgress: handlersOrProgress }
-    : handlersOrProgress
+    : handlersOrProgress;
 }
 
-function resolveStreamChunkSize(
-  totalRoots: number,
-  requestedChunkSize?: number,
-) {
+function resolveStreamChunkSize(totalRoots: number, requestedChunkSize?: number) {
   if (requestedChunkSize && requestedChunkSize > 0) {
-    return requestedChunkSize
+    return requestedChunkSize;
   }
 
-  return Math.max(1, Math.ceil(totalRoots / 8))
+  return Math.max(1, Math.ceil(totalRoots / 8));
 }
 
 function shouldEmitStreamChunk(
@@ -633,7 +579,7 @@ function shouldEmitStreamChunk(
   totalRoots: number,
   streamChunkSize: number,
 ) {
-  return processedRoots === totalRoots || processedRoots % streamChunkSize === 0
+  return processedRoots === totalRoots || processedRoots % streamChunkSize === 0;
 }
 
 function createColumnRegistry(config: MappingConfig): ColumnRegistry {
@@ -641,35 +587,33 @@ function createColumnRegistry(config: MappingConfig): ColumnRegistry {
     headers: [],
     headerByPath: new Map<string, string>(),
     pathByHeader: new Map<string, string>(),
-  }
+  };
 
   for (const column of config.reservedColumns ?? []) {
-    const sourcePath = normalizeSourcePath(column.sourcePath)
+    const sourcePath = normalizeSourcePath(column.sourcePath);
 
     if (!column.header || !sourcePath) {
-      continue
+      continue;
     }
 
-    registry.pathByHeader.set(column.header, sourcePath)
+    registry.pathByHeader.set(column.header, sourcePath);
   }
 
-  for (const [sourcePath, header] of Object.entries(
-    config.headerAliases ?? {},
-  )) {
-    const normalizedPath = normalizeSourcePath(sourcePath)
+  for (const [sourcePath, header] of Object.entries(config.headerAliases ?? {})) {
+    const normalizedPath = normalizeSourcePath(sourcePath);
 
     if (!normalizedPath || !header) {
-      continue
+      continue;
     }
 
-    registry.headerByPath.set(normalizedPath, header)
+    registry.headerByPath.set(normalizedPath, header);
 
     if (!registry.pathByHeader.has(header)) {
-      registry.pathByHeader.set(header, normalizedPath)
+      registry.pathByHeader.set(header, normalizedPath);
     }
   }
 
-  return registry
+  return registry;
 }
 
 function cloneColumnRegistry(registry: ColumnRegistry): ColumnRegistry {
@@ -677,7 +621,7 @@ function cloneColumnRegistry(registry: ColumnRegistry): ColumnRegistry {
     headers: [...registry.headers],
     headerByPath: new Map(registry.headerByPath),
     pathByHeader: new Map(registry.pathByHeader),
-  }
+  };
 }
 
 function createEmptyRow(initial: Partial<ProjectedRow> = {}): ProjectedRow {
@@ -685,11 +629,11 @@ function createEmptyRow(initial: Partial<ProjectedRow> = {}): ProjectedRow {
     data: initial.data ?? {},
     lineage: initial.lineage ?? {},
     owners: initial.owners ?? {},
-  }
+  };
 }
 
 function createRootTraversalState(rootIndex: number): TraversalState {
-  const rootSegment = createProvenanceSegment('$', rootIndex)
+  const rootSegment = createProvenanceSegment("$", rootIndex);
 
   return {
     activeOwner: {
@@ -699,7 +643,7 @@ function createRootTraversalState(rootIndex: number): TraversalState {
     lineage: {
       [rootSegment.path]: rootSegment,
     },
-  }
+  };
 }
 
 function extendTraversalState(
@@ -707,8 +651,8 @@ function extendTraversalState(
   pathSegments: string[],
   index: number,
 ): TraversalState {
-  const path = normalizeRulePath(pathSegments.join('.')) || '$'
-  const segment = createProvenanceSegment(path, index)
+  const path = normalizeRulePath(pathSegments.join(".")) || "$";
+  const segment = createProvenanceSegment(path, index);
 
   return {
     activeOwner: {
@@ -719,14 +663,14 @@ function extendTraversalState(
       ...traversalState.lineage,
       [segment.path]: segment,
     },
-  }
+  };
 }
 
 function createPivotTraversalState(
   traversalState: TraversalState,
   pathSegments: string[],
 ): TraversalState {
-  const ownerPath = pathSegments.join('.') || 'column0'
+  const ownerPath = pathSegments.join(".") || "column0";
 
   return {
     activeOwner: {
@@ -734,7 +678,7 @@ function createPivotTraversalState(
       token: ownerPath,
     },
     lineage: traversalState.lineage,
-  }
+  };
 }
 
 function createIndexedPathSegments(
@@ -743,27 +687,24 @@ function createIndexedPathSegments(
   arrayIndexSuffix: boolean,
 ) {
   if (pathSegments.length === 0) {
-    return arrayIndexSuffix ? [`column0[${index}]`] : ['column0', `${index}`]
+    return arrayIndexSuffix ? [`column0[${index}]`] : ["column0", `${index}`];
   }
 
   if (!arrayIndexSuffix) {
-    return [...pathSegments, `${index}`]
+    return [...pathSegments, `${index}`];
   }
 
   return pathSegments.map((segment, segmentIndex) =>
     segmentIndex === pathSegments.length - 1 ? `${segment}[${index}]` : segment,
-  )
+  );
 }
 
-function createProvenanceSegment(
-  path: string,
-  index: number,
-): ProvenanceSegment {
+function createProvenanceSegment(path: string, index: number): ProvenanceSegment {
   return {
     index,
     path,
     token: `${path}[${index}]`,
-  }
+  };
 }
 
 function toRowProvenance(row: ProjectedRow): RowProvenance {
@@ -774,7 +715,7 @@ function toRowProvenance(row: ProjectedRow): RowProvenance {
         index: segment.index,
         path: segment.path,
       })),
-  }
+  };
 }
 
 function appendNodeToRows(
@@ -786,52 +727,33 @@ function appendNodeToRows(
   traversalState: TraversalState,
 ): ProjectedRow[] {
   if (depth > context.config.maxDepth) {
-    return appendScalarToRows(
-      rows,
-      pathSegments,
-      '[Max depth reached]',
-      context,
-      traversalState,
-    )
+    return appendScalarToRows(rows, pathSegments, "[Max depth reached]", context, traversalState);
   }
 
-  const normalizedPath = normalizeRulePath(pathSegments.join('.'))
+  const normalizedPath = normalizeRulePath(pathSegments.join("."));
 
   if (!shouldIncludePath(normalizedPath, context.config.includePaths)) {
-    return rows
+    return rows;
   }
 
   if (shouldDropPath(normalizedPath, context.config.dropPaths)) {
-    return rows
+    return rows;
   }
 
   if (value === undefined) {
-    return rows
+    return rows;
   }
 
   if (Array.isArray(value)) {
-    return appendArrayToRows(
-      rows,
-      value,
-      pathSegments,
-      context,
-      depth + 1,
-      traversalState,
-    )
+    return appendArrayToRows(rows, value, pathSegments, context, depth + 1, traversalState);
   }
 
   if (isPlainObject(value)) {
     if (shouldStringifyPath(normalizedPath, context.config)) {
-      return appendScalarToRows(
-        rows,
-        pathSegments,
-        JSON.stringify(value),
-        context,
-        traversalState,
-      )
+      return appendScalarToRows(rows, pathSegments, JSON.stringify(value), context, traversalState);
     }
 
-    let nextRows = rows
+    let nextRows = rows;
 
     for (const [key, childValue] of Object.entries(value)) {
       nextRows = appendNodeToRows(
@@ -841,23 +763,17 @@ function appendNodeToRows(
         context,
         depth + 1,
         traversalState,
-      )
+      );
 
       if (nextRows.length === 0) {
-        break
+        break;
       }
     }
 
-    return nextRows
+    return nextRows;
   }
 
-  return appendScalarToRows(
-    rows,
-    pathSegments,
-    value as ScalarValue,
-    context,
-    traversalState,
-  )
+  return appendScalarToRows(rows, pathSegments, value as ScalarValue, context, traversalState);
 }
 
 function appendArrayToRows(
@@ -868,49 +784,26 @@ function appendArrayToRows(
   depth: number,
   traversalState: TraversalState,
 ): ProjectedRow[] {
-  const normalizedPath = normalizeRulePath(pathSegments.join('.'))
+  const normalizedPath = normalizeRulePath(pathSegments.join("."));
 
   if (shouldStringifyPath(normalizedPath, context.config)) {
-    return appendScalarToRows(
-      rows,
-      pathSegments,
-      JSON.stringify(values),
-      context,
-      traversalState,
-    )
+    return appendScalarToRows(rows, pathSegments, JSON.stringify(values), context, traversalState);
   }
 
-  const mode = resolveModeForPath(normalizedPath, context.config)
+  const mode = resolveModeForPath(normalizedPath, context.config);
 
-  if (mode === 'stringify') {
+  if (mode === "stringify") {
     return context.config.arrayIndexSuffix
-      ? appendPivotedArrayToRows(
-          rows,
-          values,
-          pathSegments,
-          context,
-          depth,
-          traversalState,
-        )
-      : appendScalarToRows(
-          rows,
-          pathSegments,
-          JSON.stringify(values),
-          context,
-          traversalState,
-        )
+      ? appendPivotedArrayToRows(rows, values, pathSegments, context, depth, traversalState)
+      : appendScalarToRows(rows, pathSegments, JSON.stringify(values), context, traversalState);
   }
 
   if (values.length === 0) {
-    return context.config.emptyArrayBehavior === 'skip_row' ? [] : rows
+    return context.config.emptyArrayBehavior === "skip_row" ? [] : rows;
   }
 
   const elementRows = values.map((value, index) => {
-    const nextTraversalState = extendTraversalState(
-      traversalState,
-      pathSegments,
-      index,
-    )
+    const nextTraversalState = extendTraversalState(traversalState, pathSegments, index);
 
     return appendNodeToRows(
       [createEmptyRow({ lineage: nextTraversalState.lineage })],
@@ -919,12 +812,12 @@ function appendArrayToRows(
       context,
       depth + 1,
       nextTraversalState,
-    )
-  })
+    );
+  });
 
-  return mode === 'cross_product'
+  return mode === "cross_product"
     ? combineByCrossProduct(rows, elementRows)
-    : combineByParallel(rows, elementRows)
+    : combineByParallel(rows, elementRows);
 }
 
 function appendPivotedArrayToRows(
@@ -936,21 +829,18 @@ function appendPivotedArrayToRows(
   traversalState: TraversalState,
 ) {
   if (values.length === 0) {
-    return context.config.emptyArrayBehavior === 'skip_row' ? [] : rows
+    return context.config.emptyArrayBehavior === "skip_row" ? [] : rows;
   }
 
-  let nextRows = rows
+  let nextRows = rows;
 
   for (const [index, value] of values.entries()) {
     const indexedPathSegments = createIndexedPathSegments(
       pathSegments,
       index,
       context.config.arrayIndexSuffix,
-    )
-    const nextTraversalState = createPivotTraversalState(
-      traversalState,
-      indexedPathSegments,
-    )
+    );
+    const nextTraversalState = createPivotTraversalState(traversalState, indexedPathSegments);
 
     nextRows = appendNodeToRows(
       nextRows,
@@ -959,10 +849,10 @@ function appendPivotedArrayToRows(
       context,
       depth + 1,
       nextTraversalState,
-    )
+    );
   }
 
-  return nextRows
+  return nextRows;
 }
 
 function appendScalarToRows(
@@ -972,7 +862,7 @@ function appendScalarToRows(
   context: EngineContext,
   traversalState: TraversalState,
 ): ProjectedRow[] {
-  const header = resolveHeader(pathSegments, context)
+  const header = resolveHeader(pathSegments, context);
 
   return rows.map((row) => ({
     data: {
@@ -987,7 +877,7 @@ function appendScalarToRows(
       ...row.owners,
       [header]: traversalState.activeOwner,
     },
-  }))
+  }));
 }
 
 function combineByCrossProduct(
@@ -998,22 +888,22 @@ function combineByCrossProduct(
     elementRows.flatMap((projectedRows) =>
       projectedRows.map((projectedRow) => mergeRows(baseRow, projectedRow)),
     ),
-  )
+  );
 }
 
 function combineByParallel(
   baseRows: ProjectedRow[],
   elementRows: ProjectedRow[][],
 ): ProjectedRow[] {
-  const sharedContextRow = deriveSharedContextRow(baseRows)
-  const maxLength = Math.max(baseRows.length, elementRows.length, 1)
+  const sharedContextRow = deriveSharedContextRow(baseRows);
+  const maxLength = Math.max(baseRows.length, elementRows.length, 1);
 
   return Array.from({ length: maxLength }, (_, index) => {
-    const baseRow = baseRows[index] ?? sharedContextRow
-    const projectedRows = elementRows[index] ?? [createEmptyRow()]
+    const baseRow = baseRows[index] ?? sharedContextRow;
+    const projectedRows = elementRows[index] ?? [createEmptyRow()];
 
-    return projectedRows.map((projectedRow) => mergeRows(baseRow, projectedRow))
-  }).flat()
+    return projectedRows.map((projectedRow) => mergeRows(baseRow, projectedRow));
+  }).flat();
 }
 
 function mergeRows(left: ProjectedRow, right: ProjectedRow): ProjectedRow {
@@ -1030,41 +920,39 @@ function mergeRows(left: ProjectedRow, right: ProjectedRow): ProjectedRow {
       ...left.owners,
       ...right.owners,
     },
-  }
+  };
 }
 
 function deriveSharedContextRow(rows: ProjectedRow[]) {
   if (rows.length === 0) {
-    return createEmptyRow()
+    return createEmptyRow();
   }
 
-  const sharedData: Record<string, ScalarValue> = {}
-  const sharedOwners: Record<string, CellOwner> = {}
-  const sharedLineage: Record<string, ProvenanceSegment> = {}
-  const [firstRow, ...remainingRows] = rows
+  const sharedData: Record<string, ScalarValue> = {};
+  const sharedOwners: Record<string, CellOwner> = {};
+  const sharedLineage: Record<string, ProvenanceSegment> = {};
+  const [firstRow, ...remainingRows] = rows;
 
   for (const [key, value] of Object.entries(firstRow.data)) {
-    const owner = firstRow.owners[key]
+    const owner = firstRow.owners[key];
     const matchesAllRows = remainingRows.every(
       (row) =>
         row.data[key] === value &&
         row.owners[key] !== undefined &&
         row.owners[key].token === owner?.token,
-    )
+    );
 
     if (matchesAllRows) {
-      sharedData[key] = value
+      sharedData[key] = value;
       if (owner) {
-        sharedOwners[key] = owner
+        sharedOwners[key] = owner;
       }
     }
   }
 
   for (const [path, segment] of Object.entries(firstRow.lineage)) {
-    if (
-      remainingRows.every((row) => row.lineage[path]?.token === segment.token)
-    ) {
-      sharedLineage[path] = segment
+    if (remainingRows.every((row) => row.lineage[path]?.token === segment.token)) {
+      sharedLineage[path] = segment;
     }
   }
 
@@ -1072,39 +960,34 @@ function deriveSharedContextRow(rows: ProjectedRow[]) {
     data: sharedData,
     lineage: sharedLineage,
     owners: sharedOwners,
-  })
+  });
 }
 
-function applyPlaceholderStrategy(
-  rows: ProjectedRow[],
-  config: MappingConfig,
-): ProjectedRow[] {
-  if (config.placeholderStrategy === 'repeat') {
-    return rows
+function applyPlaceholderStrategy(rows: ProjectedRow[], config: MappingConfig): ProjectedRow[] {
+  if (config.placeholderStrategy === "repeat") {
+    return rows;
   }
 
   const placeholder =
-    config.placeholderStrategy === 'custom'
-      ? (config.customPlaceholder ?? '')
-      : ''
+    config.placeholderStrategy === "custom" ? (config.customPlaceholder ?? "") : "";
 
   return rows.map((row, index) => {
     if (index === 0) {
-      return row
+      return row;
     }
 
-    const previousRow = rows[index - 1]
-    const nextData = { ...row.data }
+    const previousRow = rows[index - 1];
+    const nextData = { ...row.data };
 
     for (const [header, owner] of Object.entries(row.owners)) {
-      const previousOwner = previousRow.owners[header]
+      const previousOwner = previousRow.owners[header];
 
       if (
         previousOwner?.token === owner.token &&
         previousRow.data[header] === row.data[header] &&
         header in nextData
       ) {
-        nextData[header] = placeholder
+        nextData[header] = placeholder;
       }
     }
 
@@ -1112,8 +995,8 @@ function applyPlaceholderStrategy(
       data: nextData,
       lineage: row.lineage,
       owners: row.owners,
-    }
-  })
+    };
+  });
 }
 
 function applyTypeMismatchStrategy(
@@ -1121,64 +1004,60 @@ function applyTypeMismatchStrategy(
   registry: ColumnRegistry,
   config: MappingConfig,
 ) {
-  if (config.onTypeMismatch === 'coerce') {
-    return rows
+  if (config.onTypeMismatch === "coerce") {
+    return rows;
   }
 
-  const kindsByHeader = inferKindsByHeader(rows)
-  const splitHeaders = new Map<string, string[]>()
+  const kindsByHeader = inferKindsByHeader(rows);
+  const splitHeaders = new Map<string, string[]>();
 
   for (const header of registry.headers) {
-    const kinds = (kindsByHeader.get(header) ?? []).filter(
-      (kind) => kind !== 'null',
-    )
+    const kinds = (kindsByHeader.get(header) ?? []).filter((kind) => kind !== "null");
 
     if (kinds.length > 1) {
       splitHeaders.set(
         header,
         kinds.map((kind) => `${header}_${kind}`),
-      )
+      );
     }
   }
 
   if (splitHeaders.size === 0) {
-    return rows
+    return rows;
   }
 
-  registry.headers = registry.headers.flatMap(
-    (header) => splitHeaders.get(header) ?? [header],
-  )
+  registry.headers = registry.headers.flatMap((header) => splitHeaders.get(header) ?? [header]);
 
   for (const [header, derivedHeaders] of splitHeaders) {
-    const sourcePath = registry.pathByHeader.get(header) ?? header
+    const sourcePath = registry.pathByHeader.get(header) ?? header;
 
     derivedHeaders.forEach((derivedHeader) => {
-      registry.pathByHeader.set(derivedHeader, sourcePath)
-    })
+      registry.pathByHeader.set(derivedHeader, sourcePath);
+    });
   }
 
   return rows.map((row) => {
-    const nextRow: Record<string, ScalarValue> = {}
+    const nextRow: Record<string, ScalarValue> = {};
 
     for (const [header, value] of Object.entries(row)) {
-      const derivedHeaders = splitHeaders.get(header)
+      const derivedHeaders = splitHeaders.get(header);
 
       if (!derivedHeaders) {
-        nextRow[header] = value
-        continue
+        nextRow[header] = value;
+        continue;
       }
 
-      const kind = detectValueKind(value)
+      const kind = detectValueKind(value);
 
-      if (kind === 'null') {
-        continue
+      if (kind === "null") {
+        continue;
       }
 
-      nextRow[`${header}_${kind}`] = value
+      nextRow[`${header}_${kind}`] = value;
     }
 
-    return nextRow
-  })
+    return nextRow;
+  });
 }
 
 function selectHeaders(
@@ -1186,47 +1065,44 @@ function selectHeaders(
   registry: ColumnRegistry,
   config: MappingConfig,
 ) {
-  const encounteredHeaders = new Set<string>()
-  const headerWhitelist = config.headerWhitelist ?? []
+  const encounteredHeaders = new Set<string>();
+  const headerWhitelist = config.headerWhitelist ?? [];
 
   const rowsToScan =
-    config.headerPolicy === 'sampled_scan'
+    config.headerPolicy === "sampled_scan"
       ? rows.slice(0, Math.max(config.headerSampleSize, 1))
-      : rows
+      : rows;
 
   for (const row of rowsToScan) {
     for (const header of Object.keys(row)) {
-      encounteredHeaders.add(header)
+      encounteredHeaders.add(header);
     }
   }
 
-  const whitelisted = new Set(headerWhitelist)
+  const whitelisted = new Set(headerWhitelist);
 
-  if (config.headerPolicy === 'explicit') {
+  if (config.headerPolicy === "explicit") {
     return headerWhitelist
       .map((header) => resolveExplicitHeader(header, registry))
-      .filter(
-        (header, index, headers) =>
-          header.length > 0 && headers.indexOf(header) === index,
-      )
+      .filter((header, index, headers) => header.length > 0 && headers.indexOf(header) === index);
   }
 
   const orderedHeaders = registry.headers.filter((header) => {
-    if (config.onMissingKey === 'include') {
-      return encounteredHeaders.has(header) || whitelisted.has(header)
+    if (config.onMissingKey === "include") {
+      return encounteredHeaders.has(header) || whitelisted.has(header);
     }
 
-    return encounteredHeaders.has(header)
-  })
+    return encounteredHeaders.has(header);
+  });
 
-  if (config.onMissingKey === 'include') {
+  if (config.onMissingKey === "include") {
     return [
       ...orderedHeaders,
       ...headerWhitelist.filter((header) => !orderedHeaders.includes(header)),
-    ]
+    ];
   }
 
-  return orderedHeaders
+  return orderedHeaders;
 }
 
 function renderRecords(
@@ -1235,14 +1111,14 @@ function renderRecords(
   config: MappingConfig,
 ) {
   return rows.map((row) => {
-    const record: Record<string, string> = {}
+    const record: Record<string, string> = {};
 
     for (const header of headers) {
-      record[header] = formatValue(row[header], config)
+      record[header] = formatValue(row[header], config);
     }
 
-    return record
-  })
+    return record;
+  });
 }
 
 function buildCsvPreview(
@@ -1252,11 +1128,11 @@ function buildCsvPreview(
   config: MappingConfig,
   maxCharacters: number,
 ) {
-  const previewCsv = toCsv(headers, previewRecords, config)
-  const preview = createTextPreview(previewCsv, maxCharacters)
+  const previewCsv = toCsv(headers, previewRecords, config);
+  const preview = createTextPreview(previewCsv, maxCharacters);
 
   if (previewRecords.length === rows.length) {
-    return preview
+    return preview;
   }
 
   if (preview.truncated) {
@@ -1265,7 +1141,7 @@ function buildCsvPreview(
       omittedCharactersKnown: false,
       text: preview.text,
       truncated: true,
-    } satisfies TextPreview
+    } satisfies TextPreview;
   }
 
   return {
@@ -1273,7 +1149,7 @@ function buildCsvPreview(
     omittedCharactersKnown: false,
     text: `${previewCsv.trimEnd()}\n\n[Preview truncated]`,
     truncated: true,
-  } satisfies TextPreview
+  } satisfies TextPreview;
 }
 
 function buildSchema(
@@ -1285,20 +1161,18 @@ function buildSchema(
   primaryKeys: string[],
   config: MappingConfig,
 ): MappingSchema {
-  const kindsByHeader = inferKindsByHeader(rows)
+  const kindsByHeader = inferKindsByHeader(rows);
 
   return {
     columns: headers.map((header) => ({
       header,
       sourcePath: registry.pathByHeader.get(header) ?? header,
-      kinds: kindsByHeader.get(header) ?? ['string'],
-      nullable: rows.some(
-        (row) => row[header] === null || row[header] === undefined,
-      ),
+      kinds: kindsByHeader.get(header) ?? ["string"],
+      nullable: rows.some((row) => row[header] === null || row[header] === undefined),
     })),
     primaryKeys,
     typeReports: buildTypeReports(sourceRows, sourceRegistry, registry, config),
-  }
+  };
 }
 
 function buildTypeReports(
@@ -1309,29 +1183,26 @@ function buildTypeReports(
 ) {
   const encounteredHeaders = sourceRegistry.headers.filter((header) =>
     rows.some((row) => header in row),
-  )
+  );
 
   return encounteredHeaders.map((header) => {
-    const sourcePath = sourceRegistry.pathByHeader.get(header) ?? header
-    const counts = new Map<ValueKind, number>()
-    let missingCount = 0
+    const sourcePath = sourceRegistry.pathByHeader.get(header) ?? header;
+    const counts = new Map<ValueKind, number>();
+    let missingCount = 0;
 
     for (const row of rows) {
-      const value = row[header]
+      const value = row[header];
 
       if (value === null || value === undefined) {
-        missingCount += 1
-        continue
+        missingCount += 1;
+        continue;
       }
 
-      const kind = detectValueKind(value)
-      counts.set(kind, (counts.get(kind) ?? 0) + 1)
+      const kind = detectValueKind(value);
+      counts.set(kind, (counts.get(kind) ?? 0) + 1);
     }
 
-    const observedCount = [...counts.values()].reduce(
-      (total, count) => total + count,
-      0,
-    )
+    const observedCount = [...counts.values()].reduce((total, count) => total + count, 0);
     const typeBreakdown = [...counts.entries()]
       .sort(
         ([leftKind, leftCount], [rightKind, rightCount]) =>
@@ -1340,17 +1211,11 @@ function buildTypeReports(
       .map(([kind, count]) => ({
         count,
         kind,
-        percentage:
-          observedCount === 0
-            ? 0
-            : roundToSingleDecimal((count / observedCount) * 100),
-      }))
+        percentage: observedCount === 0 ? 0 : roundToSingleDecimal((count / observedCount) * 100),
+      }));
 
     return {
-      coercedTo:
-        config.onTypeMismatch === 'coerce' && typeBreakdown.length > 1
-          ? 'string'
-          : null,
+      coercedTo: config.onTypeMismatch === "coerce" && typeBreakdown.length > 1 ? "string" : null,
       dominantKind: typeBreakdown[0]?.kind ?? null,
       exportHeaders: findHeadersForSourcePath(sourcePath, finalRegistry),
       header,
@@ -1358,50 +1223,47 @@ function buildTypeReports(
       observedCount,
       sourcePath,
       typeBreakdown,
-    } satisfies ColumnTypeReport
-  })
+    } satisfies ColumnTypeReport;
+  });
 }
 
 function resolveExplicitHeader(reference: string, registry: ColumnRegistry) {
-  const normalizedReference = reference.trim()
+  const normalizedReference = reference.trim();
 
   if (!normalizedReference) {
-    return ''
+    return "";
   }
 
   if (registry.pathByHeader.has(normalizedReference)) {
-    return normalizedReference
+    return normalizedReference;
   }
 
-  const sourcePathMatch = findHeadersForSourcePath(
-    normalizedReference,
-    registry,
-  )[0]
+  const sourcePathMatch = findHeadersForSourcePath(normalizedReference, registry)[0];
 
-  return sourcePathMatch ?? normalizedReference
+  return sourcePathMatch ?? normalizedReference;
 }
 
 function findHeadersForSourcePath(path: string, registry: ColumnRegistry) {
   return [...registry.pathByHeader.entries()]
     .filter(([, sourcePath]) => sourcePath === path)
     .map(([header]) => header)
-    .filter((header, index, headers) => headers.indexOf(header) === index)
+    .filter((header, index, headers) => headers.indexOf(header) === index);
 }
 
 function collectPrimaryKeys(rows: ProjectedRow[]) {
-  const primaryKeys = new Set<string>()
+  const primaryKeys = new Set<string>();
 
   for (const row of rows) {
     for (const path of Object.keys(row.lineage)) {
-      primaryKeys.add(path)
+      primaryKeys.add(path);
     }
   }
 
   if (primaryKeys.size === 0) {
-    primaryKeys.add('$')
+    primaryKeys.add("$");
   }
 
-  return [...primaryKeys].sort(comparePrimaryKeys)
+  return [...primaryKeys].sort(comparePrimaryKeys);
 }
 
 export function toCsv(
@@ -1409,21 +1271,15 @@ export function toCsv(
   records: Array<Record<string, string>>,
   config: MappingConfig,
 ) {
-  const lines = [
-    headers
-      .map((header) => escapeCsvCell(header, config))
-      .join(config.delimiter),
-  ]
+  const lines = [headers.map((header) => escapeCsvCell(header, config)).join(config.delimiter)];
 
   for (const record of records) {
     lines.push(
-      headers
-        .map((header) => escapeCsvCell(record[header] ?? '', config))
-        .join(config.delimiter),
-    )
+      headers.map((header) => escapeCsvCell(record[header] ?? "", config)).join(config.delimiter),
+    );
   }
 
-  return lines.join('\n')
+  return lines.join("\n");
 }
 
 function escapeCsvCell(value: string, config: MappingConfig) {
@@ -1431,83 +1287,80 @@ function escapeCsvCell(value: string, config: MappingConfig) {
     config.quoteAll ||
     value.includes(config.delimiter) ||
     value.includes('"') ||
-    value.includes('\n')
+    value.includes("\n");
 
-  const escaped = value.replaceAll('"', '""')
+  const escaped = value.replaceAll('"', '""');
 
-  return needsQuotes ? `"${escaped}"` : escaped
+  return needsQuotes ? `"${escaped}"` : escaped;
 }
 
-export function formatValue(
-  value: ScalarValue | undefined,
-  config: MappingConfig,
-) {
+export function formatValue(value: ScalarValue | undefined, config: MappingConfig) {
   if (value === null || value === undefined) {
-    return ''
+    return "";
   }
 
-  if (typeof value === 'boolean') {
+  if (typeof value === "boolean") {
     switch (config.booleanRepresentation) {
-      case 'one_zero':
-        return value ? '1' : '0'
-      case 'yes_no':
-        return value ? 'Yes' : 'No'
+      case "one_zero":
+        return value ? "1" : "0";
+      case "yes_no":
+        return value ? "Yes" : "No";
       default:
-        return value ? 'TRUE' : 'FALSE'
+        return value ? "TRUE" : "FALSE";
     }
   }
 
-  if (typeof value === 'number') {
-    return String(value)
+  if (typeof value === "number") {
+    return String(value);
   }
 
-  if (config.dateFormat === 'yyyy-mm-dd' && looksLikeIsoDate(value)) {
-    return value.slice(0, 10)
+  if (config.dateFormat === "yyyy-mm-dd" && looksLikeIsoDate(value)) {
+    return value.slice(0, 10);
   }
 
-  return value
+  return value;
 }
 
 function inferKindsByHeader(rows: Array<Record<string, ScalarValue>>) {
-  const kindsByHeader = new Map<string, ValueKind[]>()
+  const kindsByHeader = new Map<string, ValueKind[]>();
 
   for (const row of rows) {
     for (const [header, value] of Object.entries(row)) {
-      const kind = detectValueKind(value)
-      const kinds = kindsByHeader.get(header) ?? []
+      const kind = detectValueKind(value);
+      const kinds = kindsByHeader.get(header) ?? [];
 
       if (!kinds.includes(kind)) {
-        kinds.push(kind)
-        kindsByHeader.set(header, kinds)
+        kinds.push(kind);
+        kindsByHeader.set(header, kinds);
       }
     }
   }
 
-  return kindsByHeader
+  return kindsByHeader;
 }
 
 function detectValueKind(value: unknown): ValueKind {
   if (value === null || value === undefined) {
-    return 'null'
+    return "null";
   }
 
   if (Array.isArray(value)) {
-    return 'array'
+    return "array";
   }
 
-  if (typeof value === 'boolean') {
-    return 'boolean'
+  if (typeof value === "boolean") {
+    return "boolean";
   }
 
-  if (typeof value === 'number') {
-    return 'number'
+  if (typeof value === "number") {
+    return "number";
   }
 
-  if (typeof value === 'string') {
-    return looksLikeIsoDate(value) ? 'date' : 'string'
+  if (typeof value === "string") {
+    return looksLikeIsoDate(value) ? "date" : "string";
   }
 
-  return 'object'
+  return "object";
 }
 
 function inspectNodePaths(
@@ -1516,181 +1369,166 @@ function inspectNodePaths(
   registry: Map<
     string,
     {
-      count: number
-      depth: number
-      kinds: Set<ValueKind>
+      count: number;
+      depth: number;
+      kinds: Set<ValueKind>;
     }
   >,
   shouldCountCurrentPath = true,
 ) {
-  const path = pathSegments.join('.')
-  const kind = detectValueKind(value)
+  const path = pathSegments.join(".");
+  const kind = detectValueKind(value);
 
   if (path) {
-    const existingEntry = registry.get(path)
+    const existingEntry = registry.get(path);
 
     if (existingEntry) {
       if (shouldCountCurrentPath) {
-        existingEntry.count += 1
+        existingEntry.count += 1;
       }
 
-      existingEntry.kinds.add(kind)
+      existingEntry.kinds.add(kind);
     } else {
       registry.set(path, {
         count: shouldCountCurrentPath ? 1 : 0,
         depth: pathSegments.length,
         kinds: new Set([kind]),
-      })
+      });
     }
   }
 
   if (Array.isArray(value)) {
     for (const entry of value) {
-      inspectNodePaths(entry, pathSegments, registry, false)
+      inspectNodePaths(entry, pathSegments, registry, false);
     }
 
-    return
+    return;
   }
 
   if (!isPlainObject(value)) {
-    return
+    return;
   }
 
   for (const [key, childValue] of Object.entries(value)) {
-    inspectNodePaths(childValue, [...pathSegments, key], registry)
+    inspectNodePaths(childValue, [...pathSegments, key], registry);
   }
 }
 
 function compareValueKinds(left: ValueKind, right: ValueKind) {
-  const order: ValueKind[] = [
-    'array',
-    'object',
-    'string',
-    'date',
-    'number',
-    'boolean',
-    'null',
-  ]
+  const order: ValueKind[] = ["array", "object", "string", "date", "number", "boolean", "null"];
 
-  return order.indexOf(left) - order.indexOf(right)
+  return order.indexOf(left) - order.indexOf(right);
 }
 
-function compareLineageSegments(
-  left: ProvenanceSegment,
-  right: ProvenanceSegment,
-) {
-  return comparePrimaryKeys(left.path, right.path) || left.index - right.index
+function compareLineageSegments(left: ProvenanceSegment, right: ProvenanceSegment) {
+  return comparePrimaryKeys(left.path, right.path) || left.index - right.index;
 }
 
 function comparePrimaryKeys(left: string, right: string) {
-  return getPathDepth(left) - getPathDepth(right) || left.localeCompare(right)
+  return getPathDepth(left) - getPathDepth(right) || left.localeCompare(right);
 }
 
 function roundToSingleDecimal(value: number) {
-  return Math.round(value * 10) / 10
+  return Math.round(value * 10) / 10;
 }
 
 function getPathDepth(path: string) {
-  if (path === '$') {
-    return 0
+  if (path === "$") {
+    return 0;
   }
 
-  return path.split('.').length
+  return path.split(".").length;
 }
 
 function looksLikeIsoDate(value: string) {
-  return /^\d{4}-\d{2}-\d{2}(T.*)?$/.test(value)
+  return /^\d{4}-\d{2}-\d{2}(T.*)?$/.test(value);
 }
 
 function resolveHeader(pathSegments: string[], context: EngineContext) {
-  const canonicalPath = pathSegments.join('.') || 'column0'
-  const existingHeader = context.registry.headerByPath.get(canonicalPath)
+  const canonicalPath = pathSegments.join(".") || "column0";
+  const existingHeader = context.registry.headerByPath.get(canonicalPath);
 
   if (existingHeader) {
     if (!context.registry.headers.includes(existingHeader)) {
-      context.registry.headers.push(existingHeader)
+      context.registry.headers.push(existingHeader);
     }
 
-    return existingHeader
+    return existingHeader;
   }
 
   const baseHeader =
-    canonicalPath === 'column0'
-      ? 'column0'
-      : pathSegments.join(context.config.pathSeparator)
+    canonicalPath === "column0" ? "column0" : pathSegments.join(context.config.pathSeparator);
 
-  let nextHeader = baseHeader
+  let nextHeader = baseHeader;
 
-  if (
-    context.config.strictNaming ||
-    context.config.collisionStrategy === 'rename_duplicate'
-  ) {
-    let collisionIndex = 1
+  if (context.config.strictNaming || context.config.collisionStrategy === "rename_duplicate") {
+    let collisionIndex = 1;
 
     while (context.registry.pathByHeader.has(nextHeader)) {
-      nextHeader = `${baseHeader}_${collisionIndex}`
-      collisionIndex += 1
+      nextHeader = `${baseHeader}_${collisionIndex}`;
+      collisionIndex += 1;
     }
   }
 
-  context.registry.headerByPath.set(canonicalPath, nextHeader)
-  context.registry.pathByHeader.set(nextHeader, canonicalPath)
-  context.registry.headers.push(nextHeader)
+  context.registry.headerByPath.set(canonicalPath, nextHeader);
+  context.registry.pathByHeader.set(nextHeader, canonicalPath);
+  context.registry.headers.push(nextHeader);
 
-  return nextHeader
+  return nextHeader;
 }
 
 function resolveModeForPath(path: string, config: MappingConfig) {
   if (shouldStringifyPath(path, config)) {
-    return 'stringify'
+    return "stringify";
   }
 
-  const pathMatch = Object.entries(
-    config.pathModes ?? {},
-  ).reduce<PathMatch | null>((bestMatch, [candidatePath, mode]) => {
-    if (!doesPathExactlyMatch(path, candidatePath)) {
-      return bestMatch
-    }
-
-    if (!bestMatch || candidatePath.length > bestMatch.index) {
-      return {
-        index: candidatePath.length,
-        mode,
+  const pathMatch = Object.entries(config.pathModes ?? {}).reduce<PathMatch | null>(
+    (bestMatch, [candidatePath, mode]) => {
+      if (!doesPathExactlyMatch(path, candidatePath)) {
+        return bestMatch;
       }
-    }
 
-    return bestMatch
-  }, null)
+      if (!bestMatch || candidatePath.length > bestMatch.index) {
+        return {
+          index: candidatePath.length,
+          mode,
+        };
+      }
+
+      return bestMatch;
+    },
+    null,
+  );
 
   if (pathMatch) {
-    return pathMatch.mode
+    return pathMatch.mode;
   }
 
-  return config.flattenMode === 'strict_leaf' ? 'stringify' : config.flattenMode
+  return config.flattenMode === "strict_leaf" ? "stringify" : config.flattenMode;
 }
 
 function shouldStringifyPath(path: string, config: MappingConfig) {
-  return doesAnyPathMatch(path, config.stringifyPaths)
+  return doesAnyPathMatch(path, config.stringifyPaths);
 }
 
 function shouldIncludePath(path: string, rules: string[]) {
   if (rules.length === 0 || path.length === 0) {
-    return true
+    return true;
   }
 
-  return rules.some((rule) => doesIncludedPathMatch(path, rule))
+  return rules.some((rule) => doesIncludedPathMatch(path, rule));
 }
 
 function shouldDropPath(path: string, rules: string[]) {
-  return doesAnyPathMatch(path, rules)
+  return doesAnyPathMatch(path, rules);
 }
 
 function doesIncludedPathMatch(path: string, rule: string) {
-  const normalizedPath = normalizeRulePath(path)
-  const normalizedRule = normalizeRulePath(rule)
+  const normalizedPath = normalizeRulePath(path);
+  const normalizedRule = normalizeRulePath(rule);
 
   if (!normalizedRule) {
-    return true
+    return true;
   }
 
   return (
@@ -1699,141 +1537,137 @@ function doesIncludedPathMatch(path: string, rule: string) {
     normalizedPath.startsWith(`${normalizedRule}[`) ||
     normalizedRule.startsWith(`${normalizedPath}.`) ||
     normalizedRule.startsWith(`${normalizedPath}[`)
-  )
+  );
 }
 
 function doesAnyPathMatch(path: string, rules: string[]) {
-  return rules.some((rule) => doesPathMatch(path, rule))
+  return rules.some((rule) => doesPathMatch(path, rule));
 }
 
 function doesPathExactlyMatch(path: string, rule: string) {
-  return normalizeRulePath(path) === normalizeRulePath(rule)
+  return normalizeRulePath(path) === normalizeRulePath(rule);
 }
 
 function doesPathMatch(path: string, rule: string) {
-  const normalizedPath = normalizeRulePath(path)
-  const normalizedRule = normalizeRulePath(rule)
+  const normalizedPath = normalizeRulePath(path);
+  const normalizedRule = normalizeRulePath(rule);
 
   return (
     normalizedPath === normalizedRule ||
     normalizedPath.startsWith(`${normalizedRule}.`) ||
     normalizedPath.startsWith(`${normalizedRule}[`)
-  )
+  );
 }
 
 export function normalizeRulePath(path: string) {
   return path
-    .replace(/^\$\.?/, '')
-    .replace(/\[\*\]/g, '')
-    .replace(/\[\d+\]/g, '')
-    .split('.')
+    .replace(/^\$\.?/, "")
+    .replace(/\[\*\]/g, "")
+    .replace(/\[\d+\]/g, "")
+    .split(".")
     .filter((segment) => segment.length > 0 && !/^\d+$/.test(segment))
-    .join('.')
+    .join(".");
 }
 
 function normalizeSourcePath(path: string) {
-  return normalizeRulePath(path) || (path === 'column0' ? 'column0' : '')
+  return normalizeRulePath(path) || (path === "column0" ? "column0" : "");
 }
 
 export function selectRootNodes(input: unknown, rootPath?: string) {
   if (!rootPath) {
-    return Array.isArray(input) ? input : [input]
+    return Array.isArray(input) ? input : [input];
   }
 
-  const tokens = tokenizeJsonPath(rootPath)
-  return walkPath(input, tokens)
+  const tokens = tokenizeJsonPath(rootPath);
+  return walkPath(input, tokens);
 }
 
 export function tokenizeJsonPath(path: string) {
-  const source = path.replace(/^\$\.?/, '')
-  const tokens: PathToken[] = []
-  let index = 0
+  const source = path.replace(/^\$\.?/, "");
+  const tokens: PathToken[] = [];
+  let index = 0;
 
   while (index < source.length) {
-    const character = source[index]
+    const character = source[index];
 
-    if (character === '.') {
-      index += 1
-      continue
+    if (character === ".") {
+      index += 1;
+      continue;
     }
 
-    if (character === '[') {
-      const endIndex = source.indexOf(']', index)
-      const selector = source.slice(index + 1, endIndex)
+    if (character === "[") {
+      const endIndex = source.indexOf("]", index);
+      const selector = source.slice(index + 1, endIndex);
 
       tokens.push(
-        selector === '*'
-          ? { type: 'wildcard' }
-          : { type: 'index', value: Number.parseInt(selector, 10) },
-      )
+        selector === "*"
+          ? { type: "wildcard" }
+          : { type: "index", value: Number.parseInt(selector, 10) },
+      );
 
-      index = endIndex + 1
-      continue
+      index = endIndex + 1;
+      continue;
     }
 
-    let endIndex = index
+    let endIndex = index;
 
-    while (
-      endIndex < source.length &&
-      source[endIndex] !== '.' &&
-      source[endIndex] !== '['
-    ) {
-      endIndex += 1
+    while (endIndex < source.length && source[endIndex] !== "." && source[endIndex] !== "[") {
+      endIndex += 1;
     }
 
     tokens.push({
-      type: 'property',
+      type: "property",
       value: source.slice(index, endIndex),
-    })
-    index = endIndex
+    });
+    index = endIndex;
   }
 
-  return tokens
+  return tokens;
 }
 
 function walkPath(value: unknown, tokens: PathToken[]): unknown[] {
   if (tokens.length === 0) {
-    return [value]
+    return [value];
   }
 
-  const [token, ...rest] = tokens
+  const [token, ...rest] = tokens;
 
-  if (token.type === 'property') {
-    if (token.value === '*') {
+  if (token.type === "property") {
+    if (token.value === "*") {
       if (!isPlainObject(value)) {
-        return []
+        return [];
       }
 
       return Object.entries(value).flatMap(([key, entryValue]) => {
-        const matches = walkPath(entryValue, rest)
+        const matches = walkPath(entryValue, rest);
 
         return rest.length === 0
           ? matches.map((match) => createObjectMapEntryRootNode(key, match))
-          : matches
-      })
+          : matches;
+      });
     }
 
     if (!isPlainObject(value) || !(token.value in value)) {
-      return []
+      return [];
     }
 
-    return walkPath(value[token.value], rest)
+    return walkPath(value[token.value], rest);
   }
 
   if (!Array.isArray(value)) {
-    return []
+    return [];
   }
 
-  if (token.type === 'wildcard') {
-    return value.flatMap((entry) => walkPath(entry, rest))
+  if (token.type === "wildcard") {
+    return value.flatMap((entry) => walkPath(entry, rest));
   }
 
-  const entry = value[token.value]
-  return entry === undefined ? [] : walkPath(entry, rest)
+  const entry = value[token.value];
+  return entry === undefined ? [] : walkPath(entry, rest);
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function createObjectMapEntryRootNode(entryKey: string, value: unknown) {
@@ -1841,11 +1675,11 @@ function createObjectMapEntryRootNode(entryKey: string, value: unknown) {
     return {
       [objectMapEntryKeyField]: entryKey,
       ...value,
-    }
+    };
   }
 
   return {
     [objectMapEntryKeyField]: entryKey,
     value: value as JsonValue,
-  }
+  };
 }

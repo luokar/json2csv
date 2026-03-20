@@ -1,104 +1,101 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   buildOutputExportBundle,
   type OutputExportBundle,
   type OutputExportRequest,
   type OutputExportWorkerResponse,
-} from '@/lib/output-export'
+} from "@/lib/output-export";
 
 function toErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : 'Failed to prepare export.'
+  return error instanceof Error ? error.message : "Failed to prepare export.";
 }
 
 export function useOutputExport() {
-  const [activeLabel, setActiveLabel] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const workerRef = useRef<Worker | null>(null)
-  const requestIdRef = useRef(0)
+  const [activeLabel, setActiveLabel] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const workerRef = useRef<Worker | null>(null);
+  const requestIdRef = useRef(0);
 
   const resetError = useCallback(() => {
-    setError(null)
-  }, [])
+    setError(null);
+  }, []);
 
   const runExport = useCallback(
     (payload: OutputExportRequest, label: string) =>
       new Promise<OutputExportBundle>((resolve, reject) => {
-        setActiveLabel(label)
-        setError(null)
+        setActiveLabel(label);
+        setError(null);
 
         const settleSuccess = (bundle: OutputExportBundle) => {
-          setActiveLabel(null)
-          resolve(bundle)
-        }
+          setActiveLabel(null);
+          resolve(bundle);
+        };
 
         const settleError = (message: string) => {
-          setActiveLabel(null)
-          setError(message)
-          reject(new Error(message))
-        }
+          setActiveLabel(null);
+          setError(message);
+          reject(new Error(message));
+        };
 
-        if (typeof Worker === 'undefined') {
+        if (typeof Worker === "undefined") {
           try {
-            settleSuccess(buildOutputExportBundle(payload))
+            settleSuccess(buildOutputExportBundle(payload));
           } catch (error) {
-            settleError(toErrorMessage(error))
+            settleError(toErrorMessage(error));
           }
 
-          return
+          return;
         }
 
-        requestIdRef.current += 1
-        const requestId = requestIdRef.current
+        requestIdRef.current += 1;
+        const requestId = requestIdRef.current;
 
         if (!workerRef.current) {
-          workerRef.current = new Worker(
-            new URL('../workers/export-worker.ts', import.meta.url),
-            { type: 'module' },
-          )
+          workerRef.current = new Worker(new URL("../workers/export-worker.ts", import.meta.url), {
+            type: "module",
+          });
         }
 
-        const worker = workerRef.current
+        const worker = workerRef.current;
         const cleanup = () => {
-          worker.removeEventListener('message', handleMessage)
-          worker.removeEventListener('error', handleError)
-        }
+          worker.removeEventListener("message", handleMessage);
+          worker.removeEventListener("error", handleError);
+        };
 
-        const handleMessage = (
-          event: MessageEvent<OutputExportWorkerResponse>,
-        ) => {
+        const handleMessage = (event: MessageEvent<OutputExportWorkerResponse>) => {
           if (event.data.requestId !== requestId) {
-            return
+            return;
           }
 
-          cleanup()
+          cleanup();
 
-          if (event.data.type === 'error') {
-            settleError(event.data.error)
-            return
+          if (event.data.type === "error") {
+            settleError(event.data.error);
+            return;
           }
 
-          settleSuccess(event.data.payload)
-        }
+          settleSuccess(event.data.payload);
+        };
 
         const handleError = (event: ErrorEvent) => {
-          cleanup()
-          settleError(event.message || 'Failed to prepare export.')
-        }
+          cleanup();
+          settleError(event.message || "Failed to prepare export.");
+        };
 
-        worker.addEventListener('message', handleMessage)
-        worker.addEventListener('error', handleError)
-        worker.postMessage({ payload, requestId })
+        worker.addEventListener("message", handleMessage);
+        worker.addEventListener("error", handleError);
+        worker.postMessage({ payload, requestId });
       }),
     [],
-  )
+  );
 
   useEffect(
     () => () => {
-      workerRef.current?.terminate()
-      workerRef.current = null
+      workerRef.current?.terminate();
+      workerRef.current = null;
     },
     [],
-  )
+  );
 
   return {
     activeLabel,
@@ -106,5 +103,5 @@ export function useOutputExport() {
     isExporting: activeLabel !== null,
     resetError,
     runExport,
-  }
+  };
 }

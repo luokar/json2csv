@@ -1,179 +1,177 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 
-import { Textarea } from '@/components/ui/textarea'
+import { Textarea } from "@/components/ui/textarea";
 
 export interface BufferedJsonEditorHandle {
-  flush: () => string
-  read: () => string
+  flush: () => string;
+  read: () => string;
 }
 
 export const bufferedJsonEditorServiceProps = {
-  autoCapitalize: 'off',
-  autoComplete: 'off',
-  autoCorrect: 'off',
-  'data-1p-ignore': 'true',
-  'data-bwignore': 'true',
-  'data-enable-grammarly': 'false',
-  'data-gramm': 'false',
-  'data-grammarly': 'false',
-  'data-lt-active': 'false',
-  'data-ms-editor': 'false',
+  autoCapitalize: "off",
+  autoComplete: "off",
+  autoCorrect: "off",
+  "data-1p-ignore": "true",
+  "data-bwignore": "true",
+  "data-enable-grammarly": "false",
+  "data-gramm": "false",
+  "data-grammarly": "false",
+  "data-lt-active": "false",
+  "data-ms-editor": "false",
   spellCheck: false,
-} as const
+} as const;
 
-interface BufferedJsonEditorProps
-  extends Omit<
-    React.ComponentProps<typeof Textarea>,
-    'defaultValue' | 'onChange' | 'value'
-  > {
-  commitOnPause?: boolean
-  commitDelay?: number
-  onCommit: (nextValue: string) => void
-  onDirtyChange?: (isDirty: boolean) => void
-  value: string
+interface BufferedJsonEditorProps extends Omit<
+  React.ComponentProps<typeof Textarea>,
+  "defaultValue" | "onChange" | "value"
+> {
+  commitOnPause?: boolean;
+  commitDelay?: number;
+  onCommit: (nextValue: string) => void;
+  onDirtyChange?: (isDirty: boolean) => void;
+  value: string;
 }
 
-export const bufferedJsonCommitDelayMs = 250
+export const bufferedJsonCommitDelayMs = 250;
 
-export const BufferedJsonEditor = forwardRef<
-  BufferedJsonEditorHandle,
-  BufferedJsonEditorProps
->(function BufferedJsonEditor(
-  {
-    commitOnPause = true,
-    commitDelay = bufferedJsonCommitDelayMs,
-    onCommit,
-    onDirtyChange,
-    value,
-    ...props
-  },
-  ref,
-) {
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
-  const draftRef = useRef(value)
-  const committedValueRef = useRef(value)
-  const dirtyRef = useRef(false)
-  const manualCommitUntilBlurRef = useRef(false)
-  const timeoutIdRef = useRef<number | null>(null)
+export const BufferedJsonEditor = forwardRef<BufferedJsonEditorHandle, BufferedJsonEditorProps>(
+  function BufferedJsonEditor(
+    {
+      commitOnPause = true,
+      commitDelay = bufferedJsonCommitDelayMs,
+      onCommit,
+      onDirtyChange,
+      value,
+      ...props
+    },
+    ref,
+  ) {
+    const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+    const draftRef = useRef(value);
+    const committedValueRef = useRef(value);
+    const dirtyRef = useRef(false);
+    const manualCommitUntilBlurRef = useRef(false);
+    const timeoutIdRef = useRef<number | null>(null);
 
-  function clearPendingCommit() {
-    if (timeoutIdRef.current === null) {
-      return
-    }
-
-    window.clearTimeout(timeoutIdRef.current)
-    timeoutIdRef.current = null
-  }
-
-  function commit(nextValue = draftRef.current) {
-    clearPendingCommit()
-    manualCommitUntilBlurRef.current = false
-
-    if (nextValue === committedValueRef.current) {
-      if (dirtyRef.current) {
-        dirtyRef.current = false
-        onDirtyChange?.(false)
+    function clearPendingCommit() {
+      if (timeoutIdRef.current === null) {
+        return;
       }
 
-      return nextValue
+      window.clearTimeout(timeoutIdRef.current);
+      timeoutIdRef.current = null;
     }
 
-    committedValueRef.current = nextValue
-    dirtyRef.current = false
-    onDirtyChange?.(false)
-    onCommit(nextValue)
+    function commit(nextValue = draftRef.current) {
+      clearPendingCommit();
+      manualCommitUntilBlurRef.current = false;
 
-    return nextValue
-  }
+      if (nextValue === committedValueRef.current) {
+        if (dirtyRef.current) {
+          dirtyRef.current = false;
+          onDirtyChange?.(false);
+        }
 
-  useImperativeHandle(ref, () => ({
-    flush() {
-      return commit()
-    },
-    read() {
-      return draftRef.current
-    },
-  }))
+        return nextValue;
+      }
 
-  useEffect(() => {
-    if (timeoutIdRef.current !== null) {
-      window.clearTimeout(timeoutIdRef.current)
-      timeoutIdRef.current = null
+      committedValueRef.current = nextValue;
+      dirtyRef.current = false;
+      onDirtyChange?.(false);
+      onCommit(nextValue);
+
+      return nextValue;
     }
 
-    committedValueRef.current = value
-    draftRef.current = value
-    dirtyRef.current = false
-    manualCommitUntilBlurRef.current = false
-    onDirtyChange?.(false)
+    useImperativeHandle(ref, () => ({
+      flush() {
+        return commit();
+      },
+      read() {
+        return draftRef.current;
+      },
+    }));
 
-    if (textareaRef.current && textareaRef.current.value !== value) {
-      textareaRef.current.value = value
-    }
-  }, [onDirtyChange, value])
-
-  useEffect(
-    () => () => {
+    useEffect(() => {
       if (timeoutIdRef.current !== null) {
-        window.clearTimeout(timeoutIdRef.current)
-        timeoutIdRef.current = null
+        window.clearTimeout(timeoutIdRef.current);
+        timeoutIdRef.current = null;
       }
-    },
-    [],
-  )
 
-  return (
-    <Textarea
-      ref={textareaRef}
-      {...props}
-      {...bufferedJsonEditorServiceProps}
-      defaultValue={value}
-      onBlur={() => {
-        if (manualCommitUntilBlurRef.current) {
-          return
+      committedValueRef.current = value;
+      draftRef.current = value;
+      dirtyRef.current = false;
+      manualCommitUntilBlurRef.current = false;
+      onDirtyChange?.(false);
+
+      if (textareaRef.current && textareaRef.current.value !== value) {
+        textareaRef.current.value = value;
+      }
+    }, [onDirtyChange, value]);
+
+    useEffect(
+      () => () => {
+        if (timeoutIdRef.current !== null) {
+          window.clearTimeout(timeoutIdRef.current);
+          timeoutIdRef.current = null;
         }
+      },
+      [],
+    );
 
-        commit()
-      }}
-      onChange={(event) => {
-        const previousValue = draftRef.current
-        const nextValue = event.target.value
-        const nativeInputEvent = event.nativeEvent as InputEvent | undefined
-        const isBulkEdit =
-          nativeInputEvent?.inputType === 'insertFromPaste' ||
-          nativeInputEvent?.inputType === 'insertFromDrop' ||
-          Math.abs(nextValue.length - previousValue.length) > 1
+    return (
+      <Textarea
+        ref={textareaRef}
+        {...props}
+        {...bufferedJsonEditorServiceProps}
+        defaultValue={value}
+        onBlur={() => {
+          if (manualCommitUntilBlurRef.current) {
+            return;
+          }
 
-        draftRef.current = nextValue
-        clearPendingCommit()
+          commit();
+        }}
+        onChange={(event) => {
+          const previousValue = draftRef.current;
+          const nextValue = event.target.value;
+          const nativeInputEvent = event.nativeEvent as InputEvent | undefined;
+          const isBulkEdit =
+            nativeInputEvent?.inputType === "insertFromPaste" ||
+            nativeInputEvent?.inputType === "insertFromDrop" ||
+            Math.abs(nextValue.length - previousValue.length) > 1;
 
-        const isDirty = nextValue !== committedValueRef.current
+          draftRef.current = nextValue;
+          clearPendingCommit();
 
-        if (dirtyRef.current !== isDirty) {
-          dirtyRef.current = isDirty
-          onDirtyChange?.(isDirty)
-        }
+          const isDirty = nextValue !== committedValueRef.current;
 
-        if (!isDirty) {
-          manualCommitUntilBlurRef.current = false
-          return
-        }
+          if (dirtyRef.current !== isDirty) {
+            dirtyRef.current = isDirty;
+            onDirtyChange?.(isDirty);
+          }
 
-        if (isBulkEdit) {
-          manualCommitUntilBlurRef.current = true
-          return
-        }
+          if (!isDirty) {
+            manualCommitUntilBlurRef.current = false;
+            return;
+          }
 
-        if (manualCommitUntilBlurRef.current || !commitOnPause) {
-          return
-        }
+          if (isBulkEdit) {
+            manualCommitUntilBlurRef.current = true;
+            return;
+          }
 
-        timeoutIdRef.current = window.setTimeout(() => {
-          commit(nextValue)
-        }, commitDelay)
-      }}
-    />
-  )
-})
+          if (manualCommitUntilBlurRef.current || !commitOnPause) {
+            return;
+          }
 
-BufferedJsonEditor.displayName = 'BufferedJsonEditor'
+          timeoutIdRef.current = window.setTimeout(() => {
+            commit(nextValue);
+          }, commitDelay);
+        }}
+      />
+    );
+  },
+);
+
+BufferedJsonEditor.displayName = "BufferedJsonEditor";

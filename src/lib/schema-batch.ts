@@ -5,59 +5,59 @@ import {
   type MappingConfig,
   type MappingResult,
   type ValueKind,
-} from '@/lib/mapping-engine'
+} from "@/lib/mapping-engine";
 
-export const schemaDriftModes = ['strict', 'lax'] as const
+export const schemaDriftModes = ["strict", "lax"] as const;
 
-export type SchemaDriftMode = (typeof schemaDriftModes)[number]
+export type SchemaDriftMode = (typeof schemaDriftModes)[number];
 
 export interface SchemaSnapshotEntry {
-  header: string
-  sourcePath: string
+  header: string;
+  sourcePath: string;
 }
 
 export interface SchemaSnapshot {
-  columns: SchemaSnapshotEntry[]
-  headers: string[]
-  sourceHeaders: SchemaSnapshotEntry[]
-  version: string
+  columns: SchemaSnapshotEntry[];
+  headers: string[];
+  sourceHeaders: SchemaSnapshotEntry[];
+  version: string;
 }
 
 export interface SchemaDriftIssue {
-  inputIndex: number
-  newHeaders: string[]
-  snapshotVersion: string
+  inputIndex: number;
+  newHeaders: string[];
+  snapshotVersion: string;
 }
 
 export interface SchemaSnapshotRevision {
-  inputIndex: number
-  newHeaders: string[]
-  snapshot: SchemaSnapshot
+  inputIndex: number;
+  newHeaders: string[];
+  snapshot: SchemaSnapshot;
 }
 
 export interface BatchFileResult {
-  appliedSnapshotVersion: string
-  headers: string[]
-  inputIndex: number
-  newHeaders: string[]
-  result?: MappingResult
-  status: 'failed' | 'success'
+  appliedSnapshotVersion: string;
+  headers: string[];
+  inputIndex: number;
+  newHeaders: string[];
+  result?: MappingResult;
+  status: "failed" | "success";
 }
 
 export interface BatchMappingOptions {
-  initialSnapshot?: SchemaSnapshot
-  schemaMode?: SchemaDriftMode
+  initialSnapshot?: SchemaSnapshot;
+  schemaMode?: SchemaDriftMode;
 }
 
 export interface BatchMappingResult {
-  config: MappingConfig
-  driftIssues: SchemaDriftIssue[]
-  files: BatchFileResult[]
-  finalSnapshot: SchemaSnapshot
-  initialSnapshot: SchemaSnapshot
-  mode: SchemaDriftMode
-  snapshotHistory: SchemaSnapshotRevision[]
-  typeReports: ColumnTypeReport[]
+  config: MappingConfig;
+  driftIssues: SchemaDriftIssue[];
+  files: BatchFileResult[];
+  finalSnapshot: SchemaSnapshot;
+  initialSnapshot: SchemaSnapshot;
+  mode: SchemaDriftMode;
+  snapshotHistory: SchemaSnapshotRevision[];
+  typeReports: ColumnTypeReport[];
 }
 
 export function createSchemaSnapshot(result: MappingResult): SchemaSnapshot {
@@ -70,7 +70,7 @@ export function createSchemaSnapshot(result: MappingResult): SchemaSnapshot {
       header,
       sourcePath,
     })),
-  )
+  );
 }
 
 export function convertJsonBatchToCsvTables(
@@ -78,67 +78,64 @@ export function convertJsonBatchToCsvTables(
   overrides: Partial<MappingConfig> = {},
   options: BatchMappingOptions = {},
 ): BatchMappingResult {
-  const config = createMappingConfig(overrides)
-  const mode = options.schemaMode ?? 'lax'
+  const config = createMappingConfig(overrides);
+  const mode = options.schemaMode ?? "lax";
   const initialDiscoveryResult =
     options.initialSnapshot || inputs.length === 0
       ? null
-      : convertJsonToCsvTable(inputs[0], config)
+      : convertJsonToCsvTable(inputs[0], config);
 
   let currentSnapshot = options.initialSnapshot
     ? normalizeSchemaSnapshot(options.initialSnapshot)
     : initialDiscoveryResult
       ? createSchemaSnapshot(initialDiscoveryResult)
-      : buildSchemaSnapshot([], [])
+      : buildSchemaSnapshot([], []);
 
-  const initialSnapshot = currentSnapshot
-  const files: BatchFileResult[] = []
-  const driftIssues: SchemaDriftIssue[] = []
-  const snapshotHistory: SchemaSnapshotRevision[] = []
+  const initialSnapshot = currentSnapshot;
+  const files: BatchFileResult[] = [];
+  const driftIssues: SchemaDriftIssue[] = [];
+  const snapshotHistory: SchemaSnapshotRevision[] = [];
 
   inputs.forEach((input, inputIndex) => {
     const discoveryResult =
       inputIndex === 0 && initialDiscoveryResult
         ? initialDiscoveryResult
-        : convertJsonToCsvTable(
-            input,
-            createSnapshotConfig(config, currentSnapshot, 'full_scan'),
-          )
+        : convertJsonToCsvTable(input, createSnapshotConfig(config, currentSnapshot, "full_scan"));
 
     const newColumns = discoveryResult.schema.columns.filter(
       (column) => !currentSnapshot.headers.includes(column.header),
-    )
-    const newHeaders = newColumns.map((column) => column.header)
+    );
+    const newHeaders = newColumns.map((column) => column.header);
 
-    if (mode === 'strict' && newHeaders.length > 0) {
+    if (mode === "strict" && newHeaders.length > 0) {
       driftIssues.push({
         inputIndex,
         newHeaders,
         snapshotVersion: currentSnapshot.version,
-      })
+      });
       files.push({
         appliedSnapshotVersion: currentSnapshot.version,
         headers: currentSnapshot.headers,
         inputIndex,
         newHeaders,
-        status: 'failed',
-      })
-      return
+        status: "failed",
+      });
+      return;
     }
 
     if (newColumns.length > 0) {
-      currentSnapshot = mergeSchemaSnapshot(currentSnapshot, discoveryResult)
+      currentSnapshot = mergeSchemaSnapshot(currentSnapshot, discoveryResult);
       snapshotHistory.push({
         inputIndex,
         newHeaders,
         snapshot: currentSnapshot,
-      })
+      });
     }
 
     const result = convertJsonToCsvTable(
       input,
-      createSnapshotConfig(config, currentSnapshot, 'explicit'),
-    )
+      createSnapshotConfig(config, currentSnapshot, "explicit"),
+    );
 
     files.push({
       appliedSnapshotVersion: currentSnapshot.version,
@@ -146,9 +143,9 @@ export function convertJsonBatchToCsvTables(
       inputIndex,
       newHeaders,
       result,
-      status: 'success',
-    })
-  })
+      status: "success",
+    });
+  });
 
   return {
     config,
@@ -162,79 +159,71 @@ export function convertJsonBatchToCsvTables(
       files
         .filter(
           (file): file is BatchFileResult & { result: MappingResult } =>
-            file.status === 'success' && file.result !== undefined,
+            file.status === "success" && file.result !== undefined,
         )
         .flatMap((file) => file.result.schema.typeReports),
       config.onTypeMismatch,
     ),
-  }
+  };
 }
 
 function buildSchemaSnapshot(
   columns: SchemaSnapshotEntry[],
   sourceHeaders: SchemaSnapshotEntry[],
 ): SchemaSnapshot {
-  const normalizedColumns = dedupeSnapshotEntries(columns, 'header')
-  const normalizedSourceHeaders = dedupeSnapshotEntries(
-    sourceHeaders,
-    'sourcePath',
-  )
+  const normalizedColumns = dedupeSnapshotEntries(columns, "header");
+  const normalizedSourceHeaders = dedupeSnapshotEntries(sourceHeaders, "sourcePath");
 
   return {
     columns: normalizedColumns,
     headers: normalizedColumns.map((column) => column.header),
     sourceHeaders: normalizedSourceHeaders,
     version: createSnapshotVersion(normalizedColumns, normalizedSourceHeaders),
-  }
+  };
 }
 
 function normalizeSchemaSnapshot(snapshot: SchemaSnapshot): SchemaSnapshot {
-  return buildSchemaSnapshot(snapshot.columns, snapshot.sourceHeaders)
+  return buildSchemaSnapshot(snapshot.columns, snapshot.sourceHeaders);
 }
 
-function mergeSchemaSnapshot(
-  snapshot: SchemaSnapshot,
-  result: MappingResult,
-): SchemaSnapshot {
-  const nextColumns = [...snapshot.columns]
-  const knownHeaders = new Set(snapshot.headers)
+function mergeSchemaSnapshot(snapshot: SchemaSnapshot, result: MappingResult): SchemaSnapshot {
+  const nextColumns = [...snapshot.columns];
+  const knownHeaders = new Set(snapshot.headers);
 
   for (const column of result.schema.columns) {
     if (knownHeaders.has(column.header)) {
-      continue
+      continue;
     }
 
     nextColumns.push({
       header: column.header,
       sourcePath: column.sourcePath,
-    })
-    knownHeaders.add(column.header)
+    });
+    knownHeaders.add(column.header);
   }
 
-  const nextSourceHeaders = [...snapshot.sourceHeaders]
-  const knownSourcePaths = new Set(
-    snapshot.sourceHeaders.map((entry) => entry.sourcePath),
-  )
+  const nextSourceHeaders = [...snapshot.sourceHeaders];
+  const knownSourcePaths = new Set(snapshot.sourceHeaders.map((entry) => entry.sourcePath));
 
   for (const report of result.schema.typeReports) {
     if (knownSourcePaths.has(report.sourcePath)) {
-      continue
+      continue;
     }
 
     nextSourceHeaders.push({
       header: report.header,
       sourcePath: report.sourcePath,
-    })
-    knownSourcePaths.add(report.sourcePath)
+    });
+    knownSourcePaths.add(report.sourcePath);
   }
 
-  return buildSchemaSnapshot(nextColumns, nextSourceHeaders)
+  return buildSchemaSnapshot(nextColumns, nextSourceHeaders);
 }
 
 function createSnapshotConfig(
   config: MappingConfig,
   snapshot: SchemaSnapshot,
-  headerPolicy: MappingConfig['headerPolicy'],
+  headerPolicy: MappingConfig["headerPolicy"],
 ): Partial<MappingConfig> {
   return {
     ...config,
@@ -243,57 +232,54 @@ function createSnapshotConfig(
     ),
     headerPolicy,
     headerWhitelist: snapshot.headers,
-    onMissingKey: 'include',
+    onMissingKey: "include",
     reservedColumns: snapshot.columns,
-  }
+  };
 }
 
 function aggregateTypeReports(
   reports: ColumnTypeReport[],
-  onTypeMismatch: MappingConfig['onTypeMismatch'],
+  onTypeMismatch: MappingConfig["onTypeMismatch"],
 ) {
   const aggregates = new Map<
     string,
     {
-      counts: Map<ValueKind, number>
-      exportHeaders: string[]
-      exportHeaderSet: Set<string>
-      header: string
-      missingCount: number
-      sourcePath: string
+      counts: Map<ValueKind, number>;
+      exportHeaders: string[];
+      exportHeaderSet: Set<string>;
+      header: string;
+      missingCount: number;
+      sourcePath: string;
     }
-  >()
+  >();
 
   for (const report of reports) {
-    const existing = aggregates.get(report.sourcePath)
+    const existing = aggregates.get(report.sourcePath);
 
     if (existing) {
-      existing.missingCount += report.missingCount
+      existing.missingCount += report.missingCount;
 
       report.exportHeaders.forEach((header) => {
         if (existing.exportHeaderSet.has(header)) {
-          return
+          return;
         }
 
-        existing.exportHeaderSet.add(header)
-        existing.exportHeaders.push(header)
-      })
+        existing.exportHeaderSet.add(header);
+        existing.exportHeaders.push(header);
+      });
 
       report.typeBreakdown.forEach((entry) => {
-        existing.counts.set(
-          entry.kind,
-          (existing.counts.get(entry.kind) ?? 0) + entry.count,
-        )
-      })
+        existing.counts.set(entry.kind, (existing.counts.get(entry.kind) ?? 0) + entry.count);
+      });
 
-      continue
+      continue;
     }
 
-    const counts = new Map<ValueKind, number>()
+    const counts = new Map<ValueKind, number>();
 
     report.typeBreakdown.forEach((entry) => {
-      counts.set(entry.kind, entry.count)
-    })
+      counts.set(entry.kind, entry.count);
+    });
 
     aggregates.set(report.sourcePath, {
       counts,
@@ -302,14 +288,11 @@ function aggregateTypeReports(
       header: report.header,
       missingCount: report.missingCount,
       sourcePath: report.sourcePath,
-    })
+    });
   }
 
   return [...aggregates.values()].map((aggregate) => {
-    const observedCount = [...aggregate.counts.values()].reduce(
-      (total, count) => total + count,
-      0,
-    )
+    const observedCount = [...aggregate.counts.values()].reduce((total, count) => total + count, 0);
     const typeBreakdown = [...aggregate.counts.entries()]
       .sort(
         ([leftKind, leftCount], [rightKind, rightCount]) =>
@@ -318,17 +301,11 @@ function aggregateTypeReports(
       .map(([kind, count]) => ({
         count,
         kind,
-        percentage:
-          observedCount === 0
-            ? 0
-            : roundToSingleDecimal((count / observedCount) * 100),
-      }))
+        percentage: observedCount === 0 ? 0 : roundToSingleDecimal((count / observedCount) * 100),
+      }));
 
     return {
-      coercedTo:
-        onTypeMismatch === 'coerce' && typeBreakdown.length > 1
-          ? 'string'
-          : null,
+      coercedTo: onTypeMismatch === "coerce" && typeBreakdown.length > 1 ? "string" : null,
       dominantKind: typeBreakdown[0]?.kind ?? null,
       exportHeaders: aggregate.exportHeaders,
       header: aggregate.header,
@@ -336,57 +313,46 @@ function aggregateTypeReports(
       observedCount,
       sourcePath: aggregate.sourcePath,
       typeBreakdown,
-    } satisfies ColumnTypeReport
-  })
+    } satisfies ColumnTypeReport;
+  });
 }
 
-function dedupeSnapshotEntries(
-  entries: SchemaSnapshotEntry[],
-  key: keyof SchemaSnapshotEntry,
-) {
-  const seen = new Set<string>()
+function dedupeSnapshotEntries(entries: SchemaSnapshotEntry[], key: keyof SchemaSnapshotEntry) {
+  const seen = new Set<string>();
 
   return entries.filter((entry) => {
-    const value = entry[key]
+    const value = entry[key];
 
     if (!entry.header || !entry.sourcePath || seen.has(value)) {
-      return false
+      return false;
     }
 
-    seen.add(value)
-    return true
-  })
+    seen.add(value);
+    return true;
+  });
 }
 
 function createSnapshotVersion(
   columns: SchemaSnapshotEntry[],
   sourceHeaders: SchemaSnapshotEntry[],
 ) {
-  const signature = JSON.stringify({ columns, sourceHeaders })
-  let hash = 2166136261
+  const signature = JSON.stringify({ columns, sourceHeaders });
+  let hash = 2166136261;
 
   for (const character of signature) {
-    hash ^= character.charCodeAt(0)
-    hash = Math.imul(hash, 16777619)
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
   }
 
-  return `schema-${(hash >>> 0).toString(16).padStart(8, '0')}`
+  return `schema-${(hash >>> 0).toString(16).padStart(8, "0")}`;
 }
 
 function compareValueKinds(left: ValueKind, right: ValueKind) {
-  const order: ValueKind[] = [
-    'array',
-    'object',
-    'string',
-    'date',
-    'number',
-    'boolean',
-    'null',
-  ]
+  const order: ValueKind[] = ["array", "object", "string", "date", "number", "boolean", "null"];
 
-  return order.indexOf(left) - order.indexOf(right)
+  return order.indexOf(left) - order.indexOf(right);
 }
 
 function roundToSingleDecimal(value: number) {
-  return Math.round(value * 10) / 10
+  return Math.round(value * 10) / 10;
 }

@@ -1,52 +1,46 @@
-import { fireEvent, render, screen } from '@testing-library/react'
-import { createRef } from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen } from "@testing-library/react";
+import { createRef } from "react";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
   BufferedJsonEditor,
   type BufferedJsonEditorHandle,
   bufferedJsonCommitDelayMs,
-} from '@/components/buffered-json-editor'
+} from "@/components/buffered-json-editor";
 
-describe('BufferedJsonEditor', () => {
+describe("BufferedJsonEditor", () => {
   afterEach(() => {
-    vi.useRealTimers()
-  })
+    vi.useRealTimers();
+  });
 
-  it('debounces single-character typing', () => {
-    vi.useFakeTimers()
+  it("debounces single-character typing", () => {
+    vi.useFakeTimers();
 
-    const handleCommit = vi.fn()
+    const handleCommit = vi.fn();
 
-    render(
-      <BufferedJsonEditor
-        aria-label="Custom JSON"
-        onCommit={handleCommit}
-        value=""
-      />,
-    )
+    render(<BufferedJsonEditor aria-label="Custom JSON" onCommit={handleCommit} value="" />);
 
-    const editor = screen.getByLabelText(/custom json/i)
+    const editor = screen.getByLabelText(/custom json/i);
 
     fireEvent.change(editor, {
-      target: { value: '{' },
-    })
+      target: { value: "{" },
+    });
 
-    expect(handleCommit).not.toHaveBeenCalled()
+    expect(handleCommit).not.toHaveBeenCalled();
 
-    vi.advanceTimersByTime(bufferedJsonCommitDelayMs - 1)
+    vi.advanceTimersByTime(bufferedJsonCommitDelayMs - 1);
 
-    expect(handleCommit).not.toHaveBeenCalled()
+    expect(handleCommit).not.toHaveBeenCalled();
 
-    vi.advanceTimersByTime(1)
+    vi.advanceTimersByTime(1);
 
-    expect(handleCommit).toHaveBeenCalledWith('{')
-  })
+    expect(handleCommit).toHaveBeenCalledWith("{");
+  });
 
-  it('can keep single-character typing staged until blur', () => {
-    vi.useFakeTimers()
+  it("can keep single-character typing staged until blur", () => {
+    vi.useFakeTimers();
 
-    const handleCommit = vi.fn()
+    const handleCommit = vi.fn();
 
     render(
       <BufferedJsonEditor
@@ -55,28 +49,28 @@ describe('BufferedJsonEditor', () => {
         onCommit={handleCommit}
         value=""
       />,
-    )
+    );
 
-    const editor = screen.getByLabelText(/custom json/i)
+    const editor = screen.getByLabelText(/custom json/i);
 
     fireEvent.change(editor, {
-      target: { value: '{' },
-    })
+      target: { value: "{" },
+    });
 
-    vi.advanceTimersByTime(bufferedJsonCommitDelayMs)
+    vi.advanceTimersByTime(bufferedJsonCommitDelayMs);
 
-    expect(handleCommit).not.toHaveBeenCalled()
+    expect(handleCommit).not.toHaveBeenCalled();
 
-    fireEvent.blur(editor)
+    fireEvent.blur(editor);
 
-    expect(handleCommit).toHaveBeenCalledWith('{')
-  })
+    expect(handleCommit).toHaveBeenCalledWith("{");
+  });
 
-  it('keeps bulk inserts buffered until flushed manually', () => {
-    vi.useFakeTimers()
+  it("keeps bulk inserts buffered until flushed manually", () => {
+    vi.useFakeTimers();
 
-    const handleCommit = vi.fn()
-    const editorRef = createRef<BufferedJsonEditorHandle>()
+    const handleCommit = vi.fn();
+    const editorRef = createRef<BufferedJsonEditorHandle>();
 
     render(
       <BufferedJsonEditor
@@ -85,64 +79,54 @@ describe('BufferedJsonEditor', () => {
         onCommit={handleCommit}
         value=""
       />,
-    )
+    );
 
-    const editor = screen.getByLabelText(/custom json/i)
+    const editor = screen.getByLabelText(/custom json/i);
 
     fireEvent.change(editor, {
       target: { value: '{"records":[{"id":"1"}]}' },
-    })
+    });
 
-    vi.advanceTimersByTime(bufferedJsonCommitDelayMs)
+    vi.advanceTimersByTime(bufferedJsonCommitDelayMs);
 
-    expect(handleCommit).not.toHaveBeenCalled()
+    expect(handleCommit).not.toHaveBeenCalled();
 
-    fireEvent.blur(editor)
+    fireEvent.blur(editor);
 
-    expect(handleCommit).not.toHaveBeenCalled()
+    expect(handleCommit).not.toHaveBeenCalled();
 
-    editorRef.current?.flush()
+    editorRef.current?.flush();
 
-    expect(handleCommit).toHaveBeenCalledWith('{"records":[{"id":"1"}]}')
-  })
+    expect(handleCommit).toHaveBeenCalledWith('{"records":[{"id":"1"}]}');
+  });
 
-  it('flushes the latest single-character draft on blur', () => {
-    vi.useFakeTimers()
+  it("flushes the latest single-character draft on blur", () => {
+    vi.useFakeTimers();
 
-    const handleCommit = vi.fn()
+    const handleCommit = vi.fn();
 
-    render(
-      <BufferedJsonEditor
-        aria-label="Custom JSON"
-        onCommit={handleCommit}
-        value=""
-      />,
-    )
+    render(<BufferedJsonEditor aria-label="Custom JSON" onCommit={handleCommit} value="" />);
 
-    const editor = screen.getByLabelText(/custom json/i)
+    const editor = screen.getByLabelText(/custom json/i);
 
     fireEvent.change(editor, {
-      target: { value: '{' },
-    })
-    fireEvent.blur(editor)
+      target: { value: "{" },
+    });
+    fireEvent.blur(editor);
 
-    expect(handleCommit).toHaveBeenCalledWith('{')
+    expect(handleCommit).toHaveBeenCalledWith("{");
 
-    vi.advanceTimersByTime(bufferedJsonCommitDelayMs)
+    vi.advanceTimersByTime(bufferedJsonCommitDelayMs);
 
-    expect(handleCommit).toHaveBeenCalledTimes(1)
-  })
+    expect(handleCommit).toHaveBeenCalledTimes(1);
+  });
 
-  it('syncs externally replaced values into the textarea DOM', () => {
-    const handleCommit = vi.fn()
+  it("syncs externally replaced values into the textarea DOM", () => {
+    const handleCommit = vi.fn();
 
     const { rerender } = render(
-      <BufferedJsonEditor
-        aria-label="Custom JSON"
-        onCommit={handleCommit}
-        value=""
-      />,
-    )
+      <BufferedJsonEditor aria-label="Custom JSON" onCommit={handleCommit} value="" />,
+    );
 
     rerender(
       <BufferedJsonEditor
@@ -150,34 +134,26 @@ describe('BufferedJsonEditor', () => {
         onCommit={handleCommit}
         value='{"records":[{"id":"3"}]}'
       />,
-    )
+    );
 
-    expect(screen.getByLabelText(/custom json/i)).toHaveValue(
-      '{"records":[{"id":"3"}]}',
-    )
-  })
+    expect(screen.getByLabelText(/custom json/i)).toHaveValue('{"records":[{"id":"3"}]}');
+  });
 
-  it('disables browser text services for json editing', () => {
-    render(
-      <BufferedJsonEditor
-        aria-label="Custom JSON"
-        onCommit={vi.fn()}
-        value=""
-      />,
-    )
+  it("disables browser text services for json editing", () => {
+    render(<BufferedJsonEditor aria-label="Custom JSON" onCommit={vi.fn()} value="" />);
 
-    const editor = screen.getByLabelText(/custom json/i)
+    const editor = screen.getByLabelText(/custom json/i);
 
-    expect(editor).toHaveAttribute('autocapitalize', 'off')
-    expect(editor).toHaveAttribute('autocomplete', 'off')
-    expect(editor).toHaveAttribute('autocorrect', 'off')
-    expect(editor).toHaveAttribute('data-1p-ignore', 'true')
-    expect(editor).toHaveAttribute('data-bwignore', 'true')
-    expect(editor).toHaveAttribute('data-enable-grammarly', 'false')
-    expect(editor).toHaveAttribute('data-gramm', 'false')
-    expect(editor).toHaveAttribute('data-grammarly', 'false')
-    expect(editor).toHaveAttribute('data-lt-active', 'false')
-    expect(editor).toHaveAttribute('data-ms-editor', 'false')
-    expect(editor).toHaveAttribute('spellcheck', 'false')
-  })
-})
+    expect(editor).toHaveAttribute("autocapitalize", "off");
+    expect(editor).toHaveAttribute("autocomplete", "off");
+    expect(editor).toHaveAttribute("autocorrect", "off");
+    expect(editor).toHaveAttribute("data-1p-ignore", "true");
+    expect(editor).toHaveAttribute("data-bwignore", "true");
+    expect(editor).toHaveAttribute("data-enable-grammarly", "false");
+    expect(editor).toHaveAttribute("data-gramm", "false");
+    expect(editor).toHaveAttribute("data-grammarly", "false");
+    expect(editor).toHaveAttribute("data-lt-active", "false");
+    expect(editor).toHaveAttribute("data-ms-editor", "false");
+    expect(editor).toHaveAttribute("spellcheck", "false");
+  });
+});

@@ -1,19 +1,19 @@
 {
   "name": "json2csv",
-  "private": true,
   "version": "0.0.0",
+  "private": true,
   "type": "module",
-  "packageManager": "pnpm@10.30.2",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
+    "dev": "vp dev",
+    "build": "tsc -b && vp build",
     "typecheck": "tsc -b",
     "lint": "biome check .",
     "format": "biome check --write .",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "test": "vp test run",
+    "test:watch": "vp test",
     "preview": "pnpm run build && wrangler dev",
-    "deploy": "pnpm run build && wrangler deploy"
+    "deploy": "pnpm run build && wrangler deploy",
+    "prepare": "vp config"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -50,8 +50,16 @@
     "json-schema-faker": "^0.6.0",
     "tailwindcss": "^4.2.1",
     "typescript": "~5.9.3",
-    "vite": "^8.0.0",
-    "vitest": "^4.1.0",
+    "vite": "npm:@voidzero-dev/vite-plus-core@latest",
+    "vite-plus": "latest",
+    "vitest": "npm:@voidzero-dev/vite-plus-test@latest",
     "wrangler": "^4.73.0"
+  },
+  "packageManager": "pnpm@10.30.2",
+  "pnpm": {
+    "overrides": {
+      "vite": "npm:@voidzero-dev/vite-plus-core@latest",
+      "vitest": "npm:@voidzero-dev/vite-plus-test@latest"
+    }
   }
 }

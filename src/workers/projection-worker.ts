@@ -7,34 +7,34 @@ import {
   type ProjectionWorkerResponse,
   type ProjectionWorkerResultResponse,
   streamProjectionPayload,
-} from '@/lib/projection'
+} from "@/lib/projection";
 
-declare const self: DedicatedWorkerGlobalScope
+declare const self: DedicatedWorkerGlobalScope;
 
 self.onmessage = (event: MessageEvent<ProjectionWorkerRequest>) => {
-  const { payload, requestId } = event.data
+  const { payload, requestId } = event.data;
   const progressCallback = (progress: ProjectionProgress) => {
     self.postMessage({
       progress,
       requestId,
-      type: 'progress',
-    } satisfies ProjectionWorkerResponse)
-  }
+      type: "progress",
+    } satisfies ProjectionWorkerResponse);
+  };
   const streamCallback = (preview: ProjectionFlatStreamPreview) => {
     self.postMessage({
       preview,
       requestId,
-      type: 'stream',
-    } satisfies ProjectionWorkerResponse)
-  }
+      type: "stream",
+    } satisfies ProjectionWorkerResponse);
+  };
   const response: ProjectionWorkerResultResponse = {
     payload: streamProjectionPayload(payload, {
       onFlatStreamPreview: streamCallback,
       onProgress: progressCallback,
     }),
     requestId,
-    type: 'result',
-  }
+    type: "result",
+  };
 
-  self.postMessage(response)
-}
+  self.postMessage(response);
+};

@@ -1,107 +1,91 @@
-import { convertJsonBatchToCsvTables } from '@/lib/schema-batch'
+import { convertJsonBatchToCsvTables } from "@/lib/schema-batch";
 
-describe('schema batch workflow', () => {
-  it('appends new headers in lax mode and aggregates mixed-type reports', () => {
+describe("schema batch workflow", () => {
+  it("appends new headers in lax mode and aggregates mixed-type reports", () => {
     const result = convertJsonBatchToCsvTables(
       [
         {
-          records: [{ id: 'a1', price: 10 }],
+          records: [{ id: "a1", price: 10 }],
         },
         {
-          records: [{ id: 'a2', price: 'N/A', notes: { source: 'manual' } }],
+          records: [{ id: "a2", price: "N/A", notes: { source: "manual" } }],
         },
       ],
       {
-        rootPath: '$.records[*]',
-        flattenMode: 'stringify',
-        onTypeMismatch: 'coerce',
+        rootPath: "$.records[*]",
+        flattenMode: "stringify",
+        onTypeMismatch: "coerce",
       },
       {
-        schemaMode: 'lax',
+        schemaMode: "lax",
       },
-    )
+    );
 
-    expect(result.initialSnapshot.headers).toEqual(['id', 'price'])
-    expect(result.finalSnapshot.headers).toEqual([
-      'id',
-      'price',
-      'notes.source',
-    ])
+    expect(result.initialSnapshot.headers).toEqual(["id", "price"]);
+    expect(result.finalSnapshot.headers).toEqual(["id", "price", "notes.source"]);
     expect(result.snapshotHistory).toEqual([
       expect.objectContaining({
         inputIndex: 1,
-        newHeaders: ['notes.source'],
+        newHeaders: ["notes.source"],
       }),
-    ])
-    expect(result.files.map((file) => file.status)).toEqual([
-      'success',
-      'success',
-    ])
-    expect(result.files[1].result?.headers).toEqual([
-      'id',
-      'price',
-      'notes.source',
-    ])
+    ]);
+    expect(result.files.map((file) => file.status)).toEqual(["success", "success"]);
+    expect(result.files[1].result?.headers).toEqual(["id", "price", "notes.source"]);
 
-    const priceReport = result.typeReports.find(
-      (report) => report.sourcePath === 'price',
-    )
+    const priceReport = result.typeReports.find((report) => report.sourcePath === "price");
 
     expect(priceReport).toMatchObject({
-      coercedTo: 'string',
-      exportHeaders: ['price'],
+      coercedTo: "string",
+      exportHeaders: ["price"],
       observedCount: 2,
-      sourcePath: 'price',
-    })
+      sourcePath: "price",
+    });
     expect(priceReport?.typeBreakdown).toEqual([
       expect.objectContaining({
         count: 1,
-        kind: 'string',
+        kind: "string",
         percentage: 50,
       }),
       expect.objectContaining({
         count: 1,
-        kind: 'number',
+        kind: "number",
         percentage: 50,
       }),
-    ])
-  })
+    ]);
+  });
 
-  it('fails later files in strict mode when new headers appear', () => {
+  it("fails later files in strict mode when new headers appear", () => {
     const result = convertJsonBatchToCsvTables(
       [
         {
-          records: [{ id: 'a1', price: 10 }],
+          records: [{ id: "a1", price: 10 }],
         },
         {
-          records: [{ id: 'a2', price: 'N/A', notes: { source: 'manual' } }],
+          records: [{ id: "a2", price: "N/A", notes: { source: "manual" } }],
         },
       ],
       {
-        rootPath: '$.records[*]',
-        flattenMode: 'stringify',
+        rootPath: "$.records[*]",
+        flattenMode: "stringify",
       },
       {
-        schemaMode: 'strict',
+        schemaMode: "strict",
       },
-    )
+    );
 
-    expect(result.files.map((file) => file.status)).toEqual([
-      'success',
-      'failed',
-    ])
+    expect(result.files.map((file) => file.status)).toEqual(["success", "failed"]);
     expect(result.driftIssues).toEqual([
       {
         inputIndex: 1,
-        newHeaders: ['notes.source'],
+        newHeaders: ["notes.source"],
         snapshotVersion: result.initialSnapshot.version,
       },
-    ])
-    expect(result.finalSnapshot.headers).toEqual(['id', 'price'])
-    expect(result.files[1].result).toBeUndefined()
-  })
+    ]);
+    expect(result.finalSnapshot.headers).toEqual(["id", "price"]);
+    expect(result.files[1].result).toBeUndefined();
+  });
 
-  it('reserves prior header names so collision handling stays stable across files', () => {
+  it("reserves prior header names so collision handling stays stable across files", () => {
     const result = convertJsonBatchToCsvTables(
       [
         {
@@ -112,21 +96,21 @@ describe('schema batch workflow', () => {
         },
       ],
       {
-        rootPath: '$.rows[*]',
-        flattenMode: 'stringify',
-        pathSeparator: '_',
+        rootPath: "$.rows[*]",
+        flattenMode: "stringify",
+        pathSeparator: "_",
         strictNaming: true,
       },
       {
-        schemaMode: 'lax',
+        schemaMode: "lax",
       },
-    )
+    );
 
-    expect(result.finalSnapshot.headers).toEqual(['user_id', 'user_id_1'])
-    expect(result.files[1].result?.headers).toEqual(['user_id', 'user_id_1'])
+    expect(result.finalSnapshot.headers).toEqual(["user_id", "user_id_1"]);
+    expect(result.files[1].result?.headers).toEqual(["user_id", "user_id_1"]);
     expect(result.files[1].result?.records[0]).toEqual({
-      user_id: '',
-      user_id_1: '2',
-    })
-  })
-})
+      user_id: "",
+      user_id_1: "2",
+    });
+  });
+});

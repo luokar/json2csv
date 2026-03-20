@@ -1,33 +1,31 @@
-import { render, screen, waitFor } from '@testing-library/react'
-import { vi } from 'vitest'
+import { render, screen, waitFor } from "@testing-library/react";
+import { vi } from "vite-plus/test";
 
-import { useProjectionPreview } from '@/hooks/use-projection-preview'
-import { createMappingConfig } from '@/lib/mapping-engine'
-import { mappingSamples } from '@/lib/mapping-samples'
+import { useProjectionPreview } from "@/hooks/use-projection-preview";
+import { createMappingConfig } from "@/lib/mapping-engine";
+import { mappingSamples } from "@/lib/mapping-samples";
 import {
   computeProjectionPayload,
   type ProjectionRequest,
   type ProjectionWorkerRequest,
   type ProjectionWorkerResponse,
-} from '@/lib/projection'
+} from "@/lib/projection";
 
-const donutSample = mappingSamples.find((sample) => sample.id === 'donuts')
+const donutSample = mappingSamples.find((sample) => sample.id === "donuts");
 
 if (!donutSample) {
-  throw new Error('Missing donut sample')
+  throw new Error("Missing donut sample");
 }
 
 class FakeProjectionWorker {
-  private listeners = new Set<
-    (event: MessageEvent<ProjectionWorkerResponse>) => void
-  >()
+  private listeners = new Set<(event: MessageEvent<ProjectionWorkerResponse>) => void>();
 
   addEventListener(
     type: string,
     listener: (event: MessageEvent<ProjectionWorkerResponse>) => void,
   ) {
-    if (type === 'message') {
-      this.listeners.add(listener)
+    if (type === "message") {
+      this.listeners.add(listener);
     }
   }
 
@@ -35,16 +33,16 @@ class FakeProjectionWorker {
     setTimeout(() => {
       this.emit({
         progress: {
-          label: 'Projecting flat CSV rows',
+          label: "Projecting flat CSV rows",
           percent: 45,
-          phase: 'flat',
+          phase: "flat",
           phaseCompleted: 1,
           phaseTotal: 2,
         },
         requestId: request.requestId,
-        type: 'progress',
-      })
-    }, 10)
+        type: "progress",
+      });
+    }, 10);
 
     setTimeout(() => {
       this.emit({
@@ -54,42 +52,42 @@ class FakeProjectionWorker {
             text: '"id","type","name"\n"0001","donut","Cake"',
             truncated: false,
           },
-          headers: ['id', 'type', 'name'],
-          previewRecords: [{ id: '0001', name: 'Cake', type: 'donut' }],
+          headers: ["id", "type", "name"],
+          previewRecords: [{ id: "0001", name: "Cake", type: "donut" }],
           processedRoots: 1,
           rowCount: 7,
           totalRoots: 2,
         },
         requestId: request.requestId,
-        type: 'stream',
-      })
-    }, 20)
+        type: "stream",
+      });
+    }, 20);
 
     setTimeout(() => {
       this.emit({
         payload: computeProjectionPayload(request.payload),
         requestId: request.requestId,
-        type: 'result',
-      })
-    }, 120)
+        type: "result",
+      });
+    }, 120);
   }
 
   removeEventListener(
     type: string,
     listener: (event: MessageEvent<ProjectionWorkerResponse>) => void,
   ) {
-    if (type === 'message') {
-      this.listeners.delete(listener)
+    if (type === "message") {
+      this.listeners.delete(listener);
     }
   }
 
   terminate() {}
 
   private emit(data: ProjectionWorkerResponse) {
-    const event = { data } as MessageEvent<ProjectionWorkerResponse>
+    const event = { data } as MessageEvent<ProjectionWorkerResponse>;
 
     for (const listener of this.listeners) {
-      listener(event)
+      listener(event);
     }
   }
 }
@@ -99,28 +97,26 @@ function ProjectionHarness({
   enabled,
   request,
 }: {
-  configVersion: string
-  enabled?: boolean
-  request: ProjectionRequest
+  configVersion: string;
+  enabled?: boolean;
+  request: ProjectionRequest;
 }) {
-  const projection = useProjectionPreview(request, configVersion, { enabled })
+  const projection = useProjectionPreview(request, configVersion, { enabled });
 
   return (
     <div>
-      <p>Status: {projection.isProjecting ? 'projecting' : 'ready'}</p>
-      <p>Progress label: {projection.progress?.label ?? 'none'}</p>
-      <p>Progress percent: {projection.progress?.percent ?? 'none'}</p>
-      <p>
-        Streaming rows: {projection.streamingFlatPreview?.rowCount ?? 'none'}
-      </p>
+      <p>Status: {projection.isProjecting ? "projecting" : "ready"}</p>
+      <p>Progress label: {projection.progress?.label ?? "none"}</p>
+      <p>Progress percent: {projection.progress?.percent ?? "none"}</p>
+      <p>Streaming rows: {projection.streamingFlatPreview?.rowCount ?? "none"}</p>
       <p>Rows: {projection.conversionResult?.rowCount ?? 0}</p>
     </div>
-  )
+  );
 }
 
-describe('useProjectionPreview', () => {
-  it('stays idle when projection is disabled for input debugging', async () => {
-    vi.stubGlobal('Worker', FakeProjectionWorker)
+describe("useProjectionPreview", () => {
+  it("stays idle when projection is disabled for input debugging", async () => {
+    vi.stubGlobal("Worker", FakeProjectionWorker);
 
     render(
       <ProjectionHarness
@@ -128,60 +124,56 @@ describe('useProjectionPreview', () => {
         enabled={false}
         request={{
           config: createMappingConfig({
-            flattenMode: 'parallel',
-            rootPath: '$.items.item[*]',
+            flattenMode: "parallel",
+            rootPath: "$.items.item[*]",
           }),
-          customJson: '',
-          rootPath: '$.items.item[*]',
+          customJson: "",
+          rootPath: "$.items.item[*]",
           sampleJson: donutSample.json,
-          sourceMode: 'sample',
+          sourceMode: "sample",
         }}
       />,
-    )
+    );
 
-    expect(screen.getByText(/status: ready/i)).toBeInTheDocument()
-    expect(screen.getByText(/progress label: none/i)).toBeInTheDocument()
-    expect(screen.getByText(/streaming rows: none/i)).toBeInTheDocument()
-    expect(screen.getByText(/rows: 0/i)).toBeInTheDocument()
-  })
+    expect(screen.getByText(/status: ready/i)).toBeInTheDocument();
+    expect(screen.getByText(/progress label: none/i)).toBeInTheDocument();
+    expect(screen.getByText(/streaming rows: none/i)).toBeInTheDocument();
+    expect(screen.getByText(/rows: 0/i)).toBeInTheDocument();
+  });
 
-  it('consumes worker progress updates before committing the final result', async () => {
-    vi.stubGlobal('Worker', FakeProjectionWorker)
+  it("consumes worker progress updates before committing the final result", async () => {
+    vi.stubGlobal("Worker", FakeProjectionWorker);
 
     render(
       <ProjectionHarness
         configVersion="streaming-progress"
         request={{
           config: createMappingConfig({
-            flattenMode: 'parallel',
-            rootPath: '$.items.item[*]',
+            flattenMode: "parallel",
+            rootPath: "$.items.item[*]",
           }),
-          customJson: '',
-          rootPath: '$.items.item[*]',
+          customJson: "",
+          rootPath: "$.items.item[*]",
           sampleJson: donutSample.json,
-          sourceMode: 'sample',
+          sourceMode: "sample",
         }}
       />,
-    )
+    );
 
-    expect(screen.getByText(/status: projecting/i)).toBeInTheDocument()
-    expect(
-      screen.getByText(/progress label: parsing json/i),
-    ).toBeInTheDocument()
+    expect(screen.getByText(/status: projecting/i)).toBeInTheDocument();
+    expect(screen.getByText(/progress label: parsing json/i)).toBeInTheDocument();
 
     await waitFor(() => {
-      expect(
-        screen.getByText(/progress label: projecting flat csv rows/i),
-      ).toBeInTheDocument()
-      expect(screen.getByText(/progress percent: 45/i)).toBeInTheDocument()
-      expect(screen.getByText(/streaming rows: 7/i)).toBeInTheDocument()
-    })
+      expect(screen.getByText(/progress label: projecting flat csv rows/i)).toBeInTheDocument();
+      expect(screen.getByText(/progress percent: 45/i)).toBeInTheDocument();
+      expect(screen.getByText(/streaming rows: 7/i)).toBeInTheDocument();
+    });
 
     await waitFor(() => {
-      expect(screen.getByText(/status: ready/i)).toBeInTheDocument()
-      expect(screen.getByText(/progress label: none/i)).toBeInTheDocument()
-      expect(screen.getByText(/streaming rows: none/i)).toBeInTheDocument()
-      expect(screen.getByText(/rows: 10/i)).toBeInTheDocument()
-    })
-  })
-})
+      expect(screen.getByText(/status: ready/i)).toBeInTheDocument();
+      expect(screen.getByText(/progress label: none/i)).toBeInTheDocument();
+      expect(screen.getByText(/streaming rows: none/i)).toBeInTheDocument();
+      expect(screen.getByText(/rows: 10/i)).toBeInTheDocument();
+    });
+  });
+});

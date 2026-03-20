@@ -6,29 +6,28 @@ import {
   type OutputExportWorkerRequest,
   type OutputExportWorkerResponse,
   type OutputExportWorkerResultResponse,
-} from '@/lib/output-export'
+} from "@/lib/output-export";
 
-declare const self: DedicatedWorkerGlobalScope
+declare const self: DedicatedWorkerGlobalScope;
 
 self.onmessage = (event: MessageEvent<OutputExportWorkerRequest>) => {
-  const { payload, requestId } = event.data
+  const { payload, requestId } = event.data;
 
   try {
     const response: OutputExportWorkerResultResponse = {
       payload: buildOutputExportBundle(payload),
       requestId,
-      type: 'result',
-    }
+      type: "result",
+    };
 
-    self.postMessage(response)
+    self.postMessage(response);
   } catch (error) {
     const response: OutputExportWorkerErrorResponse = {
-      error:
-        error instanceof Error ? error.message : 'Failed to prepare export.',
+      error: error instanceof Error ? error.message : "Failed to prepare export.",
       requestId,
-      type: 'error',
-    }
+      type: "error",
+    };
 
-    self.postMessage(response satisfies OutputExportWorkerResponse)
+    self.postMessage(response satisfies OutputExportWorkerResponse);
   }
-}
+};

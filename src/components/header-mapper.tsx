@@ -1,24 +1,24 @@
-import { Plus, Trash2 } from 'lucide-react'
-import { memo, useMemo } from 'react'
+import { Plus, Trash2 } from "lucide-react";
+import { memo, useMemo } from "react";
 
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { createHeaderRule, type HeaderRule } from '@/lib/header-mapper'
-import type { HeaderPolicy, ValueKind } from '@/lib/mapping-engine'
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { createHeaderRule, type HeaderRule } from "@/lib/header-mapper";
+import type { HeaderPolicy, ValueKind } from "@/lib/mapping-engine";
 
 export interface HeaderSuggestion {
-  currentHeader?: string
-  kinds: ValueKind[]
-  sourcePath: string
+  currentHeader?: string;
+  kinds: ValueKind[];
+  sourcePath: string;
 }
 
 interface HeaderMapperProps {
-  headerPolicy: HeaderPolicy
-  onChange: (rules: HeaderRule[]) => void
-  rules: HeaderRule[]
-  suggestions: HeaderSuggestion[]
+  headerPolicy: HeaderPolicy;
+  onChange: (rules: HeaderRule[]) => void;
+  rules: HeaderRule[];
+  suggestions: HeaderSuggestion[];
 }
 
 export const HeaderMapper = memo(function HeaderMapper({
@@ -28,13 +28,10 @@ export const HeaderMapper = memo(function HeaderMapper({
   suggestions,
 }: HeaderMapperProps) {
   function addRule() {
-    onChange([
-      ...rules,
-      createHeaderRule({ enabled: headerPolicy === 'explicit' }),
-    ])
+    onChange([...rules, createHeaderRule({ enabled: headerPolicy === "explicit" })]);
   }
 
-  function updateRule(ruleId: string, patch: Partial<Omit<HeaderRule, 'id'>>) {
+  function updateRule(ruleId: string, patch: Partial<Omit<HeaderRule, "id">>) {
     onChange(
       rules.map((rule) =>
         rule.id === ruleId
@@ -44,40 +41,35 @@ export const HeaderMapper = memo(function HeaderMapper({
             }
           : rule,
       ),
-    )
+    );
   }
 
   function removeRule(ruleId: string) {
-    onChange(rules.filter((rule) => rule.id !== ruleId))
+    onChange(rules.filter((rule) => rule.id !== ruleId));
   }
 
   function upsertSuggestedRule(sourcePath: string) {
-    const existingRule = rules.find(
-      (rule) => rule.sourcePath.trim() === sourcePath,
-    )
+    const existingRule = rules.find((rule) => rule.sourcePath.trim() === sourcePath);
 
     if (existingRule) {
       updateRule(existingRule.id, {
-        enabled: headerPolicy === 'explicit' ? true : existingRule.enabled,
+        enabled: headerPolicy === "explicit" ? true : existingRule.enabled,
         sourcePath,
-      })
+      });
 
-      return
+      return;
     }
 
     onChange([
       ...rules,
       createHeaderRule({
-        enabled: headerPolicy === 'explicit',
+        enabled: headerPolicy === "explicit",
         sourcePath,
       }),
-    ])
+    ]);
   }
 
-  const visibleSuggestions = useMemo(
-    () => suggestions.slice(0, 12),
-    [suggestions],
-  )
+  const visibleSuggestions = useMemo(() => suggestions.slice(0, 12), [suggestions]);
 
   return (
     <div className="space-y-4 rounded-[24px] border border-border/70 bg-background/55 p-4">
@@ -85,8 +77,8 @@ export const HeaderMapper = memo(function HeaderMapper({
         <div className="space-y-1">
           <Label>Header mapping</Label>
           <p className="text-sm text-muted-foreground">
-            Rename exported columns by source path. In explicit mode, enabled
-            rows define the exact CSV column order.
+            Rename exported columns by source path. In explicit mode, enabled rows define the exact
+            CSV column order.
           </p>
         </div>
         <Button type="button" variant="outline" size="sm" onClick={addRule}>
@@ -97,8 +89,7 @@ export const HeaderMapper = memo(function HeaderMapper({
 
       {rules.length === 0 ? (
         <div className="rounded-[20px] border border-dashed border-border/70 bg-background/70 p-4 text-sm text-muted-foreground">
-          No header overrides yet. Add a manual mapping or start from the
-          suggestions below.
+          No header overrides yet. Add a manual mapping or start from the suggestions below.
         </div>
       ) : (
         <div className="space-y-3">
@@ -109,9 +100,7 @@ export const HeaderMapper = memo(function HeaderMapper({
             >
               <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto] sm:items-end">
                 <div className="space-y-2">
-                  <Label htmlFor={`header-source-${rule.id}`}>
-                    Source path
-                  </Label>
+                  <Label htmlFor={`header-source-${rule.id}`}>Source path</Label>
                   <Input
                     id={`header-source-${rule.id}`}
                     aria-label={`Header source ${index + 1}`}
@@ -126,9 +115,7 @@ export const HeaderMapper = memo(function HeaderMapper({
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor={`header-alias-${rule.id}`}>
-                    Export header
-                  </Label>
+                  <Label htmlFor={`header-alias-${rule.id}`}>Export header</Label>
                   <Input
                     id={`header-alias-${rule.id}`}
                     aria-label={`Export header ${index + 1}`}
@@ -174,12 +161,10 @@ export const HeaderMapper = memo(function HeaderMapper({
 
       <div className="space-y-3 border-t border-border/70 pt-4">
         <div className="space-y-1">
-          <p className="text-sm font-semibold text-foreground">
-            Suggested source paths
-          </p>
+          <p className="text-sm font-semibold text-foreground">Suggested source paths</p>
           <p className="text-sm text-muted-foreground">
-            Suggestions combine current export columns with discovered paths
-            under the selected root.
+            Suggestions combine current export columns with discovered paths under the selected
+            root.
           </p>
         </div>
 
@@ -200,15 +185,10 @@ export const HeaderMapper = memo(function HeaderMapper({
                   </code>
                   {suggestion.currentHeader &&
                   suggestion.currentHeader !== suggestion.sourcePath ? (
-                    <Badge variant="secondary">
-                      Now {suggestion.currentHeader}
-                    </Badge>
+                    <Badge variant="secondary">Now {suggestion.currentHeader}</Badge>
                   ) : null}
                   {suggestion.kinds.map((kind) => (
-                    <Badge
-                      key={`${suggestion.sourcePath}-${kind}`}
-                      variant="outline"
-                    >
+                    <Badge key={`${suggestion.sourcePath}-${kind}`} variant="outline">
                       {kind}
                     </Badge>
                   ))}
@@ -231,5 +211,5 @@ export const HeaderMapper = memo(function HeaderMapper({
         )}
       </div>
     </div>
-  )
-})
+  );
+});

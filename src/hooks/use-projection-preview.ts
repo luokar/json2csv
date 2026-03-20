@@ -1,10 +1,4 @@
-import {
-  startTransition,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from 'react'
+import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 import {
   computeProjectionPayload,
   createInitialProjectionProgress,
@@ -13,12 +7,12 @@ import {
   type ProjectionProgress,
   type ProjectionRequest,
   type ProjectionWorkerResponse,
-} from '@/lib/projection'
+} from "@/lib/projection";
 
 interface ProjectionState extends ProjectionPayload {
-  isProjecting: boolean
-  progress: ProjectionProgress | null
-  streamingFlatPreview: ProjectionFlatStreamPreview | null
+  isProjecting: boolean;
+  progress: ProjectionProgress | null;
+  streamingFlatPreview: ProjectionFlatStreamPreview | null;
 }
 
 const emptyProjectionState: ProjectionState = {
@@ -29,7 +23,7 @@ const emptyProjectionState: ProjectionState = {
   progress: createInitialProjectionProgress(),
   relationalSplitResult: null,
   streamingFlatPreview: null,
-}
+};
 
 const disabledProjectionState: ProjectionState = {
   conversionResult: null,
@@ -39,20 +33,20 @@ const disabledProjectionState: ProjectionState = {
   progress: null,
   relationalSplitResult: null,
   streamingFlatPreview: null,
-}
+};
 
 export function useProjectionPreview(
   request: ProjectionRequest,
   configVersion: string,
   options: {
-    enabled?: boolean
+    enabled?: boolean;
   } = {},
 ) {
-  const enabled = options.enabled ?? true
+  const enabled = options.enabled ?? true;
   const [projection, setProjection] = useState<ProjectionState>(() =>
     !enabled
       ? disabledProjectionState
-      : typeof Worker === 'undefined'
+      : typeof Worker === "undefined"
         ? {
             ...computeProjectionPayload(request),
             isProjecting: false,
@@ -60,217 +54,194 @@ export function useProjectionPreview(
             streamingFlatPreview: null,
           }
         : emptyProjectionState,
-  )
-  const configRef = useRef(request.config)
-  const pendingCommitRequestIdRef = useRef<number | null>(null)
-  const pendingProjectionPatchRef = useRef<Partial<ProjectionState> | null>(
-    null,
-  )
-  const scheduledAnimationFrameRef = useRef<number | null>(null)
-  const requestIdRef = useRef(0)
-  const scheduledTimeoutRef = useRef<number | null>(null)
-  const workerRef = useRef<Worker | null>(null)
+  );
+  const configRef = useRef(request.config);
+  const pendingCommitRequestIdRef = useRef<number | null>(null);
+  const pendingProjectionPatchRef = useRef<Partial<ProjectionState> | null>(null);
+  const scheduledAnimationFrameRef = useRef<number | null>(null);
+  const requestIdRef = useRef(0);
+  const scheduledTimeoutRef = useRef<number | null>(null);
+  const workerRef = useRef<Worker | null>(null);
 
-  configRef.current = request.config
+  configRef.current = request.config;
 
-  const { customJson, rootPath, sampleJson, sourceMode } = request
+  const { customJson, rootPath, sampleJson, sourceMode } = request;
 
   const clearScheduledCommit = useCallback(() => {
-    if (
-      typeof window !== 'undefined' &&
-      scheduledAnimationFrameRef.current !== null
-    ) {
-      window.cancelAnimationFrame(scheduledAnimationFrameRef.current)
-      scheduledAnimationFrameRef.current = null
+    if (typeof window !== "undefined" && scheduledAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(scheduledAnimationFrameRef.current);
+      scheduledAnimationFrameRef.current = null;
     }
 
-    if (typeof window !== 'undefined' && scheduledTimeoutRef.current !== null) {
-      window.clearTimeout(scheduledTimeoutRef.current)
-      scheduledTimeoutRef.current = null
+    if (typeof window !== "undefined" && scheduledTimeoutRef.current !== null) {
+      window.clearTimeout(scheduledTimeoutRef.current);
+      scheduledTimeoutRef.current = null;
     }
-  }, [])
+  }, []);
 
   const clearPendingCommit = useCallback(() => {
-    clearScheduledCommit()
-    pendingCommitRequestIdRef.current = null
-    pendingProjectionPatchRef.current = null
-  }, [clearScheduledCommit])
+    clearScheduledCommit();
+    pendingCommitRequestIdRef.current = null;
+    pendingProjectionPatchRef.current = null;
+  }, [clearScheduledCommit]);
 
   const flushPendingCommit = useCallback(() => {
-    clearScheduledCommit()
+    clearScheduledCommit();
 
-    const pendingPatch = pendingProjectionPatchRef.current
-    const pendingRequestId = pendingCommitRequestIdRef.current
+    const pendingPatch = pendingProjectionPatchRef.current;
+    const pendingRequestId = pendingCommitRequestIdRef.current;
 
-    pendingProjectionPatchRef.current = null
-    pendingCommitRequestIdRef.current = null
+    pendingProjectionPatchRef.current = null;
+    pendingCommitRequestIdRef.current = null;
 
     if (!pendingPatch || pendingRequestId !== requestIdRef.current) {
-      return
+      return;
     }
 
     startTransition(() => {
       setProjection((previous) => ({
         ...previous,
         ...pendingPatch,
-      }))
-    })
-  }, [clearScheduledCommit])
+      }));
+    });
+  }, [clearScheduledCommit]);
 
   const scheduleCommit = useCallback(
     (requestId: number, patch: Partial<ProjectionState>) => {
       if (requestId !== requestIdRef.current) {
-        return
+        return;
       }
 
-      pendingCommitRequestIdRef.current = requestId
+      pendingCommitRequestIdRef.current = requestId;
       pendingProjectionPatchRef.current = {
-        ...(pendingProjectionPatchRef.current ?? {}),
+        ...pendingProjectionPatchRef.current,
         ...patch,
+      };
+
+      if (scheduledAnimationFrameRef.current !== null || scheduledTimeoutRef.current !== null) {
+        return;
       }
 
-      if (
-        scheduledAnimationFrameRef.current !== null ||
-        scheduledTimeoutRef.current !== null
-      ) {
-        return
+      if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+        scheduledAnimationFrameRef.current = window.requestAnimationFrame(() => {
+          scheduledAnimationFrameRef.current = null;
+          flushPendingCommit();
+        });
+
+        return;
       }
 
-      if (
-        typeof window !== 'undefined' &&
-        typeof window.requestAnimationFrame === 'function'
-      ) {
-        scheduledAnimationFrameRef.current = window.requestAnimationFrame(
-          () => {
-            scheduledAnimationFrameRef.current = null
-            flushPendingCommit()
-          },
-        )
-
-        return
-      }
-
-      if (typeof window !== 'undefined') {
+      if (typeof window !== "undefined") {
         scheduledTimeoutRef.current = window.setTimeout(() => {
-          scheduledTimeoutRef.current = null
-          flushPendingCommit()
-        }, 16)
+          scheduledTimeoutRef.current = null;
+          flushPendingCommit();
+        }, 16);
 
-        return
+        return;
       }
 
-      flushPendingCommit()
+      flushPendingCommit();
     },
     [flushPendingCommit],
-  )
+  );
 
   useEffect(() => {
     if (!enabled) {
-      requestIdRef.current += 1
-      clearPendingCommit()
-      workerRef.current?.terminate()
-      workerRef.current = null
+      requestIdRef.current += 1;
+      clearPendingCommit();
+      workerRef.current?.terminate();
+      workerRef.current = null;
 
-      return
+      return;
     }
 
     // `configVersion` is the dependency key for config changes while the
     // latest config value itself is read from `configRef`.
-    void configVersion
+    void configVersion;
 
-    clearPendingCommit()
-    requestIdRef.current += 1
-    const requestId = requestIdRef.current
+    clearPendingCommit();
+    requestIdRef.current += 1;
+    const requestId = requestIdRef.current;
     const payload: ProjectionRequest = {
       config: configRef.current,
       customJson,
       rootPath,
       sampleJson,
       sourceMode,
-    }
+    };
 
     setProjection((previous) => ({
       ...previous,
       isProjecting: true,
       progress: createInitialProjectionProgress(),
       streamingFlatPreview: null,
-    }))
+    }));
 
     const commitProgress = (response: ProjectionWorkerResponse) => {
-      if (
-        response.type !== 'progress' ||
-        response.requestId !== requestIdRef.current
-      ) {
-        return
+      if (response.type !== "progress" || response.requestId !== requestIdRef.current) {
+        return;
       }
 
       scheduleCommit(requestId, {
         isProjecting: true,
         progress: response.progress,
-      })
-    }
+      });
+    };
 
     const commitStreamPreview = (response: ProjectionWorkerResponse) => {
-      if (
-        response.type !== 'stream' ||
-        response.requestId !== requestIdRef.current
-      ) {
-        return
+      if (response.type !== "stream" || response.requestId !== requestIdRef.current) {
+        return;
       }
 
       scheduleCommit(requestId, {
         isProjecting: true,
         streamingFlatPreview: response.preview,
-      })
-    }
+      });
+    };
 
     const commitResult = (response: ProjectionWorkerResponse) => {
-      if (
-        response.type !== 'result' ||
-        response.requestId !== requestIdRef.current
-      ) {
-        return
+      if (response.type !== "result" || response.requestId !== requestIdRef.current) {
+        return;
       }
 
-      clearPendingCommit()
+      clearPendingCommit();
       setProjection({
         ...response.payload,
         isProjecting: false,
         progress: null,
         streamingFlatPreview: null,
-      })
-    }
+      });
+    };
 
-    if (typeof Worker === 'undefined') {
+    if (typeof Worker === "undefined") {
       commitResult({
         payload: computeProjectionPayload(payload),
         requestId,
-        type: 'result',
-      })
+        type: "result",
+      });
 
-      return
+      return;
     }
 
     if (!workerRef.current) {
-      workerRef.current = new Worker(
-        new URL('../workers/projection-worker.ts', import.meta.url),
-        { type: 'module' },
-      )
+      workerRef.current = new Worker(new URL("../workers/projection-worker.ts", import.meta.url), {
+        type: "module",
+      });
     }
 
-    const worker = workerRef.current
+    const worker = workerRef.current;
     const handleMessage = (event: MessageEvent<ProjectionWorkerResponse>) => {
-      commitProgress(event.data)
-      commitStreamPreview(event.data)
-      commitResult(event.data)
-    }
+      commitProgress(event.data);
+      commitStreamPreview(event.data);
+      commitResult(event.data);
+    };
 
-    worker.addEventListener('message', handleMessage)
-    worker.postMessage({ payload, requestId })
+    worker.addEventListener("message", handleMessage);
+    worker.postMessage({ payload, requestId });
 
     return () => {
-      worker.removeEventListener('message', handleMessage)
-    }
+      worker.removeEventListener("message", handleMessage);
+    };
   }, [
     clearPendingCommit,
     configVersion,
@@ -280,16 +251,16 @@ export function useProjectionPreview(
     sampleJson,
     scheduleCommit,
     sourceMode,
-  ])
+  ]);
 
   useEffect(
     () => () => {
-      clearPendingCommit()
-      workerRef.current?.terminate()
-      workerRef.current = null
+      clearPendingCommit();
+      workerRef.current?.terminate();
+      workerRef.current = null;
     },
     [clearPendingCommit],
-  )
+  );
 
-  return enabled ? projection : disabledProjectionState
+  return enabled ? projection : disabledProjectionState;
 }

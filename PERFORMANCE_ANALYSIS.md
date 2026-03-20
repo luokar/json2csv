@@ -42,12 +42,12 @@ The benchmark was run in the project test environment rather than in a live brow
 
 ### Results
 
-| Scenario | Input chars | Selected roots | Flat rows | Relational rows | `convertJsonToCsvTable` | `splitJsonToRelationalTables` | `computeProjectionPayload` | Worker-style `streamProjectionPayload` | Preview events |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| flat records, `parallel` | `1,250,175` | `4,056` | `4,056` | `4,056` | `38.41 ms` | `32.63 ms` | `74.79 ms` | `164.32 ms` | `511` |
-| nested groups, `parallel` | `1,253,822` | `1,704` | `8,520` | `25,560` | `127.23 ms` | `79.97 ms` | `225.92 ms` | `427.15 ms` | `217` |
-| nested groups, `stringify` | `1,253,822` | `1,704` | `1,704` | `25,560` | `18.43 ms` | `77.79 ms` | `120.40 ms` | `157.59 ms` | `217` |
-| nested groups, `strict_leaf` | `1,253,822` | `1,704` | `1,704` | `25,560` | `19.51 ms` | `77.56 ms` | `121.49 ms` | `150.48 ms` | `217` |
+| Scenario                     | Input chars | Selected roots | Flat rows | Relational rows | `convertJsonToCsvTable` | `splitJsonToRelationalTables` | `computeProjectionPayload` | Worker-style `streamProjectionPayload` | Preview events |
+| ---------------------------- | ----------: | -------------: | --------: | --------------: | ----------------------: | ----------------------------: | -------------------------: | -------------------------------------: | -------------: |
+| flat records, `parallel`     | `1,250,175` |        `4,056` |   `4,056` |         `4,056` |              `38.41 ms` |                    `32.63 ms` |                 `74.79 ms` |                            `164.32 ms` |          `511` |
+| nested groups, `parallel`    | `1,253,822` |        `1,704` |   `8,520` |        `25,560` |             `127.23 ms` |                    `79.97 ms` |                `225.92 ms` |                            `427.15 ms` |          `217` |
+| nested groups, `stringify`   | `1,253,822` |        `1,704` |   `1,704` |        `25,560` |              `18.43 ms` |                    `77.79 ms` |                `120.40 ms` |                            `157.59 ms` |          `217` |
+| nested groups, `strict_leaf` | `1,253,822` |        `1,704` |   `1,704` |        `25,560` |              `19.51 ms` |                    `77.56 ms` |                `121.49 ms` |                            `150.48 ms` |          `217` |
 
 ### Supporting parse numbers
 
@@ -164,7 +164,6 @@ The preview cadence is tied directly to processed root count. In `projection.ts`
 1. Throttle preview messages.
 
    Switch from the current aggressive cadence to one of:
-
    - time-based emission, e.g. every `100-200 ms`
    - root-count budgets, e.g. every `128` or `256` roots
    - stop after the preview row budget is filled
@@ -244,7 +243,6 @@ That is why the nested `parallel` case is dramatically slower than both:
 1. Separate preview mode from export mode.
 
    Preview does not need the full final dataset artifacts. It only needs:
-
    - row count
    - first `N` rows
    - header sample
@@ -323,7 +321,6 @@ This stage is the reason nested `stringify` and `strict_leaf` still cost around 
 2. Build relational data only when needed.
 
    Trigger it when:
-
    - the relational tab is opened
    - export starts
    - the user explicitly asks for normalization
@@ -331,7 +328,6 @@ This stage is the reason nested `stringify` and `strict_leaf` still cost around 
 3. Add relational preview mode.
 
    For preview, compute only:
-
    - table names
    - row counts
    - relationships
@@ -447,12 +443,12 @@ I executed the first improvement pass after writing the study and reran the same
 
 ### Before vs after
 
-| Scenario | Before worker-style preview | After flat/discovery pass | Separate relational pass | Combined async total | Preview events before | Preview events after |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| flat records, `parallel` | `164.32 ms` | `45.64 ms` | `32.18 ms` | `77.82 ms` | `511` | `47` |
-| nested groups, `parallel` | `427.15 ms` | `143.72 ms` | `84.16 ms` | `227.88 ms` | `217` | `19` |
-| nested groups, `stringify` | `157.59 ms` | `44.19 ms` | `79.22 ms` | `123.41 ms` | `217` | `29` |
-| nested groups, `strict_leaf` | `150.48 ms` | `43.19 ms` | `88.35 ms` | `131.54 ms` | `217` | `29` |
+| Scenario                     | Before worker-style preview | After flat/discovery pass | Separate relational pass | Combined async total | Preview events before | Preview events after |
+| ---------------------------- | --------------------------: | ------------------------: | -----------------------: | -------------------: | --------------------: | -------------------: |
+| flat records, `parallel`     |                 `164.32 ms` |                `45.64 ms` |               `32.18 ms` |           `77.82 ms` |                 `511` |                 `47` |
+| nested groups, `parallel`    |                 `427.15 ms` |               `143.72 ms` |               `84.16 ms` |          `227.88 ms` |                 `217` |                 `19` |
+| nested groups, `stringify`   |                 `157.59 ms` |                `44.19 ms` |               `79.22 ms` |          `123.41 ms` |                 `217` |                 `29` |
+| nested groups, `strict_leaf` |                 `150.48 ms` |                `43.19 ms` |               `88.35 ms` |          `131.54 ms` |                 `217` |                 `29` |
 
 ### What changed materially
 
@@ -484,12 +480,12 @@ The implemented changes were:
 
 On the same benchmark payloads, the new preview-only flat finalizer is now consistently cheaper than the full flat finalizer:
 
-| Scenario | Full `convertJsonToCsvTable` | Preview `convertJsonToCsvPreviewTable` | Improvement |
-| --- | ---: | ---: | ---: |
-| flat records, `parallel` | `37.26 ms` | `25.68 ms` | `31%` faster |
-| nested groups, `parallel` | `117.27 ms` | `98.28 ms` | `16%` faster |
-| nested groups, `stringify` | `18.41 ms` | `14.00 ms` | `24%` faster |
-| nested groups, `strict_leaf` | `17.01 ms` | `12.98 ms` | `24%` faster |
+| Scenario                     | Full `convertJsonToCsvTable` | Preview `convertJsonToCsvPreviewTable` |  Improvement |
+| ---------------------------- | ---------------------------: | -------------------------------------: | -----------: |
+| flat records, `parallel`     |                   `37.26 ms` |                             `25.68 ms` | `31%` faster |
+| nested groups, `parallel`    |                  `117.27 ms` |                             `98.28 ms` | `16%` faster |
+| nested groups, `stringify`   |                   `18.41 ms` |                             `14.00 ms` | `24%` faster |
+| nested groups, `strict_leaf` |                   `17.01 ms` |                             `12.98 ms` | `24%` faster |
 
 This confirms that preview-only finalization is worthwhile, but it also confirms that nested `parallel` row amplification still dominates the flat stage.
 
@@ -497,12 +493,12 @@ This confirms that preview-only finalization is worthwhile, but it also confirms
 
 I reran the same `~1.25 MB` matrix after both implementation passes were in place.
 
-| Scenario | Original eager worker path | After first pass flat/discovery | Current flat/discovery | Separate relational pass | Current combined async total |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| flat records, `parallel` | `164.32 ms` | `45.64 ms` | `46.78 ms` | `32.02 ms` | `78.80 ms` |
-| nested groups, `parallel` | `427.15 ms` | `143.72 ms` | `124.14 ms` | `88.19 ms` | `212.33 ms` |
-| nested groups, `stringify` | `157.59 ms` | `44.19 ms` | `37.07 ms` | `81.66 ms` | `118.73 ms` |
-| nested groups, `strict_leaf` | `150.48 ms` | `43.19 ms` | `38.03 ms` | `81.77 ms` | `119.80 ms` |
+| Scenario                     | Original eager worker path | After first pass flat/discovery | Current flat/discovery | Separate relational pass | Current combined async total |
+| ---------------------------- | -------------------------: | ------------------------------: | ---------------------: | -----------------------: | ---------------------------: |
+| flat records, `parallel`     |                `164.32 ms` |                      `45.64 ms` |             `46.78 ms` |               `32.02 ms` |                   `78.80 ms` |
+| nested groups, `parallel`    |                `427.15 ms` |                     `143.72 ms` |            `124.14 ms` |               `88.19 ms` |                  `212.33 ms` |
+| nested groups, `stringify`   |                `157.59 ms` |                      `44.19 ms` |             `37.07 ms` |               `81.66 ms` |                  `118.73 ms` |
+| nested groups, `strict_leaf` |                `150.48 ms` |                      `43.19 ms` |             `38.03 ms` |               `81.77 ms` |                  `119.80 ms` |
 
 ### What the second pass achieved
 
@@ -536,12 +532,12 @@ The implemented changes were:
 
 The cleanest way to evaluate this pass is a same-run comparison between the full relational finalizer and the preview-only relational finalizer:
 
-| Scenario | Full `splitJsonToRelationalTables` | Preview `splitJsonToRelationalTablesPreview` | Improvement |
-| --- | ---: | ---: | ---: |
-| flat records, `parallel` | `35.68 ms` | `24.73 ms` | `31%` faster |
-| nested groups, `parallel` | `85.15 ms` | `70.23 ms` | `18%` faster |
-| nested groups, `stringify` | `81.31 ms` | `65.82 ms` | `19%` faster |
-| nested groups, `strict_leaf` | `79.71 ms` | `71.33 ms` | `11%` faster |
+| Scenario                     | Full `splitJsonToRelationalTables` | Preview `splitJsonToRelationalTablesPreview` |  Improvement |
+| ---------------------------- | ---------------------------------: | -------------------------------------------: | -----------: |
+| flat records, `parallel`     |                         `35.68 ms` |                                   `24.73 ms` | `31%` faster |
+| nested groups, `parallel`    |                         `85.15 ms` |                                   `70.23 ms` | `18%` faster |
+| nested groups, `stringify`   |                         `81.31 ms` |                                   `65.82 ms` | `19%` faster |
+| nested groups, `strict_leaf` |                         `79.71 ms` |                                   `71.33 ms` | `11%` faster |
 
 This confirms that the relational preview was still paying a meaningful fixed cost for export-grade materialization, and that removing that materialization helps even though the tree traversal itself still remains.
 
@@ -549,12 +545,12 @@ This confirms that the relational preview was still paying a meaningful fixed co
 
 Using the same rerun, the current preview pipeline now looks like this:
 
-| Scenario | Current flat/discovery | Current relational preview | Current combined async total | Original eager worker path |
-| --- | ---: | ---: | ---: | ---: |
-| flat records, `parallel` | `40.77 ms` | `26.61 ms` | `67.38 ms` | `164.32 ms` |
-| nested groups, `parallel` | `127.90 ms` | `77.71 ms` | `205.61 ms` | `427.15 ms` |
-| nested groups, `stringify` | `38.29 ms` | `69.64 ms` | `107.93 ms` | `157.59 ms` |
-| nested groups, `strict_leaf` | `37.68 ms` | `67.57 ms` | `105.25 ms` | `150.48 ms` |
+| Scenario                     | Current flat/discovery | Current relational preview | Current combined async total | Original eager worker path |
+| ---------------------------- | ---------------------: | -------------------------: | ---------------------------: | -------------------------: |
+| flat records, `parallel`     |             `40.77 ms` |                 `26.61 ms` |                   `67.38 ms` |                `164.32 ms` |
+| nested groups, `parallel`    |            `127.90 ms` |                 `77.71 ms` |                  `205.61 ms` |                `427.15 ms` |
+| nested groups, `stringify`   |             `38.29 ms` |                 `69.64 ms` |                  `107.93 ms` |                `157.59 ms` |
+| nested groups, `strict_leaf` |             `37.68 ms` |                 `67.57 ms` |                  `105.25 ms` |                `150.48 ms` |
 
 The benchmark environment still shows some run-to-run variance, but the same-run deltas are consistent enough to support the conclusion that this third pass is a real improvement.
 

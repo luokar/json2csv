@@ -22,8 +22,7 @@
   --ring: oklch(0.65 0.102 250.14);
   --radius: 1.5rem;
   --font-sans: "Avenir Next", "Trebuchet MS", "Segoe UI", sans-serif;
-  --font-mono:
-    "SFMono-Regular", "IBM Plex Mono", "Menlo", "Consolas", monospace;
+  --font-mono: "SFMono-Regular", "IBM Plex Mono", "Menlo", "Consolas", monospace;
 }
 
 @theme inline {
@@ -65,16 +64,8 @@
   body {
     @apply min-h-screen bg-background text-foreground antialiased;
     background-image:
-      radial-gradient(
-        circle at top left,
-        rgba(255, 194, 133, 0.22),
-        transparent 28%
-      ),
-      radial-gradient(
-        circle at top right,
-        rgba(86, 145, 255, 0.18),
-        transparent 32%
-      ),
+      radial-gradient(circle at top left, rgba(255, 194, 133, 0.22), transparent 28%),
+      radial-gradient(circle at top right, rgba(86, 145, 255, 0.18), transparent 32%),
       linear-gradient(180deg, #fffaf4 0%, #fffdf8 42%, #fff7ed 100%);
     background-attachment: fixed;
     margin: 0;

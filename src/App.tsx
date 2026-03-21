@@ -194,6 +194,7 @@ interface PendingWorkbenchTransition {
   hasStarted: boolean;
   id: number;
   kind: WorkbenchTransition;
+  projectionSignature: string;
   label: string;
 }
 
@@ -239,6 +240,20 @@ const defaultFormValues: ConverterFormValues = {
   emptyArrayBehavior: defaultMappingConfig.emptyArrayBehavior,
   maxDepth: defaultMappingConfig.maxDepth,
 };
+
+function createWorkbenchProjectionSignature(request: {
+  config: MappingConfig | undefined;
+  customJson: string;
+  sampleJson: JsonValue;
+  sourceMode: SourceMode;
+}) {
+  return JSON.stringify({
+    config: request.config ?? null,
+    customJson: request.sourceMode === "custom" ? request.customJson : null,
+    sampleJson: request.sourceMode === "sample" ? request.sampleJson : null,
+    sourceMode: request.sourceMode,
+  });
+}
 
 const watchedFieldNames = [
   "presetName",
@@ -554,6 +569,16 @@ function App() {
   const activeConfig = parsedValues.success
     ? toMappingConfig(parsedValues.data, plannerRules, headerRules)
     : undefined;
+  const currentWorkbenchProjectionSignature = useMemo(
+    () =>
+      createWorkbenchProjectionSignature({
+        config: activeConfig,
+        customJson: liveValues.customJson,
+        sampleJson: activeSample.json,
+        sourceMode: liveValues.sourceMode,
+      }),
+    [activeConfig, activeSample.json, liveValues.customJson, liveValues.sourceMode],
+  );
   const projection = useProjectionPreview(
     {
       config: activeConfig,
@@ -850,6 +875,17 @@ function App() {
       return;
     }
 
+    if (pendingWorkbenchTransition.projectionSignature === currentWorkbenchProjectionSignature) {
+      if (transitionWatchdogTimeoutRef.current !== null) {
+        window.clearTimeout(transitionWatchdogTimeoutRef.current);
+        transitionWatchdogTimeoutRef.current = null;
+      }
+
+      updateWorkbenchTransitionDiagnostic(pendingWorkbenchTransition, "settled");
+      setPendingWorkbenchTransition(null);
+      return;
+    }
+
     if (pendingWorkbenchTransition.hasStarted) {
       if (transitionWatchdogTimeoutRef.current !== null) {
         window.clearTimeout(transitionWatchdogTimeoutRef.current);
@@ -873,6 +909,7 @@ function App() {
     }
   }, [
     isProjectionDebugDisabled,
+    currentWorkbenchProjectionSignature,
     pendingWorkbenchTransition,
     projection.isProjecting,
     updateWorkbenchTransitionDiagnostic,
@@ -1113,10 +1150,39 @@ function App() {
     };
 
     if (options.suspendWorkbench && shouldRebuildProjection) {
+      const nextFlattenMode = autoSmartSuggestion?.flattenMode ?? liveValues.flattenMode;
+      const nextHeaderRules =
+        autoSmartSuggestion?.kind === "keyed-map"
+          ? upsertHeaderAliasRule(
+              headerRules,
+              autoSmartSuggestion.keySourcePath,
+              autoSmartSuggestion.keyAlias,
+              {
+                overwriteExisting: false,
+              },
+            )
+          : headerRules;
+      const nextConfig = toMappingConfig(
+        {
+          ...liveValues,
+          customJson: nextText,
+          flattenMode: nextFlattenMode,
+          rootPath: autoSmartSuggestion?.rootPath ?? liveValues.rootPath,
+        },
+        plannerRules,
+        nextHeaderRules,
+      );
+
       scheduleWorkbenchTransition(
         {
           kind: "custom-rebuild",
           label: "Rebuilding preview for committed custom JSON",
+          projectionSignature: createWorkbenchProjectionSignature({
+            config: nextConfig,
+            customJson: nextText,
+            sampleJson: activeSample.json,
+            sourceMode: liveValues.sourceMode,
+          }),
         },
         finalizeApply,
       );
@@ -1137,20 +1203,30 @@ function App() {
       label: "Loading saved preset",
     });
 
+    const nextValues = toFormValues(preset);
+    const nextCustomJson = nextValues.sourceMode === "custom" ? nextValues.customJson : "";
+    const nextSample = getSampleById(nextValues.sampleId);
+
     scheduleWorkbenchTransition(
       {
         kind: "load-preset",
         label: "Loading saved preset",
+        projectionSignature: createWorkbenchProjectionSignature({
+          config: preset.config,
+          customJson: nextCustomJson,
+          sampleJson: nextSample.json,
+          sourceMode: nextValues.sourceMode,
+        }),
       },
       () => {
         form.reset({
-          ...toFormValues(preset),
+          ...nextValues,
           customJson: defaultFormValues.customJson,
         });
         setHeaderRules(headerRulesFromConfig(preset.config));
         setSmartDetectFeedback(null);
-        setCustomJsonDraft(preset.customJson ?? "");
-        setCommittedCustomJson(preset.customJson ?? "");
+        setCustomJsonDraft(nextCustomJson);
+        setCommittedCustomJson(nextCustomJson);
         setPlannerRules(plannerRulesFromConfig(preset.config));
         savePresetMutation.reset();
 
@@ -1193,6 +1269,21 @@ function App() {
       {
         kind: "source-switch",
         label: sourceMode === "sample" ? "Switching to sample catalog" : "Switching to custom JSON",
+        projectionSignature: createWorkbenchProjectionSignature({
+          config: toMappingConfig(
+            {
+              ...liveValues,
+              rootPath:
+                sourceMode === "sample" ? (defaultRootPaths[liveValues.sampleId] ?? "$") : "$",
+              sourceMode,
+            },
+            plannerRules,
+            headerRules,
+          ),
+          customJson: committedCustomJson,
+          sampleJson: activeSample.json,
+          sourceMode,
+        }),
       },
       () => {
         const nextRootPath =
@@ -1226,6 +1317,30 @@ function App() {
     const importedInput = parseJsonInput(text);
     const importedSmartSuggestion =
       importedInput.value === undefined ? null : detectSmartConfigSuggestion(importedInput.value);
+    const nextRootPath = importedSmartSuggestion ? importedSmartSuggestion.rootPath : "$";
+    const nextFlattenMode = importedSmartSuggestion?.flattenMode ?? liveValues.flattenMode;
+    const nextHeaderRules =
+      importedSmartSuggestion?.kind === "keyed-map"
+        ? upsertHeaderAliasRule(
+            headerRules,
+            importedSmartSuggestion.keySourcePath,
+            importedSmartSuggestion.keyAlias,
+            {
+              overwriteExisting: false,
+            },
+          )
+        : headerRules;
+    const nextConfig = toMappingConfig(
+      {
+        ...liveValues,
+        customJson: text,
+        flattenMode: nextFlattenMode,
+        rootPath: nextRootPath,
+        sourceMode: "custom",
+      },
+      plannerRules,
+      nextHeaderRules,
+    );
 
     event.target.value = "";
 
@@ -1233,6 +1348,12 @@ function App() {
       {
         kind: "import-json",
         label: "Importing JSON file",
+        projectionSignature: createWorkbenchProjectionSignature({
+          config: nextConfig,
+          customJson: text,
+          sampleJson: activeSample.json,
+          sourceMode: "custom",
+        }),
       },
       () => {
         form.setValue("sourceMode", "custom", { shouldValidate: true });
@@ -1265,15 +1386,46 @@ function App() {
     });
 
     const activeSampleSmartSuggestion = detectSmartConfigSuggestion(activeSample.json);
+    const nextCustomJson = stringifyJsonInput(activeSample.json);
+    const nextRootPath = activeSampleSmartSuggestion
+      ? activeSampleSmartSuggestion.rootPath
+      : (defaultRootPaths[activeSample.id] ?? "$");
+    const nextFlattenMode = activeSampleSmartSuggestion?.flattenMode ?? liveValues.flattenMode;
+    const nextHeaderRules =
+      activeSampleSmartSuggestion?.kind === "keyed-map"
+        ? upsertHeaderAliasRule(
+            headerRules,
+            activeSampleSmartSuggestion.keySourcePath,
+            activeSampleSmartSuggestion.keyAlias,
+            {
+              overwriteExisting: false,
+            },
+          )
+        : headerRules;
+    const nextConfig = toMappingConfig(
+      {
+        ...liveValues,
+        customJson: nextCustomJson,
+        flattenMode: nextFlattenMode,
+        rootPath: nextRootPath,
+        sourceMode: "custom",
+      },
+      plannerRules,
+      nextHeaderRules,
+    );
 
     scheduleWorkbenchTransition(
       {
         kind: "load-sample",
         label: "Loading active sample",
+        projectionSignature: createWorkbenchProjectionSignature({
+          config: nextConfig,
+          customJson: nextCustomJson,
+          sampleJson: activeSample.json,
+          sourceMode: "custom",
+        }),
       },
       () => {
-        const nextCustomJson = stringifyJsonInput(activeSample.json);
-
         form.setValue("sourceMode", "custom", { shouldValidate: true });
         setCustomJsonDraft(nextCustomJson);
         setCommittedCustomJson(nextCustomJson);
@@ -1302,10 +1454,18 @@ function App() {
       label: "Resetting to defaults",
     });
 
+    const nextDefaultConfig = toMappingConfig(defaultFormValues, [], []);
+
     scheduleWorkbenchTransition(
       {
         kind: "reset-defaults",
         label: "Resetting to defaults",
+        projectionSignature: createWorkbenchProjectionSignature({
+          config: nextDefaultConfig,
+          customJson: defaultFormValues.customJson,
+          sampleJson: getSampleById(defaultFormValues.sampleId).json,
+          sourceMode: defaultFormValues.sourceMode,
+        }),
       },
       () => {
         form.reset(defaultFormValues);
@@ -1418,10 +1578,31 @@ function App() {
       return;
     }
 
+    const nextFlattenMode = suggestion.flattenMode ?? liveValues.flattenMode;
+    const nextHeaderRules =
+      suggestion.kind === "keyed-map"
+        ? upsertHeaderAliasRule(headerRules, suggestion.keySourcePath, suggestion.keyAlias)
+        : headerRules;
+    const nextConfig = toMappingConfig(
+      {
+        ...liveValues,
+        flattenMode: nextFlattenMode,
+        rootPath: suggestion.rootPath,
+      },
+      plannerRules,
+      nextHeaderRules,
+    );
+
     scheduleWorkbenchTransition(
       {
         kind: "smart-detect",
         label: "Applying smart row detection",
+        projectionSignature: createWorkbenchProjectionSignature({
+          config: nextConfig,
+          customJson: liveValues.sourceMode === "custom" ? customJsonDraft : liveValues.customJson,
+          sampleJson: activeSample.json,
+          sourceMode: liveValues.sourceMode,
+        }),
       },
       () => {
         if (liveValues.sourceMode === "custom") {
@@ -1617,7 +1798,12 @@ function App() {
                 </div>
 
                 <div className="flex flex-wrap gap-2">
-                  <Button type="button" variant="outline" onClick={handleLoadSampleIntoEditor}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={isWorkbenchTransitionPending}
+                    onClick={handleLoadSampleIntoEditor}
+                  >
                     Load active sample
                   </Button>
                   <Button
@@ -1984,6 +2170,7 @@ function App() {
                           <Button
                             type="button"
                             variant="outline"
+                            disabled={isWorkbenchTransitionPending}
                             onClick={handleLoadSampleIntoEditor}
                           >
                             Load active sample
@@ -2379,7 +2566,12 @@ function App() {
                                 <Save className="size-4" />
                                 {savePresetMutation.isPending ? "Saving preset..." : "Save preset"}
                               </Button>
-                              <Button type="button" variant="outline" onClick={handleResetDefaults}>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                disabled={isWorkbenchTransitionPending}
+                                onClick={handleResetDefaults}
+                              >
                                 Reset defaults
                               </Button>
                             </div>

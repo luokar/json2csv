@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, vi } from "vite-plus/test";
 
@@ -1043,6 +1043,47 @@ describe("App", () => {
       expect(screen.getByText(/parsed successfully/i)).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /^id$/i })).toBeInTheDocument();
     });
+  });
+
+  it("does not time out when loading the active sample twice", async () => {
+    vi.stubGlobal("Worker", FakeStreamingAppWorker);
+    vi.useFakeTimers();
+
+    window.history.replaceState({}, "", "/?debug=hangs");
+
+    render(
+      <AppProviders>
+        <App />
+      </AppProviders>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /custom json/i }));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(700);
+    });
+
+    expect(screen.getByLabelText(/custom json/i)).toBeInTheDocument();
+
+    const loadButton = screen.getByRole("button", { name: /load active sample/i });
+
+    fireEvent.click(loadButton);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(700);
+    });
+
+    expect(screen.getByText(/^settled$/i)).toBeInTheDocument();
+
+    fireEvent.click(loadButton);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(700);
+    });
+
+    expect(screen.getByText(/^settled$/i)).toBeInTheDocument();
+    expect(screen.queryByText(/^timed out$/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/root path/i)).toHaveValue("$.items.item[*]");
   });
 
   it("saves the latest committed custom JSON without storing the raw payload in watched form state", async () => {

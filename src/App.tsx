@@ -123,6 +123,8 @@ const defaultRootPaths: Record<string, string> = {
   heterogeneous: "$.records[*]",
 };
 
+const presetNameMinLength = 3;
+const presetNameMaxLength = 80;
 const sampleSourcePreviewCharacterLimit = 12_000;
 const schemaColumnPreviewLimit = 120;
 const schemaTypeReportPreviewLimit = 40;
@@ -136,8 +138,8 @@ const converterFormSchema = z.object({
   presetName: z
     .string()
     .trim()
-    .min(3, "Preset name must be at least 3 characters.")
-    .max(40, "Preset name must stay under 40 characters."),
+    .min(presetNameMinLength, "Preset name must be at least 3 characters.")
+    .max(presetNameMaxLength, `Preset name must stay under ${presetNameMaxLength} characters.`),
   sourceMode: z.enum(["sample", "custom"]),
   sampleId: z.string().trim().min(1),
   customJson: z.string(),
@@ -721,11 +723,11 @@ function App() {
   const activeConfigDescription = activeConfig
     ? describeConfig(activeConfig)
     : "Invalid configuration";
-  const visibleFlatHeaders = useMemo(
-    () => flatHeaders.slice(0, tableColumnPreviewLimit),
+  const initialHiddenFlatHeaders = useMemo(
+    () => flatHeaders.slice(tableColumnPreviewLimit),
     [flatHeaders],
   );
-  const hiddenFlatColumnCount = Math.max(0, flatHeaders.length - visibleFlatHeaders.length);
+  const initialHiddenFlatColumnCount = initialHiddenFlatHeaders.length;
   const flatPreviewRows = useMemo(
     () => createRowPreview(flatRecords, projectionFlatRowPreviewLimit),
     [flatRecords],
@@ -1411,7 +1413,7 @@ function App() {
     form.setValue("rootPath", defaultRootPaths[sampleId] ?? "$", {
       shouldValidate: true,
     });
-    form.setValue("presetName", `${sample?.title ?? "Sample"} export`, {
+    form.setValue("presetName", normalizePresetName(`${sample?.title ?? "Sample"} export`), {
       shouldValidate: true,
     });
     setSmartDetectFeedback(null);
@@ -1534,9 +1536,13 @@ function App() {
           setSmartDetectFeedback(null);
         }
 
-        form.setValue("presetName", `${stripFileExtension(file.name)} export`, {
-          shouldValidate: true,
-        });
+        form.setValue(
+          "presetName",
+          normalizePresetName(`${stripFileExtension(file.name)} export`),
+          {
+            shouldValidate: true,
+          },
+        );
         savePresetMutation.reset();
 
         startTransition(() => {
@@ -1962,8 +1968,9 @@ function App() {
               : "No projection is available for the current form values."
           }
           filterLabel="Filter visible CSV rows"
-          getRowId={(row, index) => createGridRowId(row, index, visibleFlatHeaders)}
-          headers={visibleFlatHeaders}
+          getRowId={(row, index) => createGridRowId(row, index, flatHeaders)}
+          headers={flatHeaders}
+          initialHiddenHeaders={initialHiddenFlatHeaders}
           notices={
             <>
               {outputExportError ? <Notice tone="error">{outputExportError}</Notice> : null}
@@ -1976,10 +1983,10 @@ function App() {
                   live preview.
                 </Notice>
               ) : null}
-              {hiddenFlatColumnCount > 0 ? (
+              {initialHiddenFlatColumnCount > 0 ? (
                 <Notice>
-                  Showing the first {visibleFlatHeaders.length} of {flatHeaders.length} columns in
-                  the live grid.
+                  Large flat previews start in a bounded column set. Use Columns or Show all columns
+                  to reveal the remaining {initialHiddenFlatColumnCount.toLocaleString()} fields.
                 </Notice>
               ) : null}
             </>
@@ -2800,6 +2807,7 @@ function App() {
                       <Label htmlFor="preset-name">Preset name</Label>
                       <Input
                         id="preset-name"
+                        maxLength={presetNameMaxLength}
                         placeholder="Donut relational export"
                         {...form.register("presetName")}
                       />
@@ -3589,6 +3597,10 @@ function upsertHeaderAliasRule(
 
 function stripFileExtension(fileName: string) {
   return fileName.replace(/\.[^.]+$/, "") || "Imported JSON";
+}
+
+function normalizePresetName(value: string) {
+  return value.trim().slice(0, presetNameMaxLength);
 }
 
 function describeConfig(config: MappingConfig) {

@@ -28,6 +28,7 @@ import {
 import { cn } from "@/lib/utils";
 
 const selectionColumnId = "__select__";
+const emptyHiddenHeaders: string[] = [];
 
 interface DenseDataGridProps {
   caption: string;
@@ -36,6 +37,7 @@ interface DenseDataGridProps {
   filterLabel: string;
   getRowId?: (row: Record<string, string>, index: number) => string;
   headers: string[];
+  initialHiddenHeaders?: string[];
   notices?: ReactNode;
   onInspectColumn?: (header: string) => void;
   onInspectRow?: (row: Record<string, string>, rowId: string) => void;
@@ -54,6 +56,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
   filterLabel,
   getRowId,
   headers,
+  initialHiddenHeaders = emptyHiddenHeaders,
   notices,
   onInspectColumn,
   onInspectRow,
@@ -70,6 +73,10 @@ export const DenseDataGrid = memo(function DenseDataGrid({
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+  const initialHiddenHeaderSet = useMemo(
+    () => new Set(initialHiddenHeaders),
+    [initialHiddenHeaders],
+  );
 
   const searchedRows = useMemo(() => {
     const normalized = globalSearch.trim().toLowerCase();
@@ -104,10 +111,18 @@ export const DenseDataGrid = memo(function DenseDataGrid({
         }
       }
 
+      for (const header of initialHiddenHeaders) {
+        if (!headers.includes(header) || Object.hasOwn(nextVisibility, header)) {
+          continue;
+        }
+
+        nextVisibility[header] = false;
+      }
+
       return nextVisibility;
     });
     setRowSelection({});
-  }, [headers]);
+  }, [headers, initialHiddenHeaders]);
 
   const columns = useMemo<ColumnDef<Record<string, string>>[]>(
     () => [
@@ -223,6 +238,23 @@ export const DenseDataGrid = memo(function DenseDataGrid({
   const selectedRows = table.getFilteredSelectedRowModel().rows;
   const visibleRowCount = table.getFilteredRowModel().rows.length;
   const hiddenColumnCount = Math.max(0, headers.length - (visibleLeafColumns.length - 1));
+  const defaultVisibleColumnCount = Math.max(0, headers.length - initialHiddenHeaders.length);
+
+  function handleShowAllColumns() {
+    setColumnVisibility({});
+  }
+
+  function handleResetColumnPreview() {
+    const nextVisibility: VisibilityState = {};
+
+    for (const header of headers) {
+      if (initialHiddenHeaderSet.has(header)) {
+        nextVisibility[header] = false;
+      }
+    }
+
+    setColumnVisibility(nextVisibility);
+  }
 
   return (
     <section className="flex min-h-[calc(100vh-10rem)] flex-col overflow-hidden rounded-[var(--radius)] border border-border/90 bg-card/92 shadow-[0_18px_44px_-36px_rgba(15,23,42,0.34)]">
@@ -289,6 +321,35 @@ export const DenseDataGrid = memo(function DenseDataGrid({
 
         {showColumnControls ? (
           <div className="mt-3 flex flex-wrap gap-2 rounded-[calc(var(--radius)-2px)] border border-border/80 bg-background/86 p-3">
+            {initialHiddenHeaders.length > 0 ? (
+              <div className="flex w-full flex-wrap items-center justify-between gap-2 rounded-[10px] border border-border/70 bg-card px-3 py-2 text-xs text-muted-foreground">
+                <p>
+                  Showing {defaultVisibleColumnCount.toLocaleString()} columns by default. Reveal
+                  overflow fields here when you need deeper nested context.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {hiddenColumnCount > 0 ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={handleShowAllColumns}
+                    >
+                      Show all columns
+                    </Button>
+                  ) : null}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={handleResetColumnPreview}
+                  >
+                    Reset column preview
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
             {headers.map((header) => {
               const column = table.getColumn(header);
 
@@ -302,6 +363,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                   className="inline-flex items-center gap-2 rounded-[10px] border border-border/70 bg-card px-2.5 py-1.5 text-xs text-foreground"
                 >
                   <input
+                    aria-label={`${header} column visibility`}
                     checked={column.getIsVisible()}
                     className="size-3.5 rounded border-border"
                     type="checkbox"

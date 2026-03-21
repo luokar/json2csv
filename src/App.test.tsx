@@ -55,6 +55,15 @@ const multiCollectionCustomJson = JSON.stringify({
   pokemon: [{ pokemon: { name: "charizard" } }],
 });
 
+const wideFlatPreviewJson = JSON.stringify([
+  Object.fromEntries(
+    Array.from({ length: 85 }, (_, index) => [
+      `field_${String(index + 1).padStart(2, "0")}`,
+      `value_${index + 1}`,
+    ]),
+  ),
+]);
+
 async function switchToCustomMode(
   user: ReturnType<typeof userEvent.setup>,
   options: {
@@ -65,13 +74,18 @@ async function switchToCustomMode(
 
   await user.click(screen.getByRole("button", { name: /custom json/i }));
 
-  await waitFor(() => {
-    expect(screen.getByLabelText(/custom json/i)).toBeInTheDocument();
+  await waitFor(
+    () => {
+      expect(screen.getByLabelText(/custom json/i)).toBeInTheDocument();
 
-    if (waitForWorkbench) {
-      expect(screen.getByRole("button", { name: /reset defaults/i })).toBeEnabled();
-    }
-  });
+      if (waitForWorkbench) {
+        expect(screen.getByRole("button", { name: /reset defaults/i })).toBeEnabled();
+      }
+    },
+    {
+      timeout: waitForWorkbench ? 3_000 : 1_000,
+    },
+  );
 }
 
 class FakeStreamingAppWorker {
@@ -459,7 +473,7 @@ describe("App", () => {
       </AppProviders>,
     );
 
-    await switchToCustomMode(user);
+    await switchToCustomMode(user, { waitForWorkbench: false });
 
     fireEvent.change(screen.getByLabelText(/custom json/i), {
       target: {
@@ -1247,6 +1261,48 @@ describe("App", () => {
       expect(buttonLabels).not.toContain("tags");
     });
   });
+
+  it("keeps overflow flat columns available through the column controls", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <AppProviders>
+        <App />
+      </AppProviders>,
+    );
+
+    await switchToCustomMode(user);
+
+    fireEvent.change(screen.getByLabelText(/custom json/i), {
+      target: { value: wideFlatPreviewJson },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /apply json/i })).toBeEnabled();
+    });
+
+    await user.click(screen.getByRole("button", { name: /apply json/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /^field_01$/i })).toBeInTheDocument();
+    });
+
+    expect(screen.queryByRole("button", { name: /^field_85$/i })).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/large flat previews start in a bounded column set/i),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^columns$/i }));
+
+    expect(screen.getByLabelText(/field_85 column visibility/i)).not.toBeChecked();
+
+    await user.click(screen.getByRole("button", { name: /show all columns/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /^field_85$/i })).toBeInTheDocument();
+      expect(screen.getByLabelText(/field_85 column visibility/i)).toBeChecked();
+    });
+  }, 15_000);
 
   it("shows a type drift summary for mixed columns in the sidecar schema", async () => {
     const user = userEvent.setup();

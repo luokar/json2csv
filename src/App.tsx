@@ -1,34 +1,25 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  type ColumnDef,
-  flexRender,
-  getCoreRowModel,
-  getSortedRowModel,
-  type SortingState,
-  useReactTable,
-} from "@tanstack/react-table";
-import {
   Archive,
-  ArrowUpDown,
   Braces,
+  Command,
   Database,
   Download,
   FileJson2,
+  Menu,
   Rows3,
   Save,
-  Search,
+  Settings2,
   TableProperties,
   Upload,
   Waypoints,
 } from "lucide-react";
 import {
   type ChangeEvent,
-  memo,
   type ReactNode,
   startTransition,
   useCallback,
-  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -41,20 +32,13 @@ import { bufferedJsonEditorServiceProps } from "@/components/buffered-json-edito
 import { HeaderMapper, type HeaderSuggestion } from "@/components/header-mapper";
 import { InputDiagnostics } from "@/components/input-diagnostics";
 import { PathPlanner } from "@/components/path-planner";
+import { CommandPalette, type CommandPaletteAction } from "@/components/workbench/command-palette";
+import { DenseDataGrid } from "@/components/workbench/dense-data-grid";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Table,
-  TableBody,
-  TableCaption,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { useOutputExport } from "@/hooks/use-output-export";
 import { useProjectionPreview } from "@/hooks/use-projection-preview";
@@ -111,13 +95,16 @@ import {
   type ProjectionConversionResult,
   projectionFlatCsvPreviewCharacterLimit,
   projectionFlatRowPreviewLimit,
-  projectionRelationalCsvPreviewCharacterLimit,
   projectionRelationalRowPreviewLimit,
 } from "@/lib/projection";
 import type { RelationalRelationship } from "@/lib/relational-split";
 import { detectSmartConfigSuggestion, type SmartConfigSuggestion } from "@/lib/smart-config";
 import { cn } from "@/lib/utils";
-import { useWorkbenchStore } from "@/store/use-workbench-store";
+import {
+  type InspectorMode,
+  useWorkbenchStore,
+  type WorkbenchView,
+} from "@/store/use-workbench-store";
 
 const delimiterOptions = [
   { value: ",", label: "Comma (,)" },
@@ -142,6 +129,8 @@ const schemaTypeReportPreviewLimit = 40;
 const tableColumnPreviewLimit = 80;
 const emptyPreviewHeaders: string[] = [];
 const emptyPreviewRecords: Array<Record<string, string>> = [];
+const cockpitSelectClassName =
+  "flex h-9 w-full rounded-[calc(var(--radius)-2px)] border border-input bg-background/88 px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring";
 
 const converterFormSchema = z.object({
   presetName: z
@@ -283,8 +272,23 @@ function App() {
   const debugFlags = getAppDebugFlags();
   const isJsdomEnvironment = typeof navigator !== "undefined" && /jsdom/i.test(navigator.userAgent);
   const queryClient = useQueryClient();
+  const activeView = useWorkbenchStore((state) => state.activeView);
+  const clearWorkbenchSelection = useWorkbenchStore((state) => state.clearWorkbenchSelection);
+  const inspectorMode = useWorkbenchStore((state) => state.inspectorMode);
+  const isCommandPaletteOpen = useWorkbenchStore((state) => state.isCommandPaletteOpen);
+  const isInspectorOpen = useWorkbenchStore((state) => state.isInspectorOpen);
+  const isLeftRailOpen = useWorkbenchStore((state) => state.isLeftRailOpen);
+  const selectedColumn = useWorkbenchStore((state) => state.selectedColumn);
   const selectedPresetId = useWorkbenchStore((state) => state.selectedPresetId);
+  const selectedRow = useWorkbenchStore((state) => state.selectedRow);
+  const selectColumn = useWorkbenchStore((state) => state.selectColumn);
   const selectPreset = useWorkbenchStore((state) => state.selectPreset);
+  const selectRow = useWorkbenchStore((state) => state.selectRow);
+  const setActiveView = useWorkbenchStore((state) => state.setActiveView);
+  const setCommandPaletteOpen = useWorkbenchStore((state) => state.setCommandPaletteOpen);
+  const setInspectorMode = useWorkbenchStore((state) => state.setInspectorMode);
+  const setInspectorOpen = useWorkbenchStore((state) => state.setInspectorOpen);
+  const setLeftRailOpen = useWorkbenchStore((state) => state.setLeftRailOpen);
   const [headerRules, setHeaderRules] = useState<HeaderRule[]>([]);
   const [plannerRules, setPlannerRules] = useState<PlannerRule[]>([]);
   const [smartDetectFeedback, setSmartDetectFeedback] = useState<SmartDetectFeedback | null>(null);
@@ -664,11 +668,6 @@ function App() {
   const relationalPreviewRowsTruncated =
     relationalPreviewRows.truncated ||
     (selectedRelationalTable?.rowCount ?? 0) > (selectedRelationalTable?.records.length ?? 0);
-  const relationalCsvPreview = selectedRelationalTable?.csvPreview ?? {
-    omittedCharacters: 0,
-    text: "No relational tables generated.",
-    truncated: false,
-  };
   const relationalPreviewStatusMessage = isProjectionDebugDisabled
     ? "Relational split preview is paused while projection debugging is disabled."
     : activeConfig === undefined
@@ -722,6 +721,128 @@ function App() {
   const activeConfigDescription = activeConfig
     ? describeConfig(activeConfig)
     : "Invalid configuration";
+  const visibleFlatHeaders = useMemo(
+    () => flatHeaders.slice(0, tableColumnPreviewLimit),
+    [flatHeaders],
+  );
+  const hiddenFlatColumnCount = Math.max(0, flatHeaders.length - visibleFlatHeaders.length);
+  const flatPreviewRows = useMemo(
+    () => createRowPreview(flatRecords, projectionFlatRowPreviewLimit),
+    [flatRecords],
+  );
+  const flatPreviewRowsTruncated = isStreamingFlatPreview
+    ? flatRowCount > flatRecords.length
+    : flatPreviewRows.truncated ||
+      (!isStreamingFlatPreview &&
+        conversionResult !== null &&
+        conversionResult.rowCount > conversionResult.records.length);
+  const commandPaletteActions = useMemo<CommandPaletteAction[]>(
+    () => [
+      {
+        description: "Jump to the flat row cockpit.",
+        icon: <Rows3 className="size-4" />,
+        id: "view-flat",
+        keywords: ["rows", "grid", "table"],
+        label: "Open Flat Rows",
+        onSelect: () => setActiveView("flat"),
+      },
+      {
+        description: "Inspect linked relational tables in the shared grid.",
+        disabled: !relationalSplitResult,
+        icon: <Archive className="size-4" />,
+        id: "view-relational",
+        keywords: ["relationships", "linked", "tables"],
+        label: "Open Relational Tables",
+        onSelect: () => setActiveView("relational"),
+      },
+      {
+        description: "Open the raw CSV preview panel.",
+        icon: <Download className="size-4" />,
+        id: "view-csv",
+        keywords: ["export", "preview"],
+        label: "Open CSV Preview",
+        onSelect: () => setActiveView("csv"),
+      },
+      {
+        description: "Open schema sidecar and type drift diagnostics.",
+        icon: <Database className="size-4" />,
+        id: "view-schema",
+        keywords: ["columns", "types", "schema"],
+        label: "Open Schema Sidecar",
+        onSelect: () => setActiveView("schema"),
+      },
+      {
+        description: "Switch to the bundled sample catalog.",
+        icon: <FileJson2 className="size-4" />,
+        id: "source-sample",
+        label: "Use Sample Catalog",
+        onSelect: () => handleSourceModeChange("sample"),
+      },
+      {
+        description: "Switch to the staged custom JSON editor.",
+        icon: <Braces className="size-4" />,
+        id: "source-custom",
+        label: "Use Custom JSON",
+        onSelect: () => handleSourceModeChange("custom"),
+      },
+      {
+        description: "Run smart root-path detection on the current payload.",
+        icon: <Waypoints className="size-4" />,
+        id: "smart-detect",
+        label: "Run Smart Detect",
+        onSelect: handleSmartDetect,
+      },
+      {
+        description: "Download the full flat CSV output.",
+        disabled: !canExportOutputs,
+        icon: <Download className="size-4" />,
+        id: "export-flat",
+        label: "Export Full CSV",
+        onSelect: () => {
+          void handleFlatCsvExport();
+        },
+      },
+      {
+        description: "Download the currently selected relational table.",
+        disabled: !canExportOutputs || !selectedRelationalTable,
+        icon: <Archive className="size-4" />,
+        id: "export-relational-table",
+        label: "Export Selected Relational Table",
+        onSelect: () => {
+          void handleSelectedRelationalExport();
+        },
+      },
+      {
+        description: "Return the inspector to mapping controls.",
+        icon: <Settings2 className="size-4" />,
+        id: "inspector-mapping",
+        label: "Open Mapping Inspector",
+        onSelect: () => {
+          clearWorkbenchSelection();
+          setInspectorMode("mapping");
+          setInspectorOpen(true);
+        },
+      },
+      {
+        description: "Reset the workbench to its default sample configuration.",
+        icon: <Save className="size-4" />,
+        id: "reset-defaults",
+        label: "Reset Workbench Defaults",
+        onSelect: handleResetDefaults,
+      },
+    ],
+    [
+      canExportOutputs,
+      clearWorkbenchSelection,
+      handleResetDefaults,
+      handleSmartDetect,
+      relationalSplitResult,
+      selectedRelationalTable,
+      setActiveView,
+      setInspectorMode,
+      setInspectorOpen,
+    ],
+  );
 
   useEffect(() => {
     const tableNames = relationalSplitResult?.tables.map((table) => table.tableName) ?? ["root"];
@@ -744,6 +865,52 @@ function App() {
   useEffect(() => {
     workbenchTransitionDiagnosticRef.current = workbenchTransitionDiagnostic;
   }, [workbenchTransitionDiagnostic]);
+
+  useEffect(() => {
+    if (activeView !== "relational") {
+      return;
+    }
+
+    if (relationalSplitResult?.tables.length) {
+      return;
+    }
+
+    setActiveView("flat");
+  }, [activeView, relationalSplitResult?.tables.length, setActiveView]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setCommandPaletteOpen(!isCommandPaletteOpen);
+      }
+
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      if (isLeftRailOpen) {
+        setLeftRailOpen(false);
+      }
+
+      if (isInspectorOpen) {
+        setInspectorOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [
+    isCommandPaletteOpen,
+    isInspectorOpen,
+    isLeftRailOpen,
+    setCommandPaletteOpen,
+    setInspectorOpen,
+    setLeftRailOpen,
+  ]);
 
   useEffect(() => {
     hangAuditSnapshotRef.current = hangAuditSnapshot;
@@ -1697,16 +1864,6 @@ function App() {
     : isCustomJsonDirty
       ? "Use `Apply JSON` to rebuild the previews and restore the full workbench with the latest committed payload."
       : "This avoids replaying the full row preview, relational preview, CSV output, and schema sidecar on every progress update during apply.";
-  const suspendedWorkbenchSectionEyebrow = pendingWorkbenchTransition
-    ? "Transition guard"
-    : isCustomJsonDirty
-      ? "Editor focus"
-      : "Workbench state";
-  const suspendedWorkbenchSectionTitle = pendingWorkbenchTransition
-    ? "Workbench transition is in progress"
-    : isCustomJsonDirty
-      ? "The editor is holding an unapplied draft"
-      : "The workbench is rebuilding in the background";
   const visibleWorkbenchTransitionDiagnostic =
     workbenchTransitionDiagnostic !== null &&
     (debugFlags.showHangDiagnostics || workbenchTransitionDiagnostic.phase !== "settled");
@@ -1717,6 +1874,296 @@ function App() {
   const shouldShowHangAuditCard =
     debugFlags.showHangDiagnostics || hangAuditSnapshot.recoveredEntry !== null;
   const visibleHangAuditEntries = hangAuditSnapshot.entries.slice(0, 6);
+  const selectedColumnSchema = useMemo(
+    () =>
+      selectedColumn
+        ? (conversionResult?.schema.columns.find(
+            (column) => column.header === selectedColumn.header,
+          ) ?? null)
+        : null,
+    [conversionResult?.schema.columns, selectedColumn],
+  );
+  const selectedColumnTypeReport = useMemo(
+    () =>
+      selectedColumn
+        ? (conversionResult?.schema.typeReports.find(
+            (report) => report.header === selectedColumn.header,
+          ) ?? null)
+        : null,
+    [conversionResult?.schema.typeReports, selectedColumn],
+  );
+  const selectedTableRelationships = useMemo(
+    () =>
+      relationalSplitResult?.relationships.filter(
+        (relationship) =>
+          relationship.childTable === selectedRelationalTable?.tableName ||
+          relationship.parentTable === selectedRelationalTable?.tableName,
+      ) ?? [],
+    [relationalSplitResult?.relationships, selectedRelationalTable?.tableName],
+  );
+
+  const inspectRow = useCallback(
+    (row: Record<string, string>, rowId: string, view: WorkbenchView) => {
+      const label = createWorkbenchRowLabel(
+        row,
+        rowId,
+        view === "relational" ? selectedRelationalTable?.idColumn : undefined,
+      );
+
+      selectRow({
+        id: rowId,
+        label,
+        row,
+        view,
+      });
+      setInspectorOpen(true);
+    },
+    [selectRow, selectedRelationalTable?.idColumn, setInspectorOpen],
+  );
+
+  const inspectColumn = useCallback(
+    (header: string, view: WorkbenchView) => {
+      selectColumn({ header, view });
+      setInspectorOpen(true);
+    },
+    [selectColumn, setInspectorOpen],
+  );
+
+  function renderWorkbenchCenterPanel() {
+    if (isWorkbenchSuspended) {
+      return (
+        <WorkbenchSuspendedPanel
+          description={suspendedWorkbenchDescription}
+          followUp={
+            pendingWorkbenchTransition
+              ? suspendedWorkbenchFollowUp
+              : liveValues.sourceMode === "custom"
+                ? "Use the inspector to continue editing staged JSON while the center workbench stays unmounted."
+                : suspendedWorkbenchFollowUp
+          }
+          lead={suspendedWorkbenchLead}
+          title={suspendedWorkbenchTitle}
+        />
+      );
+    }
+
+    if (activeView === "flat") {
+      return (
+        <DenseDataGrid
+          caption={
+            conversionResult
+              ? `Root path ${conversionResult.config.rootPath || "$"} with ${conversionResult.config.flattenMode} mode. ${flatPreviewRowsTruncated ? "Preview is row-bounded for responsiveness." : "All visible preview rows are loaded."}`
+              : "Fix the current form errors to generate a preview."
+          }
+          description="Full-width operational grid for projected flat rows. Header filters and selection stay available without leaving the table."
+          emptyMessage={
+            isStreamingFlatPreview || conversionResult
+              ? "No rows match the current filter state."
+              : "No projection is available for the current form values."
+          }
+          filterLabel="Filter visible CSV rows"
+          getRowId={(row, index) => createGridRowId(row, index, visibleFlatHeaders)}
+          headers={visibleFlatHeaders}
+          notices={
+            <>
+              {outputExportError ? <Notice tone="error">{outputExportError}</Notice> : null}
+              {isStreamingFlatPreview && streamingFlatPreview ? (
+                <Notice>{describeStreamingPreviewCaption(streamingFlatPreview)}</Notice>
+              ) : null}
+              {flatPreviewRowsTruncated ? (
+                <Notice>
+                  Showing the first {projectionFlatRowPreviewLimit.toLocaleString()} rows of the
+                  live preview.
+                </Notice>
+              ) : null}
+              {hiddenFlatColumnCount > 0 ? (
+                <Notice>
+                  Showing the first {visibleFlatHeaders.length} of {flatHeaders.length} columns in
+                  the live grid.
+                </Notice>
+              ) : null}
+            </>
+          }
+          rowCount={flatRowCount}
+          rowLabel="flat row"
+          rows={flatPreviewRows.rows}
+          summaryBadges={
+            <>
+              <Badge variant="outline">
+                {describeActiveSource(liveValues.sourceMode, activeSample.title)}
+              </Badge>
+              <Badge variant="secondary">{activeConfigDescription}</Badge>
+              {isStreamingFlatPreview ? <Badge variant="secondary">Streaming</Badge> : null}
+            </>
+          }
+          title="Flat row cockpit"
+          toolbarActions={
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                title={outputExportBlockedReason ?? "Download the full flat CSV output."}
+                disabled={!canExportOutputs || isOutputExporting}
+                onClick={() => {
+                  void handleFlatCsvExport();
+                }}
+              >
+                <Download className="size-4" />
+                {isOutputExporting && outputExportLabel?.includes("flat CSV")
+                  ? "Preparing full CSV"
+                  : "Download full CSV"}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  clearWorkbenchSelection();
+                  setInspectorMode("mapping");
+                  setInspectorOpen(true);
+                }}
+              >
+                <Settings2 className="size-4" />
+                Mapping inspector
+              </Button>
+            </>
+          }
+          onInspectColumn={(header) => inspectColumn(header, "flat")}
+          onInspectRow={(row, rowId) => inspectRow(row, rowId, "flat")}
+        />
+      );
+    }
+
+    if (activeView === "relational") {
+      if (!selectedRelationalTable) {
+        return (
+          <WorkbenchEmptyPanel
+            description={relationalPreviewStatusMessage}
+            title="Relational tables are not available"
+          />
+        );
+      }
+
+      return (
+        <DenseDataGrid
+          caption={
+            relationalPreviewRowsTruncated
+              ? `Showing the first ${projectionRelationalRowPreviewLimit.toLocaleString()} preview rows of ${selectedRelationalTable.rowCount.toLocaleString()} rows in ${selectedRelationalTable.tableName}.`
+              : `${selectedRelationalTable.tableName} is linked to ${selectedTableRelationships.length.toLocaleString()} relationship${selectedTableRelationships.length === 1 ? "" : "s"}.`
+          }
+          description="Master-detail grid for normalized one-to-many tables. Selection and row inspection stay synchronized with the right-hand inspector."
+          emptyMessage="The selected relational table has no visible rows."
+          filterLabel="Filter relational rows"
+          getRowId={(row, index) =>
+            createGridRowId(
+              row,
+              index,
+              selectedRelationalTable.headers,
+              selectedRelationalTable.idColumn,
+            )
+          }
+          headers={selectedRelationalTable.headers}
+          notices={
+            <>
+              {outputExportError ? <Notice tone="error">{outputExportError}</Notice> : null}
+              {isRelationalPreviewProjecting ? (
+                <Notice>{relationalPreviewStatusMessage}</Notice>
+              ) : null}
+              {relationalPreviewRowsTruncated ? (
+                <Notice>
+                  Showing a bounded preview of {selectedRelationalTable.tableName}. Export uses the
+                  full table.
+                </Notice>
+              ) : null}
+            </>
+          }
+          rowCount={selectedRelationalTable.rowCount}
+          rowLabel={`${selectedRelationalTable.tableName} row`}
+          rows={relationalPreviewRows.rows}
+          summaryBadges={
+            <>
+              <Badge variant="outline">{selectedRelationalTable.tableName}</Badge>
+              <Badge variant="secondary">{selectedRelationalTable.headers.length} columns</Badge>
+              {selectedRelationalTable.parentIdColumn ? (
+                <Badge variant="outline">Parent {selectedRelationalTable.parentTable}</Badge>
+              ) : (
+                <Badge variant="outline">Root table</Badge>
+              )}
+            </>
+          }
+          title="Relational table cockpit"
+          toolbarActions={
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                title={
+                  outputExportBlockedReason ?? "Download the full selected relational table as CSV."
+                }
+                disabled={!canExportOutputs || isOutputExporting || !selectedRelationalTable}
+                onClick={() => {
+                  void handleSelectedRelationalExport();
+                }}
+              >
+                <Download className="size-4" />
+                {isOutputExporting && outputExportLabel?.includes("relational CSV")
+                  ? "Preparing table CSV"
+                  : "Download selected table CSV"}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                title={
+                  outputExportBlockedReason ?? "Download every relational table as a ZIP archive."
+                }
+                disabled={!canExportOutputs || isOutputExporting || !relationalSplitResult}
+                onClick={() => {
+                  void handleRelationalArchiveExport();
+                }}
+              >
+                <Archive className="size-4" />
+                {isOutputExporting && outputExportLabel?.includes("bundled relational")
+                  ? "Preparing ZIP"
+                  : "Download all tables ZIP"}
+              </Button>
+            </>
+          }
+          onInspectColumn={(header) => inspectColumn(header, "relational")}
+          onInspectRow={(row, rowId) => inspectRow(row, rowId, "relational")}
+        />
+      );
+    }
+
+    if (activeView === "csv") {
+      return (
+        <CsvWorkbenchPanel
+          csvPreview={csvPreview}
+          isOutputExporting={isOutputExporting}
+          isStreamingFlatPreview={isStreamingFlatPreview}
+          onExport={() => {
+            void handleFlatCsvExport();
+          }}
+          outputExportBlockedReason={outputExportBlockedReason}
+          outputExportError={outputExportError}
+          outputExportLabel={outputExportLabel}
+          streamingFlatPreview={streamingFlatPreview}
+        />
+      );
+    }
+
+    return (
+      <SchemaWorkbenchPanel
+        conversionResult={conversionResult}
+        hiddenMixedTypeReportCount={hiddenMixedTypeReportCount}
+        hiddenSchemaColumnCount={hiddenSchemaColumnCount}
+        onInspectColumn={(header) => {
+          inspectColumn(header, "schema");
+          setActiveView("schema");
+        }}
+        visibleMixedTypeReports={visibleMixedTypeReports}
+        visibleSchemaColumns={visibleSchemaColumns}
+      />
+    );
+  }
 
   hangAuditContextRef.current = {
     columnCount: flatHeaders.length,
@@ -1883,93 +2330,156 @@ function App() {
 
   return (
     <div className="relative isolate min-h-screen overflow-hidden">
-      <div className="absolute inset-x-0 top-0 -z-10 h-[28rem] bg-[radial-gradient(circle_at_top_left,rgba(255,203,153,0.9),transparent_38%),radial-gradient(circle_at_top_right,rgba(147,197,253,0.65),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.94),rgba(255,247,237,0.92))]" />
+      <CommandPalette
+        actions={commandPaletteActions}
+        open={isCommandPaletteOpen}
+        onOpenChange={setCommandPaletteOpen}
+      />
 
-      <main className="mx-auto flex min-h-screen max-w-[1820px] flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8 xl:gap-8">
-        <section className="grid gap-6 xl:grid-cols-[minmax(0,1.16fr)_minmax(420px,0.84fr)] xl:items-end">
-          <div className="space-y-4">
-            <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary">
-              Smart relational mapping / Vite / React / TypeScript
-            </Badge>
-            <div className="space-y-3">
-              <h1 className="max-w-4xl text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
-                Relational JSON-to-CSV playground for ambiguous nested data.
-              </h1>
-              <p className="max-w-3xl text-base text-muted-foreground sm:text-lg">
-                The engine treats JSON projection as a mapping problem, not a blind flatten. Switch
-                between parallel zip, cross-product explosion, and targeted stringification while
-                inspecting the resulting rows, CSV, and schema sidecar.
-              </p>
+      {isLeftRailOpen || isInspectorOpen ? (
+        <button
+          aria-label="Close side panels"
+          className="fixed inset-0 z-30 bg-foreground/12 xl:hidden"
+          type="button"
+          onClick={() => {
+            setInspectorOpen(false);
+            setLeftRailOpen(false);
+          }}
+        />
+      ) : null}
+
+      <main className="mx-auto flex min-h-screen max-w-[1920px] flex-col gap-3 px-3 py-3 lg:px-4">
+        <header className="sticky top-3 z-20 rounded-[var(--radius)] border border-border/90 bg-card/92 px-4 py-3 shadow-[0_18px_44px_-36px_rgba(15,23,42,0.34)] backdrop-blur-sm">
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className="flex gap-2 xl:hidden">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    aria-label="Open workbench rail"
+                    onClick={() => setLeftRailOpen(true)}
+                  >
+                    <Menu className="size-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    aria-label="Open inspector"
+                    onClick={() => setInspectorOpen(true)}
+                  >
+                    <Settings2 className="size-4" />
+                  </Button>
+                </div>
+                <div className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge
+                      variant="outline"
+                      className="border-primary/20 bg-primary/6 text-primary"
+                    >
+                      Complex data management cockpit
+                    </Badge>
+                    <Badge variant="secondary">Cmd/Ctrl+K</Badge>
+                  </div>
+                  <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+                    Relational JSON-to-CSV cockpit for ambiguous nested data.
+                  </h1>
+                  <p className="max-w-4xl text-sm text-muted-foreground sm:text-base">
+                    Dense analyst workspace for root-path selection, relational normalization, and
+                    export-safe CSV shaping.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Button type="button" variant="outline" onClick={() => setCommandPaletteOpen(true)}>
+                  <Command className="size-4" />
+                  Command palette
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  title={outputExportBlockedReason ?? "Download the full flat CSV output."}
+                  disabled={!canExportOutputs || isOutputExporting}
+                  onClick={() => {
+                    void handleFlatCsvExport();
+                  }}
+                >
+                  <Download className="size-4" />
+                  Download full CSV
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => {
+                    clearWorkbenchSelection();
+                    setInspectorMode("mapping");
+                    setInspectorOpen(true);
+                  }}
+                >
+                  <Settings2 className="size-4" />
+                  Inspector
+                </Button>
+              </div>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {[
-                "Zip / Parallel",
-                "Cross Product",
-                "Stringify",
-                "Root Path",
-                "Header Scan",
-                "Collision Repair",
-              ].map((item) => (
-                <Badge key={item} variant="secondary" className="bg-white/85">
-                  {item}
-                </Badge>
-              ))}
+
+            <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+              <div className="flex flex-wrap items-center gap-2">
+                <WorkbenchMetric
+                  label="Source"
+                  value={describeActiveSource(liveValues.sourceMode, activeSample.title)}
+                />
+                <WorkbenchMetric
+                  label="Preset"
+                  value={activePreset?.name ?? "Unsaved configuration"}
+                />
+                <WorkbenchMetric label="Root" value={liveValues.rootPath || "$"} mono />
+                <WorkbenchMetric label="Rows" value={flatRowCount.toLocaleString()} />
+                <WorkbenchMetric label="Columns" value={flatHeaders.length.toLocaleString()} />
+                <WorkbenchMetric
+                  label="Projection"
+                  value={
+                    projection.isProjecting && projection.progress
+                      ? `${projection.progress.label} ${formatProjectionProgressDetail(projection.progress)}`
+                      : projection.isProjecting
+                        ? "Updating preview"
+                        : "Ready"
+                  }
+                />
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <WorkbenchNavButton
+                  active={activeView === "flat"}
+                  label="Flat rows"
+                  meta={`${flatRowCount.toLocaleString()} rows`}
+                  onClick={() => setActiveView("flat")}
+                />
+                <WorkbenchNavButton
+                  active={activeView === "relational"}
+                  disabled={!relationalSplitResult}
+                  label="Relational"
+                  meta={`${relationalSplitResult?.tables.length ?? 0} tables`}
+                  onClick={() => setActiveView("relational")}
+                />
+                <WorkbenchNavButton
+                  active={activeView === "csv"}
+                  label="CSV"
+                  meta="Output"
+                  onClick={() => setActiveView("csv")}
+                />
+                <WorkbenchNavButton
+                  active={activeView === "schema"}
+                  label="Schema"
+                  meta={`${conversionResult?.schema.columns.length ?? 0} cols`}
+                  onClick={() => setActiveView("schema")}
+                />
+              </div>
             </div>
           </div>
-
-          <Card className="bg-white/82 backdrop-blur-sm">
-            <CardHeader>
-              <div className="flex items-center justify-between gap-3">
-                <CardTitle>Current projection</CardTitle>
-                {projection.isProjecting ? (
-                  <Badge variant="secondary">
-                    {projection.progress
-                      ? `${projection.progress.label} ${projection.progress.percent}%`
-                      : "Updating preview"}
-                  </Badge>
-                ) : null}
-              </div>
-              <CardDescription>
-                These numbers update live as you change the mapping policy. Heavy parsing and
-                projection now run off the main render path, and the worker reports staged progress
-                across parse, inspect, flat, and relational passes.
-              </CardDescription>
-              {projection.isProjecting && projection.progress ? (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-                    <span>{projection.progress.label}</span>
-                    <span>{formatProjectionProgressDetail(projection.progress)}</span>
-                  </div>
-                  <div className="h-2 rounded-full bg-secondary/70">
-                    <div
-                      className="h-full origin-left rounded-full bg-primary transition-transform duration-200 will-change-transform"
-                      style={{
-                        transform: `scaleX(${Math.max(0, Math.min(projection.progress.percent, 100)) / 100})`,
-                      }}
-                    />
-                  </div>
-                </div>
-              ) : null}
-            </CardHeader>
-            <CardContent className="grid gap-4 sm:grid-cols-3">
-              <StatCard
-                icon={<Rows3 className="size-5" />}
-                label="Rows"
-                value={String(flatRowCount)}
-              />
-              <StatCard
-                icon={<TableProperties className="size-5" />}
-                label="Columns"
-                value={String(flatHeaders.length)}
-              />
-              <StatCard
-                icon={<FileJson2 className="size-5" />}
-                label="CSV Lines"
-                value={String(flatCsvLineCount)}
-              />
-            </CardContent>
-          </Card>
-        </section>
+        </header>
 
         {debugFlags.showInputDiagnostics ? (
           <InputDiagnostics
@@ -1978,125 +2488,297 @@ function App() {
           />
         ) : null}
 
-        {activeWorkbenchTransitionDiagnostic ? (
-          <Card
-            aria-live="polite"
+        <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[280px_minmax(0,1fr)_420px] 2xl:grid-cols-[300px_minmax(0,1fr)_460px]">
+          <aside
             className={cn(
-              "bg-white/80",
-              activeWorkbenchTransitionDiagnostic.phase === "timed-out" && "border-amber-300/80",
+              "fixed inset-y-0 left-0 z-40 w-[min(88vw,300px)] border-r border-border/90 bg-card/96 p-3 shadow-[0_18px_44px_-36px_rgba(15,23,42,0.34)] transition-transform xl:static xl:w-auto xl:translate-x-0 xl:border xl:border-border/90 xl:shadow-none",
+              isLeftRailOpen ? "translate-x-0" : "-translate-x-full",
             )}
           >
-            <CardHeader>
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <CardTitle>Transition diagnostics</CardTitle>
-                  <CardDescription>{activeWorkbenchTransitionDiagnostic.label}</CardDescription>
-                </div>
-                <Badge
-                  variant="outline"
-                  className={cn(
-                    activeWorkbenchTransitionDiagnostic.phase === "timed-out"
-                      ? "border-amber-300 bg-amber-50 text-amber-900"
-                      : "border-primary/20 bg-primary/5 text-primary",
-                  )}
+            <div className="flex h-full min-h-[calc(100vh-6.5rem)] flex-col gap-3 overflow-y-auto">
+              <div className="flex items-center justify-between xl:hidden">
+                <p className="text-sm font-semibold text-foreground">Workbench rail</p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Close workbench rail"
+                  onClick={() => setLeftRailOpen(false)}
                 >
-                  {formatWorkbenchTransitionPhase(activeWorkbenchTransitionDiagnostic.phase)}
-                </Badge>
+                  <Menu className="size-4" />
+                </Button>
               </div>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm text-muted-foreground">
-              <p>{activeWorkbenchTransitionDiagnostic.detail}</p>
-              {debugFlags.showHangDiagnostics ? (
-                <p className="font-mono text-xs text-muted-foreground/80">
-                  Transition #{activeWorkbenchTransitionDiagnostic.id} ·{" "}
-                  {formatDurationMs(
-                    activeWorkbenchTransitionDiagnostic.updatedAt -
-                      activeWorkbenchTransitionDiagnostic.startedAt,
-                  )}
-                </p>
-              ) : null}
-            </CardContent>
-          </Card>
-        ) : null}
 
-        {shouldShowHangAuditCard ? (
-          <Card className="bg-white/80">
-            <CardHeader>
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <CardTitle>Hang audit</CardTitle>
-                  <CardDescription>
-                    Recent transition, long-task, and paint-gap snapshots are persisted to
-                    `window.__json2csvHangAudit` and the browser's local storage so the last risky
-                    action survives a reload.
-                  </CardDescription>
+              <div className="rounded-[var(--radius)] border border-border/80 bg-background/78 p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                  Workbench summary
+                </p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
+                  <StatCard
+                    icon={<Rows3 className="size-4" />}
+                    label="Rows"
+                    value={flatRowCount.toLocaleString()}
+                  />
+                  <StatCard
+                    icon={<TableProperties className="size-4" />}
+                    label="Columns"
+                    value={flatHeaders.length.toLocaleString()}
+                  />
+                  <StatCard
+                    icon={<Archive className="size-4" />}
+                    label="Tables"
+                    value={String(relationalSplitResult?.tables.length ?? 0)}
+                  />
+                  <StatCard
+                    icon={<FileJson2 className="size-4" />}
+                    label="CSV lines"
+                    value={flatCsvLineCount.toLocaleString()}
+                  />
                 </div>
-                <Badge variant="outline">
-                  {visibleHangAuditEntries.length.toLocaleString()} events
-                </Badge>
               </div>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm text-muted-foreground">
-              {hangAuditSnapshot.recoveredEntry ? (
-                <p className="rounded-2xl border border-amber-300/80 bg-amber-50 px-4 py-3 text-amber-900">
-                  {hangAuditSnapshot.recoveredEntry.detail}
-                </p>
+
+              <div className="rounded-[var(--radius)] border border-border/80 bg-background/78 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                      Views
+                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Master-detail navigation for the current projection.
+                    </p>
+                  </div>
+                  <Badge variant="secondary">{activeView}</Badge>
+                </div>
+                <div className="mt-3 space-y-2">
+                  <WorkbenchRailButton
+                    active={activeView === "flat"}
+                    label="Flat rows"
+                    meta={`${flatRowCount.toLocaleString()} rows / ${flatHeaders.length.toLocaleString()} cols`}
+                    onClick={() => {
+                      setActiveView("flat");
+                      setLeftRailOpen(false);
+                    }}
+                  />
+                  <WorkbenchRailButton
+                    active={activeView === "relational"}
+                    disabled={!relationalSplitResult}
+                    label="Relational tables"
+                    meta={`${relationalSplitResult?.tables.length ?? 0} tables / ${relationalSplitResult?.relationships.length ?? 0} links`}
+                    onClick={() => {
+                      setActiveView("relational");
+                      clearWorkbenchSelection();
+                      setInspectorMode("table");
+                      setLeftRailOpen(false);
+                    }}
+                  />
+                  <WorkbenchRailButton
+                    active={activeView === "csv"}
+                    label="CSV output"
+                    meta="Raw export preview"
+                    onClick={() => {
+                      setActiveView("csv");
+                      setLeftRailOpen(false);
+                    }}
+                  />
+                  <WorkbenchRailButton
+                    active={activeView === "schema"}
+                    label="Schema sidecar"
+                    meta={`${conversionResult?.schema.columns.length ?? 0} exported columns`}
+                    onClick={() => {
+                      setActiveView("schema");
+                      setLeftRailOpen(false);
+                    }}
+                  />
+                </div>
+              </div>
+
+              {relationalSplitResult ? (
+                <div className="rounded-[var(--radius)] border border-border/80 bg-background/78 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                        Relational tables
+                      </p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Select a normalized table to drive the detail grid.
+                      </p>
+                    </div>
+                    <Badge variant="secondary">{relationalSplitResult.tables.length}</Badge>
+                  </div>
+                  <div className="mt-3 space-y-2">
+                    {relationalSplitResult.tables.map((table) => (
+                      <WorkbenchRailButton
+                        key={table.tableName}
+                        active={
+                          table.tableName === selectedRelationalTableName &&
+                          activeView === "relational"
+                        }
+                        label={table.tableName}
+                        meta={`${table.rowCount.toLocaleString()} rows / ${table.headers.length.toLocaleString()} cols`}
+                        onClick={() => {
+                          setSelectedRelationalTableName(table.tableName);
+                          setActiveView("relational");
+                          clearWorkbenchSelection();
+                          setInspectorMode("table");
+                          setInspectorOpen(true);
+                          setLeftRailOpen(false);
+                        }}
+                      />
+                    ))}
+                  </div>
+                </div>
               ) : null}
 
-              {visibleHangAuditEntries.length > 0 ? (
-                <div className="space-y-3">
-                  {visibleHangAuditEntries.map((entry) => (
+              <div className="rounded-[var(--radius)] border border-border/80 bg-background/78 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                      Saved presets
+                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Dexie stores the entire mapping config for later replay.
+                    </p>
+                  </div>
+                  <Badge variant="secondary">{presets.length}</Badge>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {isPresetsLoading ? (
+                    <p className="text-sm text-muted-foreground">Loading presets...</p>
+                  ) : null}
+
+                  {!isPresetsLoading && presets.length === 0 ? (
+                    <p className="rounded-[calc(var(--radius)-2px)] border border-dashed border-border/80 bg-background/70 px-3 py-4 text-sm text-muted-foreground">
+                      Save a configuration to compare different mapping strategies over time.
+                    </p>
+                  ) : null}
+
+                  {presets.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      className={cn(
+                        "flex w-full flex-col gap-1 rounded-[calc(var(--radius)-2px)] border px-3 py-2 text-left transition-colors",
+                        preset.id === selectedPresetId
+                          ? "border-primary/25 bg-primary/7"
+                          : "border-border/70 bg-card hover:bg-secondary/75",
+                      )}
+                      onClick={() => {
+                        loadPreset(preset);
+                        setLeftRailOpen(false);
+                      }}
+                    >
+                      <span className="truncate text-sm font-medium text-foreground">
+                        {preset.name}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {preset.config.rootPath} · {toTitleCase(preset.config.flattenMode)} ·{" "}
+                        {describePresetSource(preset)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </aside>
+
+          <section className="min-w-0 space-y-3">
+            {activeWorkbenchTransitionDiagnostic ? (
+              <NoticeCard
+                detail={activeWorkbenchTransitionDiagnostic.detail}
+                meta={
+                  debugFlags.showHangDiagnostics
+                    ? `Transition #${activeWorkbenchTransitionDiagnostic.id} · ${formatDurationMs(
+                        activeWorkbenchTransitionDiagnostic.updatedAt -
+                          activeWorkbenchTransitionDiagnostic.startedAt,
+                      )}`
+                    : undefined
+                }
+                phase={formatWorkbenchTransitionPhase(activeWorkbenchTransitionDiagnostic.phase)}
+                title={activeWorkbenchTransitionDiagnostic.label}
+                tone={
+                  activeWorkbenchTransitionDiagnostic.phase === "timed-out" ? "warning" : "info"
+                }
+              />
+            ) : null}
+
+            {shouldShowHangAuditCard ? (
+              <Card className="bg-card/90">
+                <CardHeader className="pb-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <CardTitle>Hang audit</CardTitle>
+                      <CardDescription>
+                        Transition, long-task, and paint-gap events survive reloads for postmortem
+                        review.
+                      </CardDescription>
+                    </div>
+                    <Badge variant="outline">{visibleHangAuditEntries.length} events</Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {hangAuditSnapshot.recoveredEntry ? (
+                    <Notice tone="warning">{hangAuditSnapshot.recoveredEntry.detail}</Notice>
+                  ) : null}
+                  {visibleHangAuditEntries.slice(0, 4).map((entry) => (
                     <div
                       key={entry.id}
-                      className="rounded-2xl border border-border/70 bg-background/80 p-4"
+                      className="rounded-[calc(var(--radius)-2px)] border border-border/70 bg-background/80 px-3 py-2 text-sm"
                     >
-                      <div className="flex flex-wrap items-center gap-2 text-foreground">
+                      <div className="flex flex-wrap items-center gap-2">
                         <Badge variant="secondary">{formatHangAuditCategory(entry.category)}</Badge>
                         {entry.durationMs !== null ? (
                           <Badge variant="outline">{formatDurationMs(entry.durationMs)}</Badge>
                         ) : null}
-                        <span className="font-medium">{entry.label}</span>
+                        <span className="font-medium text-foreground">{entry.label}</span>
                       </div>
-                      <p className="mt-2">{entry.detail}</p>
-                      <p className="mt-2 font-mono text-xs text-muted-foreground/80">
-                        {entry.context.sourceMode === "custom" ? "custom" : "sample"} ·{" "}
-                        {entry.context.rootPath} · {entry.context.customJsonChars.toLocaleString()}{" "}
-                        chars · {entry.context.rowCount.toLocaleString()} rows ·{" "}
-                        {entry.context.columnCount.toLocaleString()} cols
-                      </p>
+                      <p className="mt-2 text-muted-foreground">{entry.detail}</p>
                     </div>
                   ))}
-                </div>
-              ) : (
-                <p>No hang audit events have been recorded in this session.</p>
-              )}
-            </CardContent>
-          </Card>
-        ) : null}
+                </CardContent>
+              </Card>
+            ) : null}
 
-        <section className="grid gap-6 xl:grid-cols-[minmax(500px,620px)_minmax(0,1fr)] 2xl:grid-cols-[minmax(560px,680px)_minmax(0,1fr)] xl:items-start">
-          <div className="space-y-6">
-            <Card className="bg-white/82 backdrop-blur-sm">
-              <CardHeader>
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <CardTitle className="flex items-center gap-2">
-                      <Waypoints className="size-5 text-primary" />
-                      Mapping controls
-                    </CardTitle>
-                    <CardDescription>
-                      Configure the source payload, how nested records become rows, and how the
-                      exported CSV should behave downstream.
-                    </CardDescription>
-                  </div>
-                  <Badge variant="outline">
-                    {activePreset ? activePreset.name : "Unsaved configuration"}
-                  </Badge>
+            {renderWorkbenchCenterPanel()}
+          </section>
+
+          <aside
+            className={cn(
+              "fixed inset-y-0 right-0 z-40 w-[min(94vw,460px)] border-l border-border/90 bg-card/96 p-3 shadow-[0_18px_44px_-36px_rgba(15,23,42,0.34)] transition-transform xl:static xl:w-auto xl:translate-x-0 xl:border xl:border-border/90 xl:shadow-none",
+              isInspectorOpen ? "translate-x-0" : "translate-x-full",
+            )}
+          >
+            <div className="flex h-full min-h-[calc(100vh-6.5rem)] flex-col overflow-hidden rounded-[var(--radius)] border border-border/80 bg-background/78">
+              <div className="flex items-center justify-between border-b border-border/80 px-4 py-3">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Inspector</p>
+                  <p className="text-xs text-muted-foreground">
+                    Contextual detail and mapping controls stay one click away.
+                  </p>
                 </div>
-              </CardHeader>
-              <CardContent className="space-y-5">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Close inspector"
+                  onClick={() => setInspectorOpen(false)}
+                >
+                  <Settings2 className="size-4" />
+                </Button>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto p-3">
+                <InspectorContextCard
+                  inspectorMode={inspectorMode}
+                  selectedColumn={selectedColumn}
+                  selectedColumnSchema={selectedColumnSchema}
+                  selectedColumnTypeReport={selectedColumnTypeReport}
+                  selectedRow={selectedRow}
+                  selectedTable={selectedRelationalTable}
+                  selectedTableRelationships={selectedTableRelationships}
+                />
+
                 <form
-                  className="space-y-5"
+                  className="mt-3 space-y-3"
                   onSubmit={form.handleSubmit((values) => {
                     const latestCustomJson =
                       liveValues.sourceMode === "custom"
@@ -2109,11 +2791,10 @@ function App() {
                     });
                   })}
                 >
-                  <WorkbenchSection
-                    eyebrow="Session"
-                    title="Choose the active source and preset"
-                    description="Name this mapping, pick the incoming payload, and decide whether the workbench starts from a bundled sample or your own JSON."
-                    icon={<FileJson2 className="size-5" />}
+                  <InspectorSection
+                    defaultOpen
+                    description="Session identity, source mode, and staged input management."
+                    title="Session"
                   >
                     <div className="space-y-2">
                       <Label htmlFor="preset-name">Preset name</Label>
@@ -2139,18 +2820,14 @@ function App() {
                           </Button>
                         ))}
                       </div>
-                      <p className="text-sm leading-6 text-muted-foreground">
-                        Samples are useful for learning the flattening behavior. Custom JSON is
-                        where you bring real data and stage it safely before projection rebuilds.
-                      </p>
                     </div>
 
                     {liveValues.sourceMode === "sample" ? (
-                      <div className="space-y-2 rounded-[24px] border border-border/70 bg-background/80 p-4">
+                      <div className="space-y-2">
                         <Label htmlFor="sample-id">Sample dataset</Label>
                         <select
                           id="sample-id"
-                          className="flex h-11 w-full rounded-2xl border border-input bg-background/80 px-4 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
+                          className={cockpitSelectClassName}
                           value={liveValues.sampleId}
                           onChange={(event) => handleSampleChange(event.target.value)}
                         >
@@ -2160,12 +2837,21 @@ function App() {
                             </option>
                           ))}
                         </select>
-                        <p className="text-sm leading-6 text-muted-foreground">
-                          {activeSample?.description}
-                        </p>
+                        <p className="text-sm text-muted-foreground">{activeSample.description}</p>
+                        {sampleSourcePreview?.truncated ? (
+                          <Notice>
+                            Showing the first {sampleSourcePreviewCharacterLimit.toLocaleString()}{" "}
+                            characters of the sample source preview.
+                          </Notice>
+                        ) : null}
+                        <Textarea
+                          readOnly
+                          value={sampleSourcePreview?.text ?? ""}
+                          className="min-h-36 font-mono text-[12px] leading-5"
+                        />
                       </div>
                     ) : (
-                      <div className="space-y-4 rounded-[24px] border border-border/70 bg-background/80 p-5">
+                      <div className="space-y-3 rounded-[calc(var(--radius)-2px)] border border-border/80 bg-card/80 p-3">
                         <div className="flex flex-wrap gap-2">
                           <Button
                             type="button"
@@ -2191,7 +2877,7 @@ function App() {
                           </Button>
                           <label
                             htmlFor="json-upload"
-                            className="inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-full border border-border bg-background px-5 text-sm font-semibold text-foreground transition-colors hover:bg-secondary"
+                            className="inline-flex h-9 cursor-pointer items-center justify-center gap-2 rounded-[calc(var(--radius)-2px)] border border-border bg-background/88 px-3 text-sm font-medium text-foreground transition-colors hover:bg-secondary/85"
                           >
                             <Upload className="size-4" />
                             Upload .json
@@ -2211,52 +2897,71 @@ function App() {
                             id="custom-json"
                             {...bufferedJsonEditorServiceProps}
                             placeholder='{"records": [{"id": "1", "email": "user@example.com"}]}'
-                            className="min-h-[22rem] font-mono text-[13px] leading-6"
+                            className="min-h-[18rem] font-mono text-[12px] leading-5"
                             value={customJsonDraft}
                             onChange={(event) => {
                               setCustomJsonDraft(event.target.value);
                             }}
                           />
-                          <p className="text-sm leading-6 text-muted-foreground">
+                          <p className="text-sm text-muted-foreground">
                             Custom input stays local to this browser. Saved custom presets persist
-                            the raw JSON in IndexedDB so you can resume the exact mapping session
-                            later.
+                            the raw JSON in IndexedDB.
                           </p>
                           {isCustomJsonDirty ? (
-                            <p className="text-sm leading-6 text-muted-foreground">
-                              Preview is paused while this draft has unapplied changes. Apply or
-                              format it when you are ready to rebuild the workbench.
-                            </p>
+                            <Notice>
+                              Preview is paused while this draft has unapplied changes.
+                            </Notice>
                           ) : isCustomProjectionRebuilding ? (
-                            <p className="text-sm leading-6 text-muted-foreground">
+                            <Notice>
                               Rebuilding the preview for the latest committed JSON.
                               {projection.progress
                                 ? ` ${projection.progress.label} ${formatProjectionProgressDetail(projection.progress)}.`
                                 : ""}
-                            </p>
+                            </Notice>
                           ) : projection.parseError ? (
-                            <p className="text-sm leading-6 text-destructive">
-                              Invalid JSON: {projection.parseError}
-                            </p>
+                            <Notice tone="error">Invalid JSON: {projection.parseError}</Notice>
                           ) : projection.isProjecting ? (
-                            <p className="text-sm leading-6 text-muted-foreground">
+                            <Notice>
                               Parsing and rebuilding the preview in the background.
                               {projection.progress
                                 ? ` ${formatProjectionProgressDetail(projection.progress)}.`
                                 : ""}
-                            </p>
+                            </Notice>
                           ) : (
-                            <p className="text-sm leading-6 text-muted-foreground">
-                              Parsed successfully. Next, point the root path at the array or object
-                              collection that should become CSV rows.
-                            </p>
+                            <Notice>
+                              Parsed successfully. Point the root path at the branch that should
+                              become rows.
+                            </Notice>
                           )}
                         </div>
                       </div>
                     )}
+                  </InspectorSection>
 
-                    <div className="space-y-3 rounded-[24px] border border-border/70 bg-background/80 p-4">
-                      <div className="flex flex-wrap items-center gap-3">
+                  <InspectorSection
+                    defaultOpen
+                    description="Root-path control, smart detection, and path-level planner rules."
+                    title="Scope"
+                  >
+                    <div className="space-y-2">
+                      <Label htmlFor="root-path">Root path</Label>
+                      <Input
+                        id="root-path"
+                        placeholder="$.items.item[*]"
+                        {...form.register("rootPath")}
+                      />
+                      <FieldError message={form.formState.errors.rootPath?.message} />
+                      {liveValues.sourceMode === "custom" ? (
+                        <p className="text-sm text-muted-foreground">
+                          {streamableCustomSelector
+                            ? "Incremental selector parsing is active for this path."
+                            : "This custom path currently falls back to full-document parsing."}
+                        </p>
+                      ) : null}
+                    </div>
+
+                    <div className="space-y-2 rounded-[calc(var(--radius)-2px)] border border-border/80 bg-card/80 p-3">
+                      <div className="flex flex-wrap items-center gap-2">
                         <Button
                           type="button"
                           variant="secondary"
@@ -2265,943 +2970,262 @@ function App() {
                         >
                           Smart detect
                         </Button>
-                        <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-                          Scan the current payload for keyed object maps such as `$.data.*` or
-                          complex multi-collection roots that should stay at `$` with `stringify`.
-                          When the current custom root is still `$` or no longer matches the
-                          payload, the app now auto-applies the strongest suggestion on import or
-                          apply.
-                        </p>
+                        <span className="text-sm text-muted-foreground">
+                          Analyze the current payload for a better row root and safer defaults.
+                        </span>
                       </div>
 
                       {smartDetectFeedback ? (
-                        <div
-                          className={cn(
-                            "rounded-[22px] border px-4 py-3 text-sm leading-6",
+                        <Notice
+                          tone={
                             smartDetectFeedback.tone === "error"
-                              ? "border-destructive/30 bg-destructive/5 text-destructive"
+                              ? "error"
                               : smartDetectFeedback.tone === "success"
-                                ? "border-primary/20 bg-primary/5 text-foreground"
-                                : "border-border/70 bg-background/70 text-muted-foreground",
-                          )}
+                                ? "success"
+                                : "info"
+                          }
                         >
-                          <p>{smartDetectFeedback.detail}</p>
+                          {smartDetectFeedback.detail}
                           {smartDetectFeedback.previewHeaders.length > 0 ? (
-                            <p className="mt-2 font-mono text-xs text-muted-foreground/80">
+                            <span className="mt-1 block font-mono text-[11px] text-muted-foreground">
                               Preview columns: {smartDetectFeedback.previewHeaders.join(", ")}
-                            </p>
+                            </span>
                           ) : null}
-                        </div>
-                      ) : (
-                        <p className="text-sm leading-6 text-muted-foreground">
-                          Useful for payloads where each object key is really a row identifier and
-                          the current flattening path would otherwise explode into hundreds of
-                          sibling columns.
-                        </p>
-                      )}
+                        </Notice>
+                      ) : null}
                     </div>
-                  </WorkbenchSection>
 
-                  {isWorkbenchSuspended ? (
-                    <WorkbenchSection
-                      eyebrow={suspendedWorkbenchSectionEyebrow}
-                      title={suspendedWorkbenchSectionTitle}
-                      description={suspendedWorkbenchDescription}
-                      icon={<Braces className="size-5" />}
-                    >
-                      <div className="rounded-[22px] border border-border/70 bg-background/85 px-4 py-3 text-sm font-medium text-foreground">
-                        {suspendedWorkbenchTitle}
-                      </div>
-                      <p className="text-sm leading-6 text-muted-foreground">
-                        {suspendedWorkbenchLead}
-                      </p>
-                      <div className="rounded-[22px] border border-border/70 bg-background/85 p-4 text-sm leading-6 text-muted-foreground">
-                        {pendingWorkbenchTransition
-                          ? suspendedWorkbenchFollowUp
-                          : isCustomJsonDirty
-                            ? "Additional mapping controls, saved presets, and preview panels are hidden until you apply this draft. This keeps large-payload editing isolated from the rest of the workbench."
-                            : projection.progress
-                              ? `${projection.progress.label} ${formatProjectionProgressDetail(projection.progress)}. The full workbench returns after this pass completes.`
-                              : "The latest committed JSON is rebuilding in the background. The full workbench returns after this pass completes."}
-                      </div>
-                    </WorkbenchSection>
-                  ) : (
+                    {isComplexJsonGuidanceVisible && complexJsonOverview ? (
+                      <ComplexJsonOverviewPanel
+                        overview={complexJsonOverview}
+                        onContinue={handleContinueComplexJsonWorkbench}
+                        onSelectRootPath={handleComplexJsonRootSelection}
+                      />
+                    ) : (
+                      <PathPlanner
+                        defaultMode={liveValues.flattenMode}
+                        rules={plannerRules}
+                        suggestions={discoveredPaths}
+                        onChange={setPlannerRules}
+                      />
+                    )}
+                  </InspectorSection>
+
+                  {isComplexJsonGuidanceVisible ? null : (
                     <>
-                      <WorkbenchSection
-                        eyebrow="Scope"
-                        title="Choose where rows begin"
-                        description="Set the root path that defines row start, then use the planner to keep only the branches that matter before flattening."
-                        icon={<Waypoints className="size-5" />}
+                      <InspectorSection
+                        defaultOpen
+                        description="High-frequency row shaping and CSV behavior controls."
+                        title="Mapping"
                       >
-                        <div className="space-y-2">
-                          <Label htmlFor="root-path">Root path</Label>
-                          <Input
-                            id="root-path"
-                            placeholder="$.items.item[*]"
-                            {...form.register("rootPath")}
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <SelectField
+                            id="flatten-mode"
+                            label="Flatten mode"
+                            registration={form.register("flattenMode")}
+                            options={flattenModes.map((value) => ({
+                              label: toTitleCase(value),
+                              value,
+                            }))}
                           />
-                          <FieldError message={form.formState.errors.rootPath?.message} />
-                          {liveValues.sourceMode === "custom" ? (
-                            <p className="text-sm leading-6 text-muted-foreground">
-                              {streamableCustomSelector
-                                ? "Incremental selector parsing is active for this path. Nested [*] and [0] steps plus object .* branches can stream directly from the custom JSON text before final materialization."
-                                : "This custom path currently falls back to full-document parsing."}
-                            </p>
-                          ) : null}
+                          <SelectField
+                            id="placeholder-strategy"
+                            label="Parent fill"
+                            registration={form.register("placeholderStrategy")}
+                            options={placeholderStrategies.map((value) => ({
+                              label: toTitleCase(value),
+                              value,
+                            }))}
+                          />
+                          <SelectField
+                            id="missing-keys"
+                            label="Missing keys"
+                            registration={form.register("onMissingKey")}
+                            options={missingKeyStrategies.map((value) => ({
+                              label: toTitleCase(value),
+                              value,
+                            }))}
+                          />
+                          <SelectField
+                            id="type-mismatch"
+                            label="Type mismatch"
+                            registration={form.register("onTypeMismatch")}
+                            options={typeMismatchStrategies.map((value) => ({
+                              label: toTitleCase(value),
+                              value,
+                            }))}
+                          />
+                          <SelectField
+                            id="empty-array-behavior"
+                            label="Empty arrays"
+                            registration={form.register("emptyArrayBehavior")}
+                            options={emptyArrayBehaviors.map((value) => ({
+                              label: toTitleCase(value),
+                              value,
+                            }))}
+                          />
+                          <div className="space-y-2">
+                            <Label htmlFor="max-depth">Max depth</Label>
+                            <Input
+                              id="max-depth"
+                              type="number"
+                              min={1}
+                              max={32}
+                              {...form.register("maxDepth", {
+                                valueAsNumber: true,
+                              })}
+                            />
+                          </div>
+                          <SelectField
+                            id="header-policy"
+                            label="Header policy"
+                            registration={form.register("headerPolicy")}
+                            options={headerPolicies.map((value) => ({
+                              label: toTitleCase(value),
+                              value,
+                            }))}
+                          />
+                          <SelectField
+                            id="collision-strategy"
+                            label="Collision strategy"
+                            registration={form.register("collisionStrategy")}
+                            options={collisionStrategies.map((value) => ({
+                              label: toTitleCase(value),
+                              value,
+                            }))}
+                          />
+                          <SelectField
+                            id="boolean-representation"
+                            label="Boolean output"
+                            registration={form.register("booleanRepresentation")}
+                            options={booleanRepresentations.map((value) => ({
+                              label: toTitleCase(value),
+                              value,
+                            }))}
+                          />
+                          <SelectField
+                            id="date-format"
+                            label="Date output"
+                            registration={form.register("dateFormat")}
+                            options={dateFormats.map((value) => ({
+                              label: toTitleCase(value),
+                              value,
+                            }))}
+                          />
+                          <SelectField
+                            id="delimiter"
+                            label="CSV delimiter"
+                            registration={form.register("delimiter")}
+                            options={delimiterOptions.map((option) => ({
+                              label: option.label,
+                              value: option.value,
+                            }))}
+                          />
+                          <div className="space-y-2">
+                            <Label htmlFor="path-separator">Path separator</Label>
+                            <Input
+                              id="path-separator"
+                              placeholder="."
+                              {...form.register("pathSeparator")}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="header-sample-size">Header sample size</Label>
+                            <Input
+                              id="header-sample-size"
+                              type="number"
+                              min={1}
+                              max={500}
+                              {...form.register("headerSampleSize", {
+                                valueAsNumber: true,
+                              })}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="custom-placeholder">Custom placeholder</Label>
+                            <Input
+                              id="custom-placeholder"
+                              placeholder="NULL"
+                              {...form.register("customPlaceholder")}
+                            />
+                          </div>
                         </div>
 
-                        {isComplexJsonGuidanceVisible && complexJsonOverview ? (
-                          <ComplexJsonOverviewPanel
-                            overview={complexJsonOverview}
-                            onContinue={handleContinueComplexJsonWorkbench}
-                            onSelectRootPath={handleComplexJsonRootSelection}
+                        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                          <ToggleField
+                            label="Quote all cells"
+                            registration={form.register("quoteAll")}
                           />
-                        ) : (
-                          <PathPlanner
-                            defaultMode={liveValues.flattenMode}
-                            rules={plannerRules}
-                            suggestions={discoveredPaths}
-                            onChange={setPlannerRules}
+                          <ToggleField
+                            label="Strict naming"
+                            registration={form.register("strictNaming")}
                           />
-                        )}
-                      </WorkbenchSection>
+                          <ToggleField
+                            label="Indexed pivot columns"
+                            registration={form.register("arrayIndexSuffix")}
+                          />
+                        </div>
+                      </InspectorSection>
 
-                      {isComplexJsonGuidanceVisible ? null : (
-                        <>
-                          <WorkbenchSection
-                            eyebrow="Row shaping"
-                            title="Control how nested data becomes rows"
-                            description="These settings decide whether arrays zip, multiply, stay embedded, or get padded when parent and child shapes do not line up."
-                            icon={<Rows3 className="size-5" />}
-                          >
-                            <div className="grid gap-4 md:grid-cols-2">
-                              <SelectField
-                                id="flatten-mode"
-                                label="Flatten mode"
-                                registration={form.register("flattenMode")}
-                                options={flattenModes.map((value) => ({
-                                  label: toTitleCase(value),
-                                  value,
-                                }))}
-                              />
-                              <SelectField
-                                id="placeholder-strategy"
-                                label="Parent fill"
-                                registration={form.register("placeholderStrategy")}
-                                options={placeholderStrategies.map((value) => ({
-                                  label: toTitleCase(value),
-                                  value,
-                                }))}
-                              />
-                              <SelectField
-                                id="missing-keys"
-                                label="Missing keys"
-                                registration={form.register("onMissingKey")}
-                                options={missingKeyStrategies.map((value) => ({
-                                  label: toTitleCase(value),
-                                  value,
-                                }))}
-                              />
-                              <SelectField
-                                id="type-mismatch"
-                                label="Type mismatch"
-                                registration={form.register("onTypeMismatch")}
-                                options={typeMismatchStrategies.map((value) => ({
-                                  label: toTitleCase(value),
-                                  value,
-                                }))}
-                              />
-                              <SelectField
-                                id="empty-array-behavior"
-                                label="Empty arrays"
-                                registration={form.register("emptyArrayBehavior")}
-                                options={emptyArrayBehaviors.map((value) => ({
-                                  label: toTitleCase(value),
-                                  value,
-                                }))}
-                              />
-                              <div className="space-y-2">
-                                <Label htmlFor="max-depth">Max depth</Label>
-                                <Input
-                                  id="max-depth"
-                                  type="number"
-                                  min={1}
-                                  max={32}
-                                  {...form.register("maxDepth", {
-                                    valueAsNumber: true,
-                                  })}
-                                />
-                              </div>
-                            </div>
-
-                            <div className="rounded-[22px] border border-primary/15 bg-primary/5 p-4 text-sm leading-6 text-muted-foreground">
-                              Use <span className="font-medium text-foreground">Parallel</span> when
-                              sibling arrays should stay positionally aligned,
-                              <span className="font-medium text-foreground">
-                                {" "}
-                                Cross Product
-                              </span>{" "}
-                              when every combination matters, and
-                              <span className="font-medium text-foreground"> Stringify</span> when
-                              nested arrays should remain in a single cell.
-                            </div>
-                          </WorkbenchSection>
-
-                          <WorkbenchSection
-                            eyebrow="Column output"
-                            title="Lock down column behavior and CSV output"
-                            description="Use these controls to stabilize headers, formatting, collision repair, and downstream-friendly CSV conventions."
-                            icon={<TableProperties className="size-5" />}
-                          >
-                            <div className="grid gap-4 md:grid-cols-2">
-                              <SelectField
-                                id="header-policy"
-                                label="Header policy"
-                                registration={form.register("headerPolicy")}
-                                options={headerPolicies.map((value) => ({
-                                  label: toTitleCase(value),
-                                  value,
-                                }))}
-                              />
-                              <SelectField
-                                id="collision-strategy"
-                                label="Collision strategy"
-                                registration={form.register("collisionStrategy")}
-                                options={collisionStrategies.map((value) => ({
-                                  label: toTitleCase(value),
-                                  value,
-                                }))}
-                              />
-                              <SelectField
-                                id="boolean-representation"
-                                label="Boolean output"
-                                registration={form.register("booleanRepresentation")}
-                                options={booleanRepresentations.map((value) => ({
-                                  label: toTitleCase(value),
-                                  value,
-                                }))}
-                              />
-                              <SelectField
-                                id="date-format"
-                                label="Date output"
-                                registration={form.register("dateFormat")}
-                                options={dateFormats.map((value) => ({
-                                  label: toTitleCase(value),
-                                  value,
-                                }))}
-                              />
-                              <SelectField
-                                id="delimiter"
-                                label="CSV delimiter"
-                                registration={form.register("delimiter")}
-                                options={delimiterOptions.map((option) => ({
-                                  label: option.label,
-                                  value: option.value,
-                                }))}
-                              />
-                              <div className="space-y-2">
-                                <Label htmlFor="path-separator">Path separator</Label>
-                                <Input
-                                  id="path-separator"
-                                  placeholder="."
-                                  {...form.register("pathSeparator")}
-                                />
-                              </div>
-                              <div className="space-y-2">
-                                <Label htmlFor="header-sample-size">Header sample size</Label>
-                                <Input
-                                  id="header-sample-size"
-                                  type="number"
-                                  min={1}
-                                  max={500}
-                                  {...form.register("headerSampleSize", {
-                                    valueAsNumber: true,
-                                  })}
-                                />
-                              </div>
-                              <div className="space-y-2">
-                                <Label htmlFor="custom-placeholder">Custom placeholder</Label>
-                                <Input
-                                  id="custom-placeholder"
-                                  placeholder="NULL"
-                                  {...form.register("customPlaceholder")}
-                                />
-                              </div>
-                            </div>
-
-                            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                              <ToggleField
-                                label="Quote all cells"
-                                registration={form.register("quoteAll")}
-                              />
-                              <ToggleField
-                                label="Strict naming"
-                                registration={form.register("strictNaming")}
-                              />
-                              <ToggleField
-                                label="Indexed pivot columns"
-                                registration={form.register("arrayIndexSuffix")}
-                              />
-                            </div>
-
-                            <HeaderMapper
-                              headerPolicy={liveValues.headerPolicy}
-                              rules={headerRules}
-                              suggestions={headerSuggestions}
-                              onChange={setHeaderRules}
-                            />
-                          </WorkbenchSection>
-
-                          <WorkbenchSection
-                            eyebrow="Actions"
-                            title="Save this workbench or reset it"
-                            description="Capture reusable mapping recipes in IndexedDB or return to the default donut baseline when you want a clean slate."
-                            icon={<Save className="size-5" />}
-                          >
-                            <div className="flex flex-wrap gap-3">
-                              <Button
-                                type="submit"
-                                disabled={savePresetMutation.isPending || !canSavePreset}
-                              >
-                                <Save className="size-4" />
-                                {savePresetMutation.isPending ? "Saving preset..." : "Save preset"}
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                disabled={isWorkbenchTransitionPending}
-                                onClick={handleResetDefaults}
-                              >
-                                Reset defaults
-                              </Button>
-                            </div>
-
-                            {savePresetMutation.isSuccess ? (
-                              <p className="text-sm leading-6 text-muted-foreground">
-                                Saved "{savePresetMutation.data.name}" for{" "}
-                                {describePresetSource(savePresetMutation.data)}.
-                              </p>
-                            ) : null}
-
-                            {configErrors.length > 0 ? (
-                              <div className="rounded-[24px] border border-destructive/20 bg-destructive/5 p-4 text-sm leading-6 text-destructive">
-                                {configErrors.slice(0, 3).map((error) => (
-                                  <p key={error}>{error}</p>
-                                ))}
-                              </div>
-                            ) : null}
-                          </WorkbenchSection>
-                        </>
-                      )}
+                      <InspectorSection
+                        description="Explicit column aliasing and whitelist control."
+                        title="Header mapping"
+                      >
+                        <HeaderMapper
+                          headerPolicy={liveValues.headerPolicy}
+                          rules={headerRules}
+                          suggestions={headerSuggestions}
+                          onChange={setHeaderRules}
+                        />
+                      </InspectorSection>
                     </>
                   )}
-                </form>
-              </CardContent>
-            </Card>
 
-            {isWorkbenchSuspended || isComplexJsonGuidanceVisible ? null : (
-              <Card className="bg-white/82 backdrop-blur-sm">
-                <CardHeader>
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <CardTitle className="flex items-center gap-2 text-base">
-                        <Save className="size-4 text-primary" />
-                        Saved presets
-                      </CardTitle>
-                      <CardDescription>
-                        Dexie stores the entire mapping config for later replay.
-                      </CardDescription>
+                  <InspectorSection
+                    defaultOpen
+                    description="Persist the current cockpit or clear it back to the baseline sample."
+                    title="Actions"
+                  >
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="submit"
+                        disabled={savePresetMutation.isPending || !canSavePreset}
+                      >
+                        <Save className="size-4" />
+                        {savePresetMutation.isPending ? "Saving preset..." : "Save preset"}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={isWorkbenchTransitionPending}
+                        onClick={handleResetDefaults}
+                      >
+                        Reset defaults
+                      </Button>
                     </div>
-                    <Badge variant="secondary">{presets.length}</Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {isPresetsLoading ? (
-                    <p className="text-sm text-muted-foreground">Loading presets...</p>
-                  ) : null}
 
-                  {!isPresetsLoading && presets.length === 0 ? (
-                    <div className="rounded-3xl border border-dashed border-border bg-background/60 p-4 text-sm leading-6 text-muted-foreground">
-                      Save a configuration to compare different mapping strategies over time.
-                    </div>
-                  ) : null}
+                    {savePresetMutation.isSuccess ? (
+                      <Notice>
+                        Saved "{savePresetMutation.data.name}" for{" "}
+                        {describePresetSource(savePresetMutation.data)}.
+                      </Notice>
+                    ) : null}
 
-                  <div className="grid gap-3">
-                    {presets.map((preset) => {
-                      const isActive = preset.id === selectedPresetId;
-
-                      return (
-                        <button
-                          key={preset.id}
-                          type="button"
-                          className={cn(
-                            "flex w-full flex-col gap-2 rounded-[24px] border p-4 text-left transition-colors",
-                            isActive
-                              ? "border-primary/30 bg-primary/8"
-                              : "border-border/70 bg-background/80 hover:bg-secondary/60",
-                          )}
-                          onClick={() => loadPreset(preset)}
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="font-semibold text-foreground">{preset.name}</span>
-                            <Badge variant={isActive ? "default" : "outline"}>
-                              {describePresetSource(preset)}
-                            </Badge>
-                          </div>
-                          <p className="text-sm leading-6 text-muted-foreground">
-                            {preset.config.rootPath} / {toTitleCase(preset.config.flattenMode)} /{" "}
-                            {preset.config.pathSeparator}
-                          </p>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-          </div>
-
-          {isWorkbenchSuspended ? (
-            <Card className="bg-white/82 backdrop-blur-sm">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Braces className="size-5 text-primary" />
-                  {suspendedWorkbenchTitle}
-                </CardTitle>
-                <CardDescription>{suspendedWorkbenchDescription}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm text-muted-foreground">
-                {pendingWorkbenchTransition && projection.progress ? (
-                  <div className="rounded-[20px] border border-border/70 bg-background/80 p-4">
-                    {projection.progress.label}{" "}
-                    {formatProjectionProgressDetail(projection.progress)}
-                  </div>
-                ) : null}
-                <p>{suspendedWorkbenchLead}</p>
-                <p>{suspendedWorkbenchFollowUp}</p>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="grid gap-6">
-              {isComplexJsonGuidanceVisible && complexJsonOverview ? (
-                <Card className="bg-white/82 backdrop-blur-sm">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Waypoints className="size-5 text-primary" />
-                      Narrow this document first
-                    </CardTitle>
-                    <CardDescription>
-                      The current root is structurally broad enough that the flat preview,
-                      relational preview, and full planner are more useful after you narrow the
-                      scope.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <ComplexJsonOverviewPanel
-                      overview={complexJsonOverview}
-                      onContinue={handleContinueComplexJsonWorkbench}
-                      onSelectRootPath={handleComplexJsonRootSelection}
-                    />
-                  </CardContent>
-                </Card>
-              ) : (
-                <>
-                  <RowPreviewCard
-                    activeSampleTitle={activeSample.title}
-                    configDescription={activeConfigDescription}
-                    conversionResult={conversionResult}
-                    flatHeaders={flatHeaders}
-                    flatRecords={flatRecords}
-                    flatRowCount={flatRowCount}
-                    isStreamingFlatPreview={isStreamingFlatPreview}
-                    sourceMode={liveValues.sourceMode}
-                    streamingFlatPreview={streamingFlatPreview}
-                  />
-
-                  <Card className="overflow-hidden bg-white/82 backdrop-blur-sm">
-                    <CardHeader className="gap-4 border-b border-border/70">
-                      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                        <div>
-                          <CardTitle className="flex items-center gap-2">
-                            <Database className="size-5 text-primary" />
-                            Relational split preview
-                          </CardTitle>
-                          <CardDescription>
-                            Nested one-to-many branches are normalized into linked CSV tables with
-                            synthetic primary keys and parent foreign keys.
-                          </CardDescription>
-                        </div>
-
-                        <div className="flex flex-wrap items-center justify-end gap-2">
-                          {isRelationalPreviewProjecting ? (
-                            <Badge variant="outline">
-                              {relationalPreview.progress
-                                ? `${relationalPreview.progress.label} ${formatProjectionProgressDetail(relationalPreview.progress)}`
-                                : "Building relational preview"}
-                            </Badge>
-                          ) : null}
-                          <Badge variant="secondary">
-                            {relationalSplitResult?.tables.length ?? 0} tables
-                          </Badge>
-                          <Badge variant="secondary">
-                            {relationalSplitResult?.relationships.length ?? 0} links
-                          </Badge>
-                          {selectedRelationalTable ? (
-                            <Badge variant="outline">
-                              {selectedRelationalTable.rowCount} rows in{" "}
-                              {selectedRelationalTable.tableName}
-                            </Badge>
-                          ) : null}
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            title={
-                              outputExportBlockedReason ??
-                              "Download the full selected relational table as CSV."
-                            }
-                            disabled={
-                              !canExportOutputs || isOutputExporting || !selectedRelationalTable
-                            }
-                            onClick={() => {
-                              void handleSelectedRelationalExport();
-                            }}
-                          >
-                            <Download className="size-4" />
-                            {isOutputExporting && outputExportLabel?.includes("relational CSV")
-                              ? "Preparing table CSV"
-                              : "Download selected table CSV"}
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            title={
-                              outputExportBlockedReason ??
-                              "Download every relational table as a ZIP archive."
-                            }
-                            disabled={
-                              !canExportOutputs || isOutputExporting || !relationalSplitResult
-                            }
-                            onClick={() => {
-                              void handleRelationalArchiveExport();
-                            }}
-                          >
-                            <Archive className="size-4" />
-                            {isOutputExporting && outputExportLabel?.includes("bundled relational")
-                              ? "Preparing ZIP archive"
-                              : "Download all tables ZIP"}
-                          </Button>
-                        </div>
-                      </div>
-                    </CardHeader>
-
-                    <CardContent className="space-y-4 pt-4">
-                      {relationalSplitResult ? (
-                        <>
-                          <div className="flex flex-wrap gap-2">
-                            {relationalSplitResult.tables.map((table) => (
-                              <Button
-                                key={table.tableName}
-                                type="button"
-                                variant={
-                                  table.tableName === selectedRelationalTableName
-                                    ? "default"
-                                    : "outline"
-                                }
-                                size="sm"
-                                onClick={() => setSelectedRelationalTableName(table.tableName)}
-                              >
-                                {table.tableName}
-                              </Button>
-                            ))}
-                          </div>
-
-                          <div className="grid gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-                            <div className="rounded-[24px] border border-border/70 bg-background/80 p-4">
-                              <div className="flex items-center justify-between gap-3">
-                                <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                                  Linked tables
-                                </p>
-                                {selectedRelationalTable ? (
-                                  <Badge variant="outline">
-                                    Source {selectedRelationalTable.sourcePath}
-                                  </Badge>
-                                ) : null}
-                              </div>
-
-                              {relationalSplitResult.relationships.length > 0 ? (
-                                <div className="mt-3 flex flex-wrap gap-2">
-                                  {relationalSplitResult.relationships.map((relationship) => (
-                                    <Badge
-                                      key={`${relationship.parentTable}-${relationship.childTable}`}
-                                      variant="secondary"
-                                    >
-                                      {formatRelationalRelationship(relationship)}
-                                    </Badge>
-                                  ))}
-                                </div>
-                              ) : (
-                                <p className="mt-3 text-sm text-muted-foreground">
-                                  No child tables were discovered under the current root selection.
-                                </p>
-                              )}
-                            </div>
-
-                            <div className="rounded-[24px] border border-border/70 bg-background/80 p-4">
-                              <div className="flex items-center justify-between gap-3">
-                                <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                                  Selected table
-                                </p>
-                                {selectedRelationalTable ? (
-                                  <Badge variant="outline">
-                                    {selectedRelationalTable.headers.length} columns
-                                  </Badge>
-                                ) : null}
-                              </div>
-                              <p className="mt-3 text-sm text-muted-foreground">
-                                {selectedRelationalTable
-                                  ? selectedRelationalTable.parentTable
-                                    ? `${selectedRelationalTable.tableName} inherits ${selectedRelationalTable.parentIdColumn} from ${selectedRelationalTable.parentTable}.`
-                                    : `${selectedRelationalTable.tableName} is the normalized root table for ${selectedRelationalTable.sourcePath}.`
-                                  : "No relational table is available for the current form values."}
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-                            <div className="rounded-[24px] border border-border/70 bg-background/80 p-4">
-                              <div className="flex flex-wrap items-center justify-between gap-3">
-                                <div>
-                                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                                    Table rows
-                                  </p>
-                                  <p className="mt-1 text-sm text-muted-foreground">
-                                    {selectedRelationalTable
-                                      ? `${selectedRelationalTable.tableName} preview`
-                                      : "Select a relational table to inspect rows."}
-                                  </p>
-                                </div>
-
-                                {relationalPreviewRowsTruncated ? (
-                                  <Badge variant="secondary">
-                                    Showing first {projectionRelationalRowPreviewLimit} rows
-                                  </Badge>
-                                ) : null}
-                              </div>
-
-                              <div className="mt-4 overflow-x-auto">
-                                <Table>
-                                  <TableHeader>
-                                    <TableRow>
-                                      {(selectedRelationalTable?.headers ?? ["value"]).map(
-                                        (header) => (
-                                          <TableHead key={header}>{header}</TableHead>
-                                        ),
-                                      )}
-                                    </TableRow>
-                                  </TableHeader>
-                                  <TableBody>
-                                    {selectedRelationalTable &&
-                                    relationalPreviewRows.rows.length > 0 ? (
-                                      relationalPreviewRows.rows.map((row) => (
-                                        <TableRow
-                                          key={
-                                            row[selectedRelationalTable.idColumn] ??
-                                            selectedRelationalTable.tableName
-                                          }
-                                        >
-                                          {selectedRelationalTable.headers.map((header) => (
-                                            <TableCell
-                                              key={`${row[selectedRelationalTable.idColumn] ?? selectedRelationalTable.tableName}-${header}`}
-                                            >
-                                              <span
-                                                className={cn(
-                                                  "block max-w-[20rem] truncate",
-                                                  (header.includes("id") ||
-                                                    header.includes("path")) &&
-                                                    "font-mono text-xs",
-                                                )}
-                                              >
-                                                {row[header] || " "}
-                                              </span>
-                                            </TableCell>
-                                          ))}
-                                        </TableRow>
-                                      ))
-                                    ) : (
-                                      <TableRow>
-                                        <TableCell
-                                          colSpan={Math.max(
-                                            selectedRelationalTable?.headers.length ?? 1,
-                                            1,
-                                          )}
-                                          className="py-10 text-center text-muted-foreground"
-                                        >
-                                          {selectedRelationalTable
-                                            ? "The selected relational table has no rows."
-                                            : "No relational table is available for the current form values."}
-                                        </TableCell>
-                                      </TableRow>
-                                    )}
-                                  </TableBody>
-                                </Table>
-                              </div>
-                            </div>
-
-                            <div className="rounded-[24px] border border-border/70 bg-background/80 p-4">
-                              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                                Linked CSV preview
-                              </p>
-                              {relationalCsvPreview.truncated ? (
-                                <p className="mt-3 text-sm text-muted-foreground">
-                                  Showing the first{" "}
-                                  {projectionRelationalCsvPreviewCharacterLimit.toLocaleString()}{" "}
-                                  characters of the selected relational table.
-                                </p>
-                              ) : null}
-                              <Textarea
-                                readOnly
-                                value={relationalCsvPreview.text}
-                                className="mt-3 min-h-[18rem] font-mono text-[13px] leading-6"
-                              />
-                            </div>
-                          </div>
-                        </>
-                      ) : (
-                        <div className="rounded-[24px] border border-dashed border-border/70 bg-background/70 p-4 text-sm text-muted-foreground">
-                          {relationalPreviewStatusMessage}
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-
-                  <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(380px,0.8fr)] 2xl:grid-cols-[minmax(0,1.24fr)_minmax(420px,0.88fr)]">
-                    <Card className="bg-white/82 backdrop-blur-sm">
-                      <CardHeader>
-                        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                          <div>
-                            <CardTitle className="flex items-center gap-2">
-                              <Rows3 className="size-5 text-primary" />
-                              CSV output
-                            </CardTitle>
-                            <CardDescription>
-                              {isStreamingFlatPreview
-                                ? "This is a streamed partial CSV preview from the roots processed so far."
-                                : "This is a bounded preview of the emitted CSV so large conversions do not lock the page."}
-                            </CardDescription>
-                          </div>
-
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            title={
-                              outputExportBlockedReason ?? "Download the full flat CSV output."
-                            }
-                            disabled={!canExportOutputs || isOutputExporting}
-                            onClick={() => {
-                              void handleFlatCsvExport();
-                            }}
-                          >
-                            <Download className="size-4" />
-                            {isOutputExporting && outputExportLabel?.includes("flat CSV")
-                              ? "Preparing full CSV"
-                              : "Download full CSV"}
-                          </Button>
-                        </div>
-                      </CardHeader>
-                      <CardContent className="space-y-3">
-                        {outputExportError ? (
-                          <div className="rounded-[20px] border border-destructive/25 bg-destructive/5 p-4 text-sm text-destructive">
-                            {outputExportError}
-                          </div>
-                        ) : null}
-                        {isStreamingFlatPreview ? (
-                          <div className="rounded-[20px] border border-border/70 bg-background/80 p-4 text-sm text-muted-foreground">
-                            {describeStreamingCsvProgress(streamingFlatPreview)}
-                          </div>
-                        ) : null}
-                        {csvPreview.truncated ? (
-                          <div className="rounded-[20px] border border-border/70 bg-background/80 p-4 text-sm text-muted-foreground">
-                            Showing the first{" "}
-                            {projectionFlatCsvPreviewCharacterLimit.toLocaleString()} characters.{" "}
-                            {csvPreview.omittedCharactersKnown === false
-                              ? "Additional rows are hidden from the live preview."
-                              : `${csvPreview.omittedCharacters.toLocaleString()} more characters are hidden from the live preview.`}
-                          </div>
-                        ) : null}
-                        <Textarea
-                          readOnly
-                          value={csvPreview.text}
-                          className="min-h-[22rem] font-mono text-[13px] leading-6"
-                        />
-                      </CardContent>
-                    </Card>
-
-                    <Card className="bg-white/82 backdrop-blur-sm">
-                      <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                          <Database className="size-5 text-primary" />
-                          Sidecar schema
-                        </CardTitle>
-                        <CardDescription>
-                          Headers, source paths, detected value kinds, and regroup keys derived from
-                          structural provenance.
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent className="space-y-3">
-                        {isStreamingFlatPreview ? (
-                          <div className="rounded-[20px] border border-border/70 bg-background/80 p-4 text-sm text-muted-foreground">
-                            Schema and type statistics finalize after the current stream completes.
-                            The sidecar below reflects the last completed projection.
-                          </div>
-                        ) : null}
-                        <div className="rounded-[24px] border border-border/70 bg-background/80 p-4">
-                          <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                            Regroup keys
-                          </p>
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            {conversionResult?.schema.primaryKeys.map((key) => (
-                              <Badge key={key} variant="outline">
-                                {key}
-                              </Badge>
-                            ))}
-                          </div>
-                          <p className="mt-3 text-sm text-muted-foreground">
-                            Keys are relative to the selected root path. They show which structural
-                            branches actually define row identity in the current projection.
-                          </p>
-                        </div>
-
-                        <div className="rounded-[24px] border border-border/70 bg-background/80 p-4">
-                          <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                            Type drift report
-                          </p>
-
-                          {mixedTypeReports.length > 0 ? (
-                            <div className="mt-3 space-y-3">
-                              {hiddenMixedTypeReportCount > 0 ? (
-                                <div className="rounded-[20px] border border-border/70 bg-background/80 p-4 text-sm text-muted-foreground">
-                                  Showing the first {schemaTypeReportPreviewLimit.toLocaleString()}{" "}
-                                  mixed-type columns. {hiddenMixedTypeReportCount} more type-drift
-                                  reports are hidden from the live sidecar.
-                                </div>
-                              ) : null}
-
-                              {visibleMixedTypeReports.map((report) => (
-                                <div key={report.header}>
-                                  <div className="flex items-center justify-between gap-3">
-                                    <p className="font-semibold text-foreground">{report.header}</p>
-                                    {report.coercedTo ? (
-                                      <Badge variant="secondary">
-                                        Coerced to {report.coercedTo}
-                                      </Badge>
-                                    ) : null}
-                                  </div>
-                                  <p className="mt-2 text-sm text-muted-foreground">
-                                    {formatTypeReport(report)}
-                                  </p>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <p className="mt-3 text-sm text-muted-foreground">
-                              No mixed-type columns detected in the current projection.
-                            </p>
-                          )}
-                        </div>
-
-                        {hiddenSchemaColumnCount > 0 ? (
-                          <div className="rounded-[20px] border border-border/70 bg-background/80 p-4 text-sm text-muted-foreground">
-                            Showing the first {schemaColumnPreviewLimit.toLocaleString()} columns in
-                            the live sidecar. {hiddenSchemaColumnCount} additional columns remain
-                            available in the full export.
-                          </div>
-                        ) : null}
-
-                        {visibleSchemaColumns.map((column) => (
-                          <div
-                            key={column.header}
-                            className="rounded-[24px] border border-border/70 bg-background/80 p-4"
-                          >
-                            <div className="flex items-center justify-between gap-3">
-                              <p className="font-semibold text-foreground">{column.header}</p>
-                              <div className="flex flex-wrap gap-2">
-                                {column.kinds.map((kind) => (
-                                  <Badge key={`${column.header}-${kind}`} variant="secondary">
-                                    {kind}
-                                  </Badge>
-                                ))}
-                              </div>
-                            </div>
-                            <p className="mt-2 text-sm text-muted-foreground">
-                              {column.sourcePath}
-                            </p>
-                            <p className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                              {column.nullable ? "Nullable" : "Required"}
-                            </p>
-                          </div>
+                    {configErrors.length > 0 ? (
+                      <Notice tone="error">
+                        {configErrors.slice(0, 3).map((error) => (
+                          <span key={error} className="block">
+                            {error}
+                          </span>
                         ))}
-                      </CardContent>
-                    </Card>
-                  </div>
-                </>
-              )}
-
-              <Card className="bg-white/82 backdrop-blur-sm">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Braces className="size-5 text-primary" />
-                    Source input
-                  </CardTitle>
-                  <CardDescription>
-                    {liveValues.sourceMode === "custom"
-                      ? "Custom JSON is edited above. This card stays compact to avoid duplicating large payloads."
-                      : "Bundled sample JSON from the local playground catalog."}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {liveValues.sourceMode === "custom" ? (
-                    <div className="rounded-[24px] border border-border/70 bg-background/80 p-4">
-                      <div className="flex flex-wrap gap-2">
-                        <Badge variant="outline">
-                          {committedCustomJson.length.toLocaleString()} chars
-                        </Badge>
-                        <Badge variant="outline">Root {liveValues.rootPath || "$"}</Badge>
-                        {isCustomJsonDirty ? (
-                          <Badge variant="secondary">Draft pending</Badge>
-                        ) : null}
-                        {projection.isProjecting ? (
-                          <Badge variant="secondary">Preview rebuilding</Badge>
-                        ) : null}
-                      </div>
-                      <p className="mt-3 text-sm text-muted-foreground">
-                        The editable JSON stays in the upper editor. The duplicate raw preview has
-                        been removed so large payloads do not force another oversized textarea
-                        render on every interaction.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {sampleSourcePreview?.truncated ? (
-                        <div className="rounded-[20px] border border-border/70 bg-background/80 p-4 text-sm text-muted-foreground">
-                          Showing the first {sampleSourcePreviewCharacterLimit.toLocaleString()}{" "}
-                          characters of the sample source preview.
-                        </div>
-                      ) : null}
-                      <Textarea
-                        readOnly
-                        value={sampleSourcePreview?.text ?? ""}
-                        className="min-h-[22rem] font-mono text-[13px] leading-6"
-                      />
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+                      </Notice>
+                    ) : null}
+                  </InspectorSection>
+                </form>
+              </div>
             </div>
-          )}
-        </section>
+          </aside>
+        </div>
       </main>
     </div>
   );
@@ -3302,194 +3326,6 @@ function ComplexJsonOverviewPanel({
   );
 }
 
-const RowPreviewCard = memo(function RowPreviewCard({
-  activeSampleTitle,
-  configDescription,
-  conversionResult,
-  flatHeaders,
-  flatRecords,
-  flatRowCount,
-  isStreamingFlatPreview,
-  sourceMode,
-  streamingFlatPreview,
-}: {
-  activeSampleTitle: string;
-  configDescription: string;
-  conversionResult: ProjectionConversionResult | null;
-  flatHeaders: string[];
-  flatRecords: Array<Record<string, string>>;
-  flatRowCount: number;
-  isStreamingFlatPreview: boolean;
-  sourceMode: SourceMode;
-  streamingFlatPreview: ProjectionFlatStreamPreview | null;
-}) {
-  const [searchDraft, setSearchDraft] = useState("");
-  const deferredSearch = useDeferredValue(searchDraft);
-  const [sorting, setSorting] = useState<SortingState>([]);
-  const hasBoundedFlatPreview =
-    !isStreamingFlatPreview &&
-    conversionResult !== null &&
-    conversionResult.rowCount > conversionResult.records.length;
-  const visibleHeaders = useMemo(
-    () => flatHeaders.slice(0, tableColumnPreviewLimit),
-    [flatHeaders],
-  );
-  const hiddenColumnCount = Math.max(0, flatHeaders.length - visibleHeaders.length);
-  const filteredRecords = useMemo(
-    () => filterRecords(visibleHeaders, flatRecords, deferredSearch),
-    [deferredSearch, flatRecords, visibleHeaders],
-  );
-  const previewRows = useMemo(
-    () => createRowPreview(filteredRecords, projectionFlatRowPreviewLimit),
-    [filteredRecords],
-  );
-  const flatPreviewRowsTruncated = isStreamingFlatPreview
-    ? flatRowCount > flatRecords.length
-    : previewRows.truncated || hasBoundedFlatPreview;
-  const columns = useMemo(() => buildPreviewColumns(visibleHeaders), [visibleHeaders]);
-  const table = useReactTable({
-    data: previewRows.rows,
-    columns,
-    state: {
-      sorting,
-    },
-    onSortingChange: setSorting,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-  });
-
-  return (
-    <Card className="overflow-hidden bg-white/82 backdrop-blur-sm">
-      <CardHeader className="gap-4 border-b border-border/70">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <TableProperties className="size-5 text-primary" />
-              Row preview
-            </CardTitle>
-            <CardDescription>
-              TanStack Table renders the projected rows from the current mapping config.
-            </CardDescription>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <Badge variant="outline">{describeActiveSource(sourceMode, activeSampleTitle)}</Badge>
-            <Badge variant="secondary">{flatRowCount} rows</Badge>
-            <Badge variant="secondary">{flatHeaders.length} columns</Badge>
-            {hiddenColumnCount > 0 ? (
-              <Badge variant="outline">Showing first {visibleHeaders.length} columns</Badge>
-            ) : null}
-            {isStreamingFlatPreview ? <Badge variant="secondary">Streaming preview</Badge> : null}
-            {isStreamingFlatPreview && streamingFlatPreview ? (
-              <Badge variant="outline">{formatStreamingRootProgress(streamingFlatPreview)}</Badge>
-            ) : null}
-            {flatPreviewRowsTruncated ? (
-              <Badge variant="secondary">Showing first {projectionFlatRowPreviewLimit} rows</Badge>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-center">
-          <div className="relative">
-            <Search className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              aria-label="Filter visible CSV rows"
-              value={searchDraft}
-              onChange={(event) => setSearchDraft(event.target.value)}
-              className="pl-11"
-              placeholder="Filter visible rows across the shown columns"
-            />
-          </div>
-
-          <div className="flex items-center gap-2 rounded-full border border-border/70 bg-background/80 px-4 py-3 text-sm text-muted-foreground">
-            <Waypoints className="size-4 text-primary" />
-            {configDescription}
-          </div>
-        </div>
-      </CardHeader>
-
-      <CardContent className="pt-4">
-        <Table>
-          <TableCaption>
-            {isStreamingFlatPreview && streamingFlatPreview
-              ? `${describeStreamingPreviewCaption(streamingFlatPreview)}${hiddenColumnCount > 0 ? ` Showing the first ${visibleHeaders.length} of ${flatHeaders.length} columns in the live table preview.` : ""}`
-              : conversionResult
-                ? `${hasBoundedFlatPreview ? `Showing first ${conversionResult.records.length} preview rows of ${conversionResult.rowCount} total rows. ${deferredSearch.trim() ? "Search applies to the preview slice only. " : ""}` : ""}${hiddenColumnCount > 0 ? `Showing the first ${visibleHeaders.length} of ${flatHeaders.length} columns in the live table preview. ` : ""}Root path ${conversionResult.config.rootPath || "$"} with ${conversionResult.config.flattenMode} mode.`
-                : "Fix the current form errors to generate a preview."}
-          </TableCaption>
-          <TableHeader>
-            {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <TableHead key={header.id}>
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(header.column.columnDef.header, header.getContext())}
-                  </TableHead>
-                ))}
-              </TableRow>
-            ))}
-          </TableHeader>
-          <TableBody>
-            {table.getRowModel().rows.length > 0 ? (
-              table.getRowModel().rows.map((row) => (
-                <TableRow key={row.id}>
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
-            ) : (
-              <TableRow>
-                <TableCell
-                  colSpan={Math.max(visibleHeaders.length, 1)}
-                  className="py-16 text-center text-muted-foreground"
-                >
-                  {isStreamingFlatPreview || conversionResult
-                    ? "No rows match the current filter."
-                    : "No projection available for the current form values."}
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </CardContent>
-    </Card>
-  );
-});
-
-function buildPreviewColumns(headers: string[]): ColumnDef<Record<string, string>>[] {
-  if (headers.length === 0) {
-    return [];
-  }
-
-  return headers.map((header) => ({
-    accessorKey: header,
-    header: ({ column }) => (
-      <button
-        type="button"
-        className="inline-flex items-center gap-2 text-left text-sm font-semibold text-foreground"
-        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-      >
-        {header}
-        <ArrowUpDown className="size-3.5 text-muted-foreground" />
-      </button>
-    ),
-    cell: ({ row }) => {
-      const value = row.original[header];
-      const isCompact = header.includes("id") || header.includes("path");
-
-      return (
-        <span className={cn("block max-w-[20rem] truncate", isCompact && "font-mono text-xs")}>
-          {value || " "}
-        </span>
-      );
-    },
-  }));
-}
-
 function describeComplexJsonBranch(branch: ComplexJsonOverview["candidateRoots"][number]) {
   if (branch.hasArray) {
     return "Array-heavy";
@@ -3501,23 +3337,6 @@ function describeComplexJsonBranch(branch: ComplexJsonOverview["candidateRoots"]
 
   return "Mixed branch";
 }
-
-function filterRecords(headers: string[], records: Array<Record<string, string>>, search: string) {
-  if (records.length === 0) {
-    return [];
-  }
-
-  const normalizedSearch = search.trim().toLowerCase();
-
-  if (!normalizedSearch) {
-    return records;
-  }
-
-  return records.filter((record) =>
-    headers.some((header) => record[header].toLowerCase().includes(normalizedSearch)),
-  );
-}
-
 function buildHeaderSuggestions(
   columns: ColumnSchema[],
   discoveredPaths: InspectedPath[],
@@ -3782,12 +3601,6 @@ function formatTypeReport(report: ColumnTypeReport) {
     .join(" / ");
 }
 
-function formatStreamingRootProgress(preview: ProjectionFlatStreamPreview) {
-  return preview.totalRoots === null
-    ? `Streaming ${preview.processedRoots} roots`
-    : `Streaming ${preview.processedRoots}/${preview.totalRoots} roots`;
-}
-
 function describeStreamingPreviewCaption(preview: ProjectionFlatStreamPreview) {
   return preview.totalRoots === null
     ? `Streaming preview from ${preview.processedRoots} parsed roots. Final schema and relational tables are still building in the worker.`
@@ -3828,47 +3641,606 @@ function toTitleCase(value: string) {
     .join(" ");
 }
 
-function StatCard({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+function createGridRowId(
+  row: Record<string, string>,
+  index: number,
+  headers: string[],
+  preferredHeader?: string,
+) {
+  const candidates = [preferredHeader, ...headers].filter(Boolean) as string[];
+
+  for (const candidate of candidates) {
+    const value = row[candidate];
+
+    if (value) {
+      return `${candidate}:${value}:${index}`;
+    }
+  }
+
+  return `row:${index}`;
+}
+
+function createWorkbenchRowLabel(
+  row: Record<string, string>,
+  fallback: string,
+  preferredHeader?: string,
+) {
+  const candidateHeaders = [
+    preferredHeader,
+    "root_id",
+    "id",
+    "name",
+    "type",
+    ...Object.keys(row),
+  ].filter(Boolean) as string[];
+
+  for (const header of candidateHeaders) {
+    const value = row[header];
+
+    if (value) {
+      return value;
+    }
+  }
+
+  return fallback;
+}
+
+function WorkbenchMetric({
+  label,
+  mono = false,
+  value,
+}: {
+  label: string;
+  mono?: boolean;
+  value: string;
+}) {
   return (
-    <div className="rounded-3xl border border-border/70 bg-background/80 p-4">
-      <div className="mb-3 flex size-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-        {icon}
-      </div>
-      <p className="text-2xl font-semibold">{value}</p>
-      <p className="text-sm text-muted-foreground">{label}</p>
+    <div className="inline-flex items-center gap-2 rounded-[999px] border border-border/80 bg-background/86 px-3 py-1.5 text-xs text-muted-foreground">
+      <span className="uppercase tracking-[0.12em]">{label}</span>
+      <span className={cn("text-foreground", mono && "font-mono text-[11px]")}>{value}</span>
     </div>
   );
 }
 
-function WorkbenchSection({
+function WorkbenchNavButton({
+  active,
+  disabled = false,
+  label,
+  meta,
+  onClick,
+}: {
+  active: boolean;
+  disabled?: boolean;
+  label: string;
+  meta: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={cn(
+        "inline-flex items-center gap-2 rounded-[calc(var(--radius)-2px)] border px-3 py-2 text-sm transition-colors disabled:pointer-events-none disabled:opacity-50",
+        active
+          ? "border-primary/25 bg-primary/7 text-foreground"
+          : "border-border/80 bg-background/86 text-muted-foreground hover:bg-secondary/85",
+      )}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <span className="font-medium">{label}</span>
+      <span className="text-xs text-muted-foreground">{meta}</span>
+    </button>
+  );
+}
+
+function WorkbenchRailButton({
+  active,
+  disabled = false,
+  label,
+  meta,
+  onClick,
+}: {
+  active: boolean;
+  disabled?: boolean;
+  label: string;
+  meta: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={cn(
+        "flex w-full flex-col gap-1 rounded-[calc(var(--radius)-2px)] border px-3 py-2 text-left transition-colors disabled:pointer-events-none disabled:opacity-50",
+        active
+          ? "border-primary/25 bg-primary/7"
+          : "border-border/70 bg-card hover:bg-secondary/75",
+      )}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <span className="text-sm font-medium text-foreground">{label}</span>
+      <span className="text-xs text-muted-foreground">{meta}</span>
+    </button>
+  );
+}
+
+type NoticeTone = "error" | "info" | "success" | "warning";
+
+function Notice({ children, tone = "info" }: { children: ReactNode; tone?: NoticeTone }) {
+  return (
+    <div
+      className={cn(
+        "rounded-[calc(var(--radius)-2px)] border px-3 py-2 text-sm",
+        tone === "error" && "border-destructive/25 bg-destructive/6 text-destructive",
+        tone === "warning" && "border-amber-300/70 bg-amber-50 text-amber-900",
+        tone === "success" && "border-primary/20 bg-primary/6 text-foreground",
+        tone === "info" && "border-border/80 bg-background/80 text-muted-foreground",
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+function NoticeCard({
+  detail,
+  meta,
+  phase,
+  title,
+  tone,
+}: {
+  detail: string;
+  meta?: string;
+  phase: string;
+  title: string;
+  tone: NoticeTone;
+}) {
+  return (
+    <Card aria-live="polite" className="bg-card/90">
+      <CardHeader className="pb-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardTitle>{title}</CardTitle>
+            <CardDescription>{detail}</CardDescription>
+          </div>
+          <Badge
+            variant="outline"
+            className={cn(
+              tone === "warning"
+                ? "border-amber-300 bg-amber-50 text-amber-900"
+                : "border-primary/20 bg-primary/6 text-primary",
+            )}
+          >
+            {phase}
+          </Badge>
+        </div>
+      </CardHeader>
+      {meta ? (
+        <CardContent className="pt-0 text-xs text-muted-foreground">{meta}</CardContent>
+      ) : null}
+    </Card>
+  );
+}
+
+function InspectorSection({
   children,
+  defaultOpen = false,
   description,
-  eyebrow,
-  icon,
   title,
 }: {
   children: ReactNode;
+  defaultOpen?: boolean;
   description: string;
-  eyebrow: string;
-  icon: ReactNode;
+  title: string;
+}) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+
+  return (
+    <section className="rounded-[var(--radius)] border border-border/80 bg-card/82">
+      <button
+        type="button"
+        aria-expanded={isOpen}
+        className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left"
+        onClick={() => setIsOpen((current) => !current)}
+      >
+        <div>
+          <p className="text-sm font-semibold text-foreground">{title}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+        </div>
+        <Badge variant="outline">{isOpen ? "Open" : "Closed"}</Badge>
+      </button>
+      {isOpen ? <div className="space-y-3 border-t border-border/80 p-4">{children}</div> : null}
+    </section>
+  );
+}
+
+function WorkbenchSuspendedPanel({
+  description,
+  followUp,
+  lead,
+  title,
+}: {
+  description: string;
+  followUp: string;
+  lead: string;
   title: string;
 }) {
   return (
-    <section className="rounded-[28px] border border-border/70 bg-background/75 p-5 shadow-[0_24px_70px_-58px_rgba(15,23,42,0.65)]">
-      <div className="flex items-start gap-4">
-        <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-          {icon}
+    <Card className="bg-card/90">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Braces className="size-5 text-primary" />
+          {title}
+        </CardTitle>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm text-muted-foreground">
+        <Notice>{lead}</Notice>
+        <p>{followUp}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function WorkbenchEmptyPanel({ description, title }: { description: string; title: string }) {
+  return (
+    <Card className="bg-card/90">
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+    </Card>
+  );
+}
+
+function CsvWorkbenchPanel({
+  csvPreview,
+  isOutputExporting,
+  isStreamingFlatPreview,
+  onExport,
+  outputExportBlockedReason,
+  outputExportError,
+  outputExportLabel,
+  streamingFlatPreview,
+}: {
+  csvPreview: {
+    omittedCharacters: number;
+    omittedCharactersKnown?: boolean;
+    text: string;
+    truncated: boolean;
+  };
+  isOutputExporting: boolean;
+  isStreamingFlatPreview: boolean;
+  onExport: () => void;
+  outputExportBlockedReason: string | null;
+  outputExportError: string | null;
+  outputExportLabel: string | null;
+  streamingFlatPreview: ProjectionFlatStreamPreview | null;
+}) {
+  return (
+    <Card className="bg-card/90">
+      <CardHeader>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Download className="size-5 text-primary" />
+              CSV output
+            </CardTitle>
+            <CardDescription>
+              Operational CSV preview with export controls kept in the cockpit workspace.
+            </CardDescription>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            title={outputExportBlockedReason ?? "Download the full flat CSV output."}
+            disabled={outputExportBlockedReason !== null || isOutputExporting}
+            onClick={onExport}
+          >
+            <Download className="size-4" />
+            {isOutputExporting && outputExportLabel?.includes("flat CSV")
+              ? "Preparing full CSV"
+              : "Download full CSV"}
+          </Button>
         </div>
-        <div className="min-w-0 flex-1 space-y-1">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">
-            {eyebrow}
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {outputExportError ? <Notice tone="error">{outputExportError}</Notice> : null}
+        {isStreamingFlatPreview && streamingFlatPreview ? (
+          <Notice>{describeStreamingCsvProgress(streamingFlatPreview)}</Notice>
+        ) : null}
+        {csvPreview.truncated ? (
+          <Notice>
+            Showing the first {projectionFlatCsvPreviewCharacterLimit.toLocaleString()} characters.
+            {csvPreview.omittedCharactersKnown === false
+              ? " Additional rows are hidden from the live preview."
+              : ` ${csvPreview.omittedCharacters.toLocaleString()} more characters are hidden from the live preview.`}
+          </Notice>
+        ) : null}
+        <Textarea
+          readOnly
+          value={csvPreview.text}
+          className="min-h-[34rem] font-mono text-[12px] leading-5"
+        />
+      </CardContent>
+    </Card>
+  );
+}
+
+function SchemaWorkbenchPanel({
+  conversionResult,
+  hiddenMixedTypeReportCount,
+  hiddenSchemaColumnCount,
+  onInspectColumn,
+  visibleMixedTypeReports,
+  visibleSchemaColumns,
+}: {
+  conversionResult: ProjectionConversionResult | null;
+  hiddenMixedTypeReportCount: number;
+  hiddenSchemaColumnCount: number;
+  onInspectColumn: (header: string) => void;
+  visibleMixedTypeReports: ColumnTypeReport[];
+  visibleSchemaColumns: ColumnSchema[];
+}) {
+  return (
+    <Card className="bg-card/90">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Database className="size-5 text-primary" />
+          Schema sidecar
+        </CardTitle>
+        <CardDescription>
+          Headers, source paths, value kinds, and regroup keys derived from structural provenance.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="rounded-[var(--radius)] border border-border/80 bg-background/80 p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            Regroup keys
           </p>
-          <h3 className="text-lg font-semibold text-foreground">{title}</h3>
-          <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{description}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {conversionResult?.schema.primaryKeys.map((key) => (
+              <Badge key={key} variant="outline">
+                {key}
+              </Badge>
+            ))}
+            {(conversionResult?.schema.primaryKeys.length ?? 0) === 0 ? (
+              <span className="text-sm text-muted-foreground">No regroup keys detected.</span>
+            ) : null}
+          </div>
         </div>
+
+        <div className="rounded-[var(--radius)] border border-border/80 bg-background/80 p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            Type drift report
+          </p>
+          {hiddenMixedTypeReportCount > 0 ? (
+            <Notice>
+              Showing the first {schemaTypeReportPreviewLimit.toLocaleString()} mixed-type columns.
+              {` ${hiddenMixedTypeReportCount} more reports are hidden from the live sidecar.`}
+            </Notice>
+          ) : null}
+          {visibleMixedTypeReports.length > 0 ? (
+            <div className="mt-3 space-y-3">
+              {visibleMixedTypeReports.map((report) => (
+                <button
+                  key={report.header}
+                  type="button"
+                  className="block w-full rounded-[calc(var(--radius)-2px)] border border-border/70 bg-card px-3 py-3 text-left transition-colors hover:bg-secondary/75"
+                  onClick={() => onInspectColumn(report.header)}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <span className="font-medium text-foreground">{report.header}</span>
+                    {report.coercedTo ? (
+                      <Badge variant="secondary">Coerced to {report.coercedTo}</Badge>
+                    ) : null}
+                  </div>
+                  <p className="mt-2 text-sm text-muted-foreground">{formatTypeReport(report)}</p>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-3 text-sm text-muted-foreground">
+              No mixed-type columns detected in the current projection.
+            </p>
+          )}
+        </div>
+
+        {hiddenSchemaColumnCount > 0 ? (
+          <Notice>
+            Showing the first {schemaColumnPreviewLimit.toLocaleString()} columns in the live
+            sidecar.
+            {` ${hiddenSchemaColumnCount} additional columns remain available in the full export.`}
+          </Notice>
+        ) : null}
+
+        <div className="grid gap-3">
+          {visibleSchemaColumns.map((column) => (
+            <button
+              key={column.header}
+              type="button"
+              className="rounded-[var(--radius)] border border-border/80 bg-background/80 p-4 text-left transition-colors hover:bg-secondary/70"
+              onClick={() => onInspectColumn(column.header)}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="font-semibold text-foreground">{column.header}</p>
+                <div className="flex flex-wrap gap-2">
+                  {column.kinds.map((kind) => (
+                    <Badge key={`${column.header}-${kind}`} variant="secondary">
+                      {kind}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+              <p className="mt-2 text-sm text-muted-foreground">{column.sourcePath}</p>
+              <p className="mt-1 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                {column.nullable ? "Nullable" : "Required"}
+              </p>
+            </button>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function InspectorContextCard({
+  inspectorMode,
+  selectedColumn,
+  selectedColumnSchema,
+  selectedColumnTypeReport,
+  selectedRow,
+  selectedTable,
+  selectedTableRelationships,
+}: {
+  inspectorMode: InspectorMode;
+  selectedColumn: { header: string; view: WorkbenchView } | null;
+  selectedColumnSchema: ColumnSchema | null;
+  selectedColumnTypeReport: ColumnTypeReport | null;
+  selectedRow: { label: string; row: Record<string, string>; view: WorkbenchView } | null;
+  selectedTable: {
+    headers: string[];
+    parentIdColumn: string | null;
+    parentTable: string | null;
+    rowCount: number;
+    sourcePath: string;
+    tableName: string;
+  } | null;
+  selectedTableRelationships: RelationalRelationship[];
+}) {
+  if (inspectorMode === "row" && selectedRow) {
+    return (
+      <Card className="bg-card/88">
+        <CardHeader>
+          <CardTitle>Row inspector</CardTitle>
+          <CardDescription>
+            {selectedRow.label} from the {selectedRow.view} workspace.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {Object.entries(selectedRow.row)
+            .slice(0, 12)
+            .map(([key, value]) => (
+              <div
+                key={key}
+                className="grid grid-cols-[minmax(0,9rem)_minmax(0,1fr)] gap-3 rounded-[calc(var(--radius)-2px)] border border-border/70 bg-background/80 px-3 py-2"
+              >
+                <span className="truncate font-mono text-[11px] text-muted-foreground">{key}</span>
+                <span className="truncate text-sm text-foreground">{value || " "}</span>
+              </div>
+            ))}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (inspectorMode === "column" && selectedColumn) {
+    return (
+      <Card className="bg-card/88">
+        <CardHeader>
+          <CardTitle>Column inspector</CardTitle>
+          <CardDescription>
+            {selectedColumn.header} from the {selectedColumn.view} workspace.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm text-muted-foreground">
+          {selectedColumnSchema ? (
+            <>
+              <div className="rounded-[calc(var(--radius)-2px)] border border-border/70 bg-background/80 px-3 py-2">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em]">Source path</p>
+                <p className="mt-1 font-mono text-[12px] text-foreground">
+                  {selectedColumnSchema.sourcePath}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {selectedColumnSchema.kinds.map((kind) => (
+                  <Badge key={`${selectedColumn.header}-${kind}`} variant="secondary">
+                    {kind}
+                  </Badge>
+                ))}
+                <Badge variant="outline">
+                  {selectedColumnSchema.nullable ? "Nullable" : "Required"}
+                </Badge>
+              </div>
+            </>
+          ) : (
+            <Notice>No schema metadata is available for the selected column.</Notice>
+          )}
+          {selectedColumnTypeReport ? (
+            <Notice>{formatTypeReport(selectedColumnTypeReport)}</Notice>
+          ) : null}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (inspectorMode === "table" && selectedTable) {
+    return (
+      <Card className="bg-card/88">
+        <CardHeader>
+          <CardTitle>Table inspector</CardTitle>
+          <CardDescription>
+            {selectedTable.tableName} sourced from {selectedTable.sourcePath}.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm text-muted-foreground">
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="secondary">{selectedTable.rowCount.toLocaleString()} rows</Badge>
+            <Badge variant="secondary">
+              {selectedTable.headers.length.toLocaleString()} columns
+            </Badge>
+            {selectedTable.parentTable ? (
+              <Badge variant="outline">Parent {selectedTable.parentTable}</Badge>
+            ) : (
+              <Badge variant="outline">Root table</Badge>
+            )}
+          </div>
+          {selectedTable.parentIdColumn ? (
+            <Notice>
+              {selectedTable.tableName} inherits {selectedTable.parentIdColumn} from{" "}
+              {selectedTable.parentTable}.
+            </Notice>
+          ) : null}
+          {selectedTableRelationships.length > 0 ? (
+            <div className="space-y-2">
+              {selectedTableRelationships.map((relationship) => (
+                <Badge
+                  key={`${relationship.parentTable}-${relationship.childTable}`}
+                  variant="secondary"
+                >
+                  {formatRelationalRelationship(relationship)}
+                </Badge>
+              ))}
+            </div>
+          ) : (
+            <Notice>No linked table relationships are attached to the current selection.</Notice>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="bg-card/88">
+      <CardHeader>
+        <CardTitle>Mapping inspector</CardTitle>
+        <CardDescription>
+          Use the sections below to steer the current projection without leaving the cockpit.
+        </CardDescription>
+      </CardHeader>
+    </Card>
+  );
+}
+
+function StatCard({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+  return (
+    <div className="rounded-[calc(var(--radius)-2px)] border border-border/80 bg-card px-3 py-3">
+      <div className="mb-2 flex size-8 items-center justify-center rounded-[10px] bg-primary/10 text-primary">
+        {icon}
       </div>
-      <div className="mt-5 space-y-4">{children}</div>
-    </section>
+      <p className="text-lg font-semibold text-foreground">{value}</p>
+      <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
+    </div>
   );
 }
 
@@ -3890,11 +4262,7 @@ function SelectField({
   return (
     <div className="space-y-2">
       <Label htmlFor={id}>{label}</Label>
-      <select
-        id={id}
-        className="flex h-11 w-full rounded-2xl border border-input bg-background/80 px-4 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
-        {...registration}
-      >
+      <select id={id} className={cockpitSelectClassName} {...registration}>
         {options.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}
@@ -3913,8 +4281,8 @@ function ToggleField({
   registration: UseFormRegisterReturn;
 }) {
   return (
-    <label className="flex items-center gap-3 rounded-[24px] border border-border/70 bg-background/80 px-4 py-3 text-sm font-medium text-foreground">
-      <input type="checkbox" className="size-4 rounded border-border" {...registration} />
+    <label className="flex items-center gap-3 rounded-[calc(var(--radius)-2px)] border border-border/80 bg-background/86 px-3 py-2 text-sm font-medium text-foreground">
+      <input type="checkbox" className="size-3.5 rounded border-border" {...registration} />
       {label}
     </label>
   );

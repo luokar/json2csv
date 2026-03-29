@@ -6,6 +6,7 @@
 - The main product flow is: choose input, set root path, tune flat mapping, inspect preview, download CSV.
 - Live projection still runs through the worker-backed preview pipeline.
 - The UI shell was flattened so the app no longer depends on a command palette, slide-over rails, or a global workbench store.
+- Very large inputs now switch the live preview into a bounded root-budget safety mode to reduce memory pressure, while full export still uses the complete input.
 
 ## What remains in scope
 

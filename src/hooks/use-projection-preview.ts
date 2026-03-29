@@ -21,6 +21,8 @@ const emptyProjectionState: ProjectionState = {
   isProjecting: true,
   parseError: null,
   progress: createInitialProjectionProgress(),
+  previewCapped: false,
+  previewRootLimit: null,
   streamingFlatPreview: null,
 };
 
@@ -30,6 +32,8 @@ const disabledProjectionState: ProjectionState = {
   isProjecting: false,
   parseError: null,
   progress: null,
+  previewCapped: false,
+  previewRootLimit: null,
   streamingFlatPreview: null,
 };
 

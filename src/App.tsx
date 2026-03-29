@@ -303,6 +303,10 @@ function App() {
     liveValues.rootPath.trim() === "$" &&
     (discoveredPaths.length >= complexRootPathThreshold ||
       broadRootColumnCount >= complexRootColumnThreshold);
+  const previewLimitNotice =
+    projection.previewCapped && projection.previewRootLimit
+      ? describePreviewLimitNotice(projection.previewRootLimit)
+      : null;
   const activeConfigDescription = activeConfig
     ? describeConfig(activeConfig)
     : "Invalid configuration";
@@ -560,6 +564,7 @@ function App() {
           notices={
             <>
               {outputExportError ? <Notice tone="error">{outputExportError}</Notice> : null}
+              {previewLimitNotice ? <Notice tone="warning">{previewLimitNotice}</Notice> : null}
               {isStreamingFlatPreview && streamingFlatPreview ? (
                 <Notice>{describeStreamingPreviewCaption(streamingFlatPreview)}</Notice>
               ) : null}
@@ -713,7 +718,9 @@ function App() {
                       ? `${projection.progress.label} ${formatProjectionProgressDetail(projection.progress)}`
                       : projection.isProjecting
                         ? "Updating preview"
-                        : "Ready"
+                        : projection.previewCapped && projection.previewRootLimit
+                          ? `Limited to ${projection.previewRootLimit.toLocaleString()} roots`
+                          : "Ready"
                   }
                 />
               </div>
@@ -960,6 +967,10 @@ function App() {
                         workspace lean.
                       </Notice>
                     )}
+
+                    {previewLimitNotice ? (
+                      <Notice tone="warning">{previewLimitNotice}</Notice>
+                    ) : null}
                   </InspectorSection>
 
                   <InspectorSection
@@ -1196,6 +1207,10 @@ function describeStreamingPreviewCaption(preview: ProjectionFlatStreamPreview) {
   return preview.totalRoots === null
     ? `Streaming preview from ${preview.processedRoots} parsed roots. Final schema and flat CSV preview are still building in the worker.`
     : `Streaming preview from ${preview.processedRoots}/${preview.totalRoots} roots. Final schema and flat CSV preview are still building in the worker.`;
+}
+
+function describePreviewLimitNotice(rootLimit: number) {
+  return `Large-input safety mode is active. Live preview and schema are limited to the first ${rootLimit.toLocaleString()} roots to control memory. Full CSV export still uses the full input.`;
 }
 
 function describeStreamingCsvProgress(preview: ProjectionFlatStreamPreview) {

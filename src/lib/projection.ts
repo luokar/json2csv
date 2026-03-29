@@ -15,6 +15,7 @@ import {
   type MappingResult,
   type MappingSchema,
   type MappingStreamChunk,
+  selectRootNodes,
 } from "@/lib/mapping-engine";
 import { createTextPreview, type TextPreview } from "@/lib/preview";
 
@@ -51,6 +52,8 @@ export interface ProjectionPayload {
   conversionResult: ProjectionConversionResult | null;
   discoveredPaths: InspectedPath[];
   parseError: string | null;
+  previewCapped: boolean;
+  previewRootLimit: number | null;
 }
 
 export interface ProjectionFlatStreamPreview extends MappingStreamChunk {}
@@ -92,6 +95,7 @@ export function computeProjectionPayload(
 
 export const projectionFlatRowPreviewLimit = 100;
 export const projectionFlatCsvPreviewCharacterLimit = 18_000;
+export const projectionPreviewRootLimit = 1_500;
 
 export function streamProjectionPayload(
   request: ProjectionRequest,
@@ -122,12 +126,23 @@ export function streamProjectionPayload(
       conversionResult: null,
       discoveredPaths: [],
       parseError: resolvedInput.error ?? "Invalid JSON input.",
+      previewCapped: false,
+      previewRootLimit: null,
     };
   }
 
-  const discoveredPaths = inspectMappingPaths(resolvedInput.value, request.rootPath, (progress) => {
-    reportProgress("inspect", progress.completed, progress.total);
-  });
+  const selectedRootCount = selectRootNodes(resolvedInput.value, request.rootPath).length;
+  const previewRootLimit = resolveProjectionPreviewRootLimit(request, selectedRootCount);
+  const previewCapped = previewRootLimit !== null && selectedRootCount > previewRootLimit;
+
+  const discoveredPaths = inspectMappingPaths(
+    resolvedInput.value,
+    request.rootPath,
+    (progress) => {
+      reportProgress("inspect", progress.completed, progress.total);
+    },
+    previewRootLimit ?? undefined,
+  );
   const conversionResult = request.config
     ? convertJsonToCsvPreviewTable(
         resolvedInput.value,
@@ -135,6 +150,7 @@ export function streamProjectionPayload(
         {
           csvPreviewCharacterLimit: projectionFlatCsvPreviewCharacterLimit,
           previewRowLimit: projectionFlatRowPreviewLimit,
+          rootLimit: previewRootLimit ?? undefined,
         },
         {
           onProgress: (progress) => {
@@ -150,6 +166,8 @@ export function streamProjectionPayload(
     conversionResult,
     discoveredPaths,
     parseError: resolvedInput.error ?? null,
+    previewCapped,
+    previewRootLimit: previewCapped ? previewRootLimit : null,
   });
 }
 
@@ -190,9 +208,11 @@ function streamCustomSelectorProjectionPayload(
   reportProgress: (phase: ProjectionPhase, phaseCompleted: number, phaseTotal: number) => void,
 ) {
   const rootNodes: JsonValue[] = [];
+  const previewRootLimit = projectionPreviewRootLimit;
   const flatProjectionSession = request.config
     ? createMappingProjectionSession(request.config)
     : null;
+  let totalParsedRootCount = 0;
 
   try {
     streamJsonPath(request.customJson, streamableSelector, {
@@ -200,6 +220,12 @@ function streamCustomSelectorProjectionPayload(
         reportProgress("parse", progress.processedCharacters, progress.totalCharacters);
       },
       onRoot: (value) => {
+        totalParsedRootCount += 1;
+
+        if (previewRootLimit !== null && totalParsedRootCount > previewRootLimit) {
+          return;
+        }
+
         rootNodes.push(value);
         flatProjectionSession?.appendRoot(value);
 
@@ -227,6 +253,8 @@ function streamCustomSelectorProjectionPayload(
       conversionResult: null,
       discoveredPaths: [],
       parseError: error instanceof Error ? error.message : "Invalid JSON input.",
+      previewCapped: false,
+      previewRootLimit: null,
     };
   }
 
@@ -253,6 +281,11 @@ function streamCustomSelectorProjectionPayload(
     conversionResult,
     discoveredPaths,
     parseError: null,
+    previewCapped: previewRootLimit !== null && totalParsedRootCount > previewRootLimit,
+    previewRootLimit:
+      previewRootLimit !== null && totalParsedRootCount > previewRootLimit
+        ? previewRootLimit
+        : null,
   };
 }
 
@@ -260,6 +293,8 @@ function compactProjectionPayload(payload: {
   conversionResult: MappingPreviewResult | MappingResult | null;
   discoveredPaths: InspectedPath[];
   parseError: string | null;
+  previewCapped: boolean;
+  previewRootLimit: number | null;
 }): ProjectionPayload {
   return {
     conversionResult: payload.conversionResult
@@ -267,6 +302,8 @@ function compactProjectionPayload(payload: {
       : null,
     discoveredPaths: payload.discoveredPaths,
     parseError: payload.parseError,
+    previewCapped: payload.previewCapped,
+    previewRootLimit: payload.previewRootLimit,
   };
 }
 
@@ -309,6 +346,17 @@ function resolveProjectionInput(request: ProjectionRequest) {
   return request.sourceMode === "custom"
     ? parseJsonInput(request.customJson)
     : { error: null, value: request.sampleJson };
+}
+
+function resolveProjectionPreviewRootLimit(
+  _request: ProjectionRequest,
+  selectedRootCount?: number,
+) {
+  if (selectedRootCount !== undefined && selectedRootCount > projectionPreviewRootLimit) {
+    return projectionPreviewRootLimit;
+  }
+
+  return null;
 }
 
 function shouldEmitProjectionStreamPreview(

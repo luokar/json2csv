@@ -9,6 +9,7 @@
 - flat mapping controls
 - bounded flat-row preview
 - bounded CSV preview and full CSV download
+- memory-safe live preview that caps very large inputs to a fixed root budget
 - schema sidecar for column and type inspection
 - worker-backed projection with streaming flat preview updates
 

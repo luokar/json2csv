@@ -4,6 +4,7 @@ import {
   computeProjectionPayload,
   projectionFlatCsvPreviewCharacterLimit,
   projectionFlatRowPreviewLimit,
+  projectionPreviewRootLimit,
   streamProjectionPayload,
 } from "@/lib/projection";
 
@@ -120,6 +121,35 @@ describe("projection pipeline", () => {
     expect(result.conversionResult?.csvPreview.omittedCharacters).toBeGreaterThan(0);
     expect(result.conversionResult?.csvPreview.text.length).toBeLessThanOrEqual(
       projectionFlatCsvPreviewCharacterLimit + "[Preview truncated]".length + 2,
+    );
+  });
+
+  it("caps large live previews to a fixed root budget to control memory", () => {
+    const customJson = JSON.stringify({
+      records: Array.from({ length: projectionPreviewRootLimit + 200 }, (_, index) => ({
+        id: String(index + 1),
+        value: `row-${index + 1}`,
+      })),
+    });
+
+    const result = computeProjectionPayload({
+      config: createMappingConfig({
+        flattenMode: "parallel",
+        rootPath: "$.records[*]",
+      }),
+      customJson,
+      rootPath: "$.records[*]",
+      sampleJson: donutSample.json,
+      sourceMode: "custom",
+    });
+
+    expect(result.parseError).toBeNull();
+    expect(result.previewCapped).toBe(true);
+    expect(result.previewRootLimit).toBe(projectionPreviewRootLimit);
+    expect(result.conversionResult?.rowCount).toBe(projectionPreviewRootLimit);
+    expect(result.conversionResult?.records).toHaveLength(projectionFlatRowPreviewLimit);
+    expect(result.discoveredPaths).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: "id" })]),
     );
   });
 

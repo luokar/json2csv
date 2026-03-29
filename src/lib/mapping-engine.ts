@@ -106,6 +106,7 @@ export interface MappingResult {
 export interface MappingPreviewOptions {
   csvPreviewCharacterLimit: number;
   previewRowLimit: number;
+  rootLimit?: number;
 }
 
 export interface MappingPreviewResult {
@@ -371,7 +372,7 @@ export function convertJsonToCsvPreviewTable(
   const session = createMappingProjectionSession(overrides);
   const config = session.config;
 
-  const rootNodes = selectRootNodes(input, config.rootPath);
+  const rootNodes = selectRootNodes(input, config.rootPath, options.rootLimit);
   const totalRoots = Math.max(rootNodes.length, 1);
   const streamChunkSize = resolveStreamChunkSize(totalRoots, handlers.streamChunkSize);
 
@@ -398,6 +399,7 @@ export function inspectMappingPaths(
   input: unknown,
   rootPath?: string,
   onProgress?: (progress: ProcessingProgress) => void,
+  rootLimit?: number,
 ) {
   const registry = new Map<
     string,
@@ -407,7 +409,7 @@ export function inspectMappingPaths(
       kinds: Set<ValueKind>;
     }
   >();
-  const rootNodes = selectRootNodes(input, rootPath);
+  const rootNodes = selectRootNodes(input, rootPath, rootLimit);
   const totalRoots = Math.max(rootNodes.length, 1);
 
   onProgress?.({ completed: 0, total: totalRoots });
@@ -1573,13 +1575,18 @@ function normalizeSourcePath(path: string) {
   return normalizeRulePath(path) || (path === "column0" ? "column0" : "");
 }
 
-export function selectRootNodes(input: unknown, rootPath?: string) {
-  if (!rootPath) {
-    return Array.isArray(input) ? input : [input];
+export function selectRootNodes(input: unknown, rootPath?: string, limit?: number) {
+  const selectedNodes = !rootPath
+    ? Array.isArray(input)
+      ? input
+      : [input]
+    : walkPath(input, tokenizeJsonPath(rootPath));
+
+  if (!limit || limit < 1 || selectedNodes.length <= limit) {
+    return selectedNodes;
   }
 
-  const tokens = tokenizeJsonPath(rootPath);
-  return walkPath(input, tokens);
+  return selectedNodes.slice(0, limit);
 }
 
 export function tokenizeJsonPath(path: string) {

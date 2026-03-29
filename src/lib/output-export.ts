@@ -1,34 +1,15 @@
-import { strToU8, zipSync } from "fflate";
+import { strToU8 } from "fflate";
 import { parseJsonInput } from "@/lib/json-input";
 import { convertJsonToCsvTable, type JsonValue, type MappingConfig } from "@/lib/mapping-engine";
 import type { ProjectionRequest } from "@/lib/projection";
-import { type RelationalRelationship, splitJsonToRelationalTables } from "@/lib/relational-split";
 
 const csvMimeType = "text/csv;charset=utf-8";
-const jsonMimeType = "application/json;charset=utf-8";
-const zipMimeType = "application/zip";
 const defaultExportBaseName = "json2csv-export";
 
 export interface OutputExportArtifact {
   bytes: Uint8Array;
   fileName: string;
   mimeType: string;
-}
-
-export interface OutputExportTableArtifact extends OutputExportArtifact {
-  headers: string[];
-  idColumn: string;
-  parentIdColumn: string | null;
-  parentTable: string | null;
-  rowCount: number;
-  sourcePath: string;
-  tableName: string;
-}
-
-export interface OutputExportBundle {
-  flatCsv: OutputExportArtifact;
-  relationalArchive: OutputExportArtifact | null;
-  relationalTables: OutputExportTableArtifact[];
 }
 
 export interface OutputExportRequest extends ProjectionRequest {
@@ -41,7 +22,7 @@ export interface OutputExportWorkerRequest {
 }
 
 export interface OutputExportWorkerResultResponse {
-  payload: OutputExportBundle;
+  payload: OutputExportArtifact;
   requestId: number;
   type: "result";
 }
@@ -56,59 +37,16 @@ export type OutputExportWorkerResponse =
   | OutputExportWorkerErrorResponse
   | OutputExportWorkerResultResponse;
 
-interface OutputExportManifest {
-  exportName: string;
-  generatedAt: string;
-  relationships: RelationalRelationship[];
-  rootPath: string;
-  sourceMode: ProjectionRequest["sourceMode"];
-  tables: Array<{
-    fileName: string;
-    headers: string[];
-    idColumn: string;
-    parentIdColumn: string | null;
-    parentTable: string | null;
-    rowCount: number;
-    sourcePath: string;
-    tableName: string;
-  }>;
-}
-
-export function buildOutputExportBundle(request: OutputExportRequest): OutputExportBundle {
+export function buildOutputExportArtifact(request: OutputExportRequest): OutputExportArtifact {
   if (!request.config) {
     throw new Error("Fix the current mapping config before exporting.");
   }
 
   const input = resolveExportInput(request);
   const flatResult = convertJsonToCsvTable(input, request.config);
-  const relationalResult = splitJsonToRelationalTables(input, request.config);
   const exportBaseName = sanitizeExportSegment(request.exportName, defaultExportBaseName);
-  const flatCsv = createTextArtifact(`${exportBaseName}.csv`, flatResult.csv, csvMimeType);
-  const relationalTables = relationalResult.tables.map((table) => {
-    const tableFileName = createRelationalTableFileName(exportBaseName, table.tableName);
 
-    return {
-      ...createTextArtifact(tableFileName, table.csv, csvMimeType),
-      headers: table.headers,
-      idColumn: table.idColumn,
-      parentIdColumn: table.parentIdColumn,
-      parentTable: table.parentTable,
-      rowCount: table.rowCount,
-      sourcePath: table.sourcePath,
-      tableName: table.tableName,
-    } satisfies OutputExportTableArtifact;
-  });
-
-  return {
-    flatCsv,
-    relationalArchive: createRelationalArchive(
-      exportBaseName,
-      request,
-      relationalResult.relationships,
-      relationalTables,
-    ),
-    relationalTables,
-  };
+  return createTextArtifact(`${exportBaseName}.csv`, flatResult.csv, csvMimeType);
 }
 
 export function downloadExportArtifact(artifact: OutputExportArtifact) {
@@ -136,65 +74,6 @@ export function downloadExportArtifact(artifact: OutputExportArtifact) {
   window.setTimeout(() => {
     URL.revokeObjectURL(url);
   }, 0);
-}
-
-function createRelationalArchive(
-  exportBaseName: string,
-  request: OutputExportRequest,
-  relationships: RelationalRelationship[],
-  tables: OutputExportTableArtifact[],
-): OutputExportArtifact | null {
-  if (tables.length === 0) {
-    return null;
-  }
-
-  const directory = `${exportBaseName}-relational`;
-  const manifest = buildOutputExportManifest(request, relationships, tables);
-  const tableEntries: Record<string, Uint8Array> = {
-    "README.txt": normalizeBytes(
-      strToU8("Each CSV is a normalized relational table derived from the current root selection."),
-    ),
-  };
-  const archiveEntries = {
-    [directory]: {
-      "manifest.json": normalizeBytes(strToU8(JSON.stringify(manifest, null, 2))),
-      tables: tableEntries,
-    },
-  };
-
-  for (const table of tables) {
-    tableEntries[table.fileName] = normalizeBytes(table.bytes);
-  }
-
-  return {
-    bytes: zipSync(archiveEntries),
-    fileName: `${directory}.zip`,
-    mimeType: zipMimeType,
-  };
-}
-
-function buildOutputExportManifest(
-  request: OutputExportRequest,
-  relationships: RelationalRelationship[],
-  tables: OutputExportTableArtifact[],
-): OutputExportManifest {
-  return {
-    exportName: request.exportName,
-    generatedAt: new Date().toISOString(),
-    relationships,
-    rootPath: request.config?.rootPath ?? request.rootPath,
-    sourceMode: request.sourceMode,
-    tables: tables.map((table) => ({
-      fileName: table.fileName,
-      headers: table.headers,
-      idColumn: table.idColumn,
-      parentIdColumn: table.parentIdColumn,
-      parentTable: table.parentTable,
-      rowCount: table.rowCount,
-      sourcePath: table.sourcePath,
-      tableName: table.tableName,
-    })),
-  };
 }
 
 function createTextArtifact(
@@ -227,10 +106,6 @@ function resolveExportInput(request: ProjectionRequest): JsonValue {
   return parsed.value;
 }
 
-function createRelationalTableFileName(exportBaseName: string, tableName: string) {
-  return `${exportBaseName}--${sanitizeExportSegment(tableName, "table")}.csv`;
-}
-
 function sanitizeExportSegment(value: string, fallback: string) {
   const normalized = value
     .trim()
@@ -243,8 +118,6 @@ function sanitizeExportSegment(value: string, fallback: string) {
 
 export const outputExportMimeTypes = {
   csv: csvMimeType,
-  json: jsonMimeType,
-  zip: zipMimeType,
 } as const;
 
 export function createOutputExportRequest(options: {

@@ -9,7 +9,6 @@ import {
   computeProjectionPayload,
   type ProjectionPayload,
   projectionFlatRowPreviewLimit,
-  projectionRelationalRowPreviewLimit,
 } from "@/lib/projection";
 
 interface ChaosRandom {
@@ -20,7 +19,6 @@ interface ChaosRandom {
 
 interface ChaosScenario {
   expectedDiscoveredPaths: string[];
-  expectedTableNames: string[];
   name: string;
   rootPath: string;
   schema: JsonSchema;
@@ -124,19 +122,13 @@ function assertProjectionInvariants(
   expect(roots.length).toBeGreaterThan(0);
   expect(payload.parseError).toBeNull();
   expect(payload.conversionResult).not.toBeNull();
-  expect(payload.relationalSplitResult).not.toBeNull();
   expect(discoveredPaths).toEqual(expect.arrayContaining(scenario.expectedDiscoveredPaths));
 
-  if (!payload.conversionResult || !payload.relationalSplitResult) {
-    throw new Error("Expected flat and relational projection results.");
+  if (!payload.conversionResult) {
+    throw new Error("Expected flat projection results.");
   }
 
   const conversionResult = payload.conversionResult;
-  const relationalResult = payload.relationalSplitResult;
-  const rootTable = relationalResult.tables.find((table) => table.tableName === "root");
-
-  expect(rootTable).toBeDefined();
-  expect(rootTable?.rowCount).toBe(roots.length);
   expect(conversionResult.rowCount).toBeGreaterThanOrEqual(roots.length);
   expect(conversionResult.records.length).toBeLessThanOrEqual(projectionFlatRowPreviewLimit);
   expect(conversionResult.records.length).toBeLessThanOrEqual(conversionResult.rowCount);
@@ -149,39 +141,6 @@ function assertProjectionInvariants(
 
   for (const record of conversionResult.records) {
     expect(Object.keys(record).every((header) => flatHeaderSet.has(header))).toBe(true);
-  }
-
-  expect(relationalResult.tables.map((table) => table.tableName)).toEqual(
-    expect.arrayContaining(["root", ...scenario.expectedTableNames]),
-  );
-
-  const tablesByName = new Map(relationalResult.tables.map((table) => [table.tableName, table]));
-
-  for (const table of relationalResult.tables) {
-    expect(new Set(table.headers).size).toBe(table.headers.length);
-    expect(table.records.length).toBeLessThanOrEqual(projectionRelationalRowPreviewLimit);
-    expect(table.records.length).toBeLessThanOrEqual(table.rowCount);
-    expect(table.headers).toContain(table.idColumn);
-
-    if (table.parentIdColumn) {
-      expect(table.headers).toContain(table.parentIdColumn);
-    }
-
-    const headerSet = new Set(table.headers);
-
-    for (const record of table.records) {
-      expect(Object.keys(record).every((header) => headerSet.has(header))).toBe(true);
-    }
-  }
-
-  for (const relationship of relationalResult.relationships) {
-    const childTable = tablesByName.get(relationship.childTable);
-    const parentTable = tablesByName.get(relationship.parentTable);
-
-    expect(childTable).toBeDefined();
-    expect(parentTable).toBeDefined();
-    expect(childTable?.headers).toContain(relationship.foreignKeyColumn);
-    expect(parentTable?.headers).toContain(relationship.parentIdColumn);
   }
 }
 
@@ -229,7 +188,6 @@ function buildFlatRecordScenario(random: ChaosRandom): ChaosScenario {
 
   return {
     expectedDiscoveredPaths: ["id", `${nestedKey}.email`, arrayKey],
-    expectedTableNames: [arrayKey],
     name: `flat ${collectionKey}`,
     rootPath: `$.${collectionKey}[*]`,
     schema: objectSchema(
@@ -283,7 +241,6 @@ function buildGroupedEventScenario(random: ChaosRandom): ChaosScenario {
       `${lineItemsKey}.sku`,
       `${lineItemsKey}.${discountsKey}.amount`,
     ],
-    expectedTableNames: [lineItemsKey, `${lineItemsKey}_${discountsKey}`],
     name: `${groupsKey} -> ${recordsKey}`,
     rootPath: `$.${groupsKey}[*].${recordsKey}[*]`,
     schema: objectSchema(
@@ -361,7 +318,6 @@ function buildCatalogMapScenario(random: ChaosRandom): ChaosScenario {
 
   return {
     expectedDiscoveredPaths: ["__entryKey", `${attrsKey}.color`, stockKey],
-    expectedTableNames: [stockKey],
     name: `map ${mapKey}`,
     rootPath: `$.${mapKey}.*`,
     schema: objectSchema(
@@ -441,7 +397,6 @@ function buildTelemetryScenario(random: ChaosRandom): ChaosScenario {
 
   return {
     expectedDiscoveredPaths: [idKey, flagsKey, `${metricsKey}.value`],
-    expectedTableNames: [flagsKey, metricsKey],
     name: `${envelopeKey} -> ${entriesKey}`,
     rootPath: `$.${envelopeKey}.${entriesKey}[*]`,
     schema: objectSchema(

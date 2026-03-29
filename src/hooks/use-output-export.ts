@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  buildOutputExportBundle,
-  type OutputExportBundle,
+  buildOutputExportArtifact,
+  type OutputExportArtifact,
   type OutputExportRequest,
   type OutputExportWorkerResponse,
 } from "@/lib/output-export";
@@ -22,13 +22,13 @@ export function useOutputExport() {
 
   const runExport = useCallback(
     (payload: OutputExportRequest, label: string) =>
-      new Promise<OutputExportBundle>((resolve, reject) => {
+      new Promise<OutputExportArtifact>((resolve, reject) => {
         setActiveLabel(label);
         setError(null);
 
-        const settleSuccess = (bundle: OutputExportBundle) => {
+        const settleSuccess = (artifact: OutputExportArtifact) => {
           setActiveLabel(null);
-          resolve(bundle);
+          resolve(artifact);
         };
 
         const settleError = (message: string) => {
@@ -39,7 +39,7 @@ export function useOutputExport() {
 
         if (typeof Worker === "undefined") {
           try {
-            settleSuccess(buildOutputExportBundle(payload));
+            settleSuccess(buildOutputExportArtifact(payload));
           } catch (error) {
             settleError(toErrorMessage(error));
           }

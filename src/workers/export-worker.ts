@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 
 import {
-  buildOutputExportBundle,
+  buildOutputExportArtifact,
   type OutputExportWorkerErrorResponse,
   type OutputExportWorkerRequest,
   type OutputExportWorkerResponse,
@@ -15,7 +15,7 @@ self.onmessage = (event: MessageEvent<OutputExportWorkerRequest>) => {
 
   try {
     const response: OutputExportWorkerResultResponse = {
-      payload: buildOutputExportBundle(payload),
+      payload: buildOutputExportArtifact(payload),
       requestId,
       type: "result",
     };

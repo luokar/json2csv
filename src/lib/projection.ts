@@ -17,16 +17,8 @@ import {
   type MappingStreamChunk,
 } from "@/lib/mapping-engine";
 import { createTextPreview, type TextPreview } from "@/lib/preview";
-import {
-  type RelationalRelationship,
-  type RelationalSplitPreviewResult,
-  type RelationalSplitResult,
-  type RelationalTable,
-  splitJsonToRelationalTables,
-  splitJsonToRelationalTablesPreview,
-} from "@/lib/relational-split";
 
-export const projectionPhases = ["parse", "inspect", "flat", "relational"] as const;
+export const projectionPhases = ["parse", "inspect", "flat"] as const;
 
 export type ProjectionPhase = (typeof projectionPhases)[number];
 
@@ -41,7 +33,6 @@ export interface ProjectionProgress {
 export interface ProjectionRequest {
   config?: MappingConfig;
   customJson: string;
-  includeRelational?: boolean;
   rootPath: string;
   sampleJson: JsonValue;
   sourceMode: "custom" | "sample";
@@ -56,33 +47,10 @@ export interface ProjectionConversionResult {
   schema: MappingSchema;
 }
 
-export interface ProjectionRelationalTable {
-  csvPreview: TextPreview;
-  headers: string[];
-  idColumn: string;
-  parentIdColumn: string | null;
-  parentTable: string | null;
-  records: Array<Record<string, string>>;
-  rowCount: number;
-  sourcePath: string;
-  tableName: string;
-}
-
-export interface ProjectionRelationalSplitResult {
-  relationships: RelationalRelationship[];
-  tables: ProjectionRelationalTable[];
-}
-
 export interface ProjectionPayload {
   conversionResult: ProjectionConversionResult | null;
   discoveredPaths: InspectedPath[];
   parseError: string | null;
-  relationalSplitResult: ProjectionRelationalSplitResult | null;
-}
-
-export interface ProjectionRelationalPayload {
-  parseError: string | null;
-  relationalSplitResult: ProjectionRelationalSplitResult | null;
 }
 
 export interface ProjectionFlatStreamPreview extends MappingStreamChunk {}
@@ -110,31 +78,10 @@ export interface ProjectionWorkerResultResponse {
   type: "result";
 }
 
-export interface ProjectionRelationalWorkerRequest {
-  payload: ProjectionRequest;
-  requestId: number;
-}
-
-export interface ProjectionRelationalWorkerProgressResponse {
-  progress: ProjectionProgress;
-  requestId: number;
-  type: "progress";
-}
-
-export interface ProjectionRelationalWorkerResultResponse {
-  payload: ProjectionRelationalPayload;
-  requestId: number;
-  type: "result";
-}
-
 export type ProjectionWorkerResponse =
   | ProjectionWorkerProgressResponse
   | ProjectionWorkerStreamResponse
   | ProjectionWorkerResultResponse;
-
-export type ProjectionRelationalWorkerResponse =
-  | ProjectionRelationalWorkerProgressResponse
-  | ProjectionRelationalWorkerResultResponse;
 
 export function computeProjectionPayload(
   request: ProjectionRequest,
@@ -143,54 +90,8 @@ export function computeProjectionPayload(
   return streamProjectionPayload(request, { onProgress });
 }
 
-export function computeRelationalProjectionPayload(
-  request: ProjectionRequest,
-  onProgress?: (progress: ProjectionProgress) => void,
-): ProjectionRelationalPayload {
-  const reportProgress = createProjectionProgressReporter(onProgress);
-
-  reportProgress("parse", 0, 1);
-
-  const resolvedInput = resolveProjectionInput(request);
-
-  reportProgress("parse", 1, 1);
-
-  if (resolvedInput.value === undefined) {
-    return {
-      parseError: resolvedInput.error ?? "Invalid JSON input.",
-      relationalSplitResult: null,
-    };
-  }
-
-  if (!request.config) {
-    return {
-      parseError: resolvedInput.error ?? null,
-      relationalSplitResult: null,
-    };
-  }
-
-  return {
-    parseError: resolvedInput.error ?? null,
-    relationalSplitResult: compactRelationalSplitResult(
-      splitJsonToRelationalTablesPreview(
-        resolvedInput.value,
-        request.config,
-        {
-          csvPreviewCharacterLimit: projectionRelationalCsvPreviewCharacterLimit,
-          previewRowLimit: projectionRelationalRowPreviewLimit,
-        },
-        (progress) => {
-          reportProgress("relational", progress.completed, progress.total);
-        },
-      ),
-    ),
-  };
-}
-
 export const projectionFlatRowPreviewLimit = 100;
 export const projectionFlatCsvPreviewCharacterLimit = 18_000;
-export const projectionRelationalRowPreviewLimit = 12;
-export const projectionRelationalCsvPreviewCharacterLimit = 12_000;
 
 export function streamProjectionPayload(
   request: ProjectionRequest,
@@ -221,7 +122,6 @@ export function streamProjectionPayload(
       conversionResult: null,
       discoveredPaths: [],
       parseError: resolvedInput.error ?? "Invalid JSON input.",
-      relationalSplitResult: null,
     };
   }
 
@@ -246,18 +146,10 @@ export function streamProjectionPayload(
         },
       )
     : null;
-  const relationalSplitResult =
-    request.config && shouldIncludeRelationalProjection(request)
-      ? splitJsonToRelationalTables(resolvedInput.value, request.config, (progress) => {
-          reportProgress("relational", progress.completed, progress.total);
-        })
-      : null;
-
   return compactProjectionPayload({
     conversionResult,
     discoveredPaths,
     parseError: resolvedInput.error ?? null,
-    relationalSplitResult,
   });
 }
 
@@ -270,21 +162,18 @@ const projectionPhaseLabels: Record<ProjectionPhase, string> = {
   flat: "Projecting flat CSV rows",
   inspect: "Inspecting root paths",
   parse: "Parsing JSON",
-  relational: "Normalizing relational tables",
 };
 
 const projectionPhaseOffsets: Record<ProjectionPhase, number> = {
   flat: 25,
   inspect: 10,
   parse: 0,
-  relational: 65,
 };
 
 const projectionPhaseWeights: Record<ProjectionPhase, number> = {
-  flat: 40,
+  flat: 75,
   inspect: 15,
   parse: 10,
-  relational: 35,
 };
 
 export function createInitialProjectionProgress(): ProjectionProgress {
@@ -338,7 +227,6 @@ function streamCustomSelectorProjectionPayload(
       conversionResult: null,
       discoveredPaths: [],
       parseError: error instanceof Error ? error.message : "Invalid JSON input.",
-      relationalSplitResult: null,
     };
   }
 
@@ -360,25 +248,11 @@ function streamCustomSelectorProjectionPayload(
   const conversionResult = request.config
     ? finalizeFlatProjectionSession(flatProjectionSession, reportProgress)
     : null;
-  const relationalSplitResult =
-    request.config && shouldIncludeRelationalProjection(request)
-      ? splitJsonToRelationalTables(
-          rootNodes,
-          {
-            ...request.config,
-            rootPath: undefined,
-          },
-          (progress) => {
-            reportProgress("relational", progress.completed, progress.total);
-          },
-        )
-      : null;
 
   return {
     conversionResult,
     discoveredPaths,
     parseError: null,
-    relationalSplitResult,
   };
 }
 
@@ -386,7 +260,6 @@ function compactProjectionPayload(payload: {
   conversionResult: MappingPreviewResult | MappingResult | null;
   discoveredPaths: InspectedPath[];
   parseError: string | null;
-  relationalSplitResult: RelationalSplitResult | null;
 }): ProjectionPayload {
   return {
     conversionResult: payload.conversionResult
@@ -394,9 +267,6 @@ function compactProjectionPayload(payload: {
       : null,
     discoveredPaths: payload.discoveredPaths,
     parseError: payload.parseError,
-    relationalSplitResult: payload.relationalSplitResult
-      ? compactRelationalSplitResult(payload.relationalSplitResult)
-      : null,
   };
 }
 
@@ -414,42 +284,6 @@ function compactProjectionResult(
     records: result.records.slice(0, projectionFlatRowPreviewLimit),
     rowCount: result.rowCount,
     schema: result.schema,
-  };
-}
-
-function compactRelationalSplitResult(
-  result: RelationalSplitPreviewResult | RelationalSplitResult,
-): ProjectionRelationalSplitResult {
-  if (isRelationalSplitPreviewResult(result)) {
-    return {
-      relationships: result.relationships,
-      tables: result.tables,
-    };
-  }
-
-  return {
-    relationships: result.relationships,
-    tables: result.tables.map(compactRelationalTable),
-  };
-}
-
-function isRelationalSplitPreviewResult(
-  result: RelationalSplitPreviewResult | RelationalSplitResult,
-): result is RelationalSplitPreviewResult {
-  return result.tables.length === 0 || "csvPreview" in result.tables[0];
-}
-
-function compactRelationalTable(table: RelationalTable): ProjectionRelationalTable {
-  return {
-    csvPreview: createTextPreview(table.csv, projectionRelationalCsvPreviewCharacterLimit),
-    headers: table.headers,
-    idColumn: table.idColumn,
-    parentIdColumn: table.parentIdColumn,
-    parentTable: table.parentTable,
-    records: table.records.slice(0, projectionRelationalRowPreviewLimit),
-    rowCount: table.rowCount,
-    sourcePath: table.sourcePath,
-    tableName: table.tableName,
   };
 }
 
@@ -475,10 +309,6 @@ function resolveProjectionInput(request: ProjectionRequest) {
   return request.sourceMode === "custom"
     ? parseJsonInput(request.customJson)
     : { error: null, value: request.sampleJson };
-}
-
-function shouldIncludeRelationalProjection(request: ProjectionRequest) {
-  return request.includeRelational !== false;
 }
 
 function shouldEmitProjectionStreamPreview(

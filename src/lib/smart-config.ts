@@ -14,7 +14,6 @@ export interface SmartKeyedMapSuggestion extends SmartConfigSuggestionBase {
   entryCount: number;
   estimatedSiblingColumnsAvoided: number;
   keyAlias: string;
-  keySourcePath: string;
   recordMapPath: string;
 }
 
@@ -66,7 +65,6 @@ export function detectSmartConfigSuggestion(input: JsonValue): SmartConfigSugges
     entryCount: bestCandidate.entryCount,
     estimatedSiblingColumnsAvoided: bestCandidate.estimatedSiblingColumnsAvoided,
     keyAlias: bestCandidate.keyAlias,
-    keySourcePath: objectMapEntryKeyField,
     previewHeaders: bestCandidate.previewHeaders,
     recordMapPath: bestCandidate.recordMapPath,
     rootPath: `${bestCandidate.recordMapPath}.*`,
@@ -100,8 +98,8 @@ function detectPreserveRootSuggestion(input: JsonValue): SmartPreserveRootSugges
     rootPath: "$",
     summary:
       repeatingBranches.length > repeatingBranchList.length
-        ? `Keep $ as the root and switch Flatten mode to stringify. This preserves branches such as ${repeatingBranchDetail}, and ${repeatingBranches.length - repeatingBranchList.length} more, while the relational preview keeps their detail tables explorable.`
-        : `Keep $ as the root and switch Flatten mode to stringify. This preserves branches such as ${repeatingBranchDetail} while the relational preview keeps their detail tables explorable.`,
+        ? `Keep $ as the root and switch Flatten mode to stringify. This preserves branches such as ${repeatingBranchDetail}, and ${repeatingBranches.length - repeatingBranchList.length} more, without exploding the flat CSV into redundant rows.`
+        : `Keep $ as the root and switch Flatten mode to stringify. This preserves branches such as ${repeatingBranchDetail} without exploding the flat CSV into redundant rows.`,
   };
 }
 

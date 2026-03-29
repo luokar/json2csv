@@ -1,73 +1,50 @@
-# React + TypeScript + Vite
+# json2csv
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+`json2csv` is a React workspace for turning nested JSON into a flat CSV with a live preview.
 
-Currently, two official plugins are available:
+## Current scope
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- sample or custom JSON input
+- root-path selection
+- flat mapping controls
+- bounded flat-row preview
+- bounded CSV preview and full CSV download
+- schema sidecar for column and type inspection
+- worker-backed projection with streaming flat preview updates
 
-## React Compiler
+## Removed on purpose
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+These features were cut to keep the product easier to maintain:
 
-## Expanding the ESLint configuration
+- saved presets and browser persistence
+- command palette and extra shell navigation state
+- path planner and header-mapping editors
+- relational split preview and export
+- mobile slide-over rails and inspector drawers
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Commands
 
-```js
-export default defineConfig([
-  globalIgnores(["dist"]),
-  {
-    files: ["**/*.{ts,tsx}"],
-    extends: [
-      // Other configs...
+- `vp dev`
+- `vp test`
+- `vp check`
+- `vp build`
+- `vp run preview`
+- `vp run deploy`
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+## Project structure
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ["./tsconfig.node.json", "./tsconfig.app.json"],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-]);
-```
+- `src/App.tsx`: main UI and form flow
+- `src/components/workbench/dense-data-grid.tsx`: flat-row table
+- `src/hooks/use-projection-preview.ts`: worker bridge for live preview
+- `src/hooks/use-output-export.ts`: export workflow state
+- `src/lib/mapping-engine.ts`: JSON-to-row conversion engine
+- `src/lib/projection.ts`: preview payload shaping and streaming contracts
+- `src/lib/output-export.ts`: export artifact generation
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Maintenance rules
 
-```js
-// eslint.config.js
-import reactX from "eslint-plugin-react-x";
-import reactDom from "eslint-plugin-react-dom";
-
-export default defineConfig([
-  globalIgnores(["dist"]),
-  {
-    files: ["**/*.{ts,tsx}"],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs["recommended-typescript"],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ["./tsconfig.node.json", "./tsconfig.app.json"],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-]);
-```
+- Keep state local unless it is reused across files.
+- Prefer deleting optional UI over adding another mode or abstraction.
+- Keep the product flat: one workspace, one export path, one mental model.
+- Update docs when features are removed so the repo stays trustworthy.
+- Use `vp` for installs, tests, builds, and custom scripts.

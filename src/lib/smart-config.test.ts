@@ -34,7 +34,6 @@ describe("smart config detection", () => {
       expect.objectContaining({
         entryCount: 5,
         keyAlias: "period",
-        keySourcePath: "__entryKey",
         kind: "keyed-map",
         previewHeaders: ["period", "anomaly", "value"],
         recordMapPath: "$.data",

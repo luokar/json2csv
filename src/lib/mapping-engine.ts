@@ -106,6 +106,7 @@ export interface MappingResult {
 export interface MappingPreviewOptions {
   csvPreviewCharacterLimit: number;
   previewRowLimit: number;
+  renderedRowBudget?: number;
   rootLimit?: number;
 }
 
@@ -132,6 +133,35 @@ export interface InspectedPath {
   depth: number;
   kinds: ValueKind[];
   path: string;
+}
+
+export type PathInspectionRegistry = Map<
+  string,
+  {
+    count: number;
+    depth: number;
+    kinds: Set<ValueKind>;
+  }
+>;
+
+export function createPathInspectionRegistry(): PathInspectionRegistry {
+  return new Map();
+}
+
+export function inspectRootNodePaths(rootNode: unknown, registry: PathInspectionRegistry) {
+  inspectNodePaths(rootNode, [], registry);
+}
+
+export function finalizeInspectedPaths(registry: PathInspectionRegistry): InspectedPath[] {
+  return [...registry.entries()]
+    .map(([path, entry]) => ({
+      count: entry.count,
+      depth: entry.depth,
+      kinds: [...entry.kinds].sort(compareValueKinds),
+      path,
+    }))
+    .filter((entry) => entry.path.length > 0)
+    .sort((left, right) => left.depth - right.depth || left.path.localeCompare(right.path));
 }
 
 export interface ProcessingProgress {
@@ -168,6 +198,7 @@ export interface MappingProjectionSession {
   finalizePreview: (options: MappingPreviewOptions) => MappingPreviewResult;
   getProcessedRoots: () => number;
   getRenderedRowCount: () => number;
+  isRowBudgetExhausted: () => boolean;
 }
 
 interface ProjectedRow {
@@ -265,6 +296,7 @@ export function createMappingConfig(overrides: Partial<MappingConfig> = {}): Map
 
 export function createMappingProjectionSession(
   overrides: Partial<MappingConfig> = {},
+  options?: { renderedRowBudget?: number },
 ): MappingProjectionSession {
   const config = createMappingConfig(overrides);
   const registry = createColumnRegistry(config);
@@ -275,10 +307,18 @@ export function createMappingProjectionSession(
   const projectedRows: ProjectedRow[] = [];
   const renderedRows: ProjectedRow[] = [];
   let processedRootCount = 0;
+  let rowBudgetExhausted = false;
+  const renderedRowBudget = options?.renderedRowBudget ?? Number.POSITIVE_INFINITY;
 
   return {
     appendRoot(rootNode) {
       const traversalState = createRootTraversalState(processedRootCount);
+      processedRootCount += 1;
+
+      if (rowBudgetExhausted) {
+        return;
+      }
+
       const projectedGroup = appendNodeToRows(
         [createEmptyRow({ lineage: traversalState.lineage })],
         rootNode,
@@ -291,7 +331,10 @@ export function createMappingProjectionSession(
 
       projectedRows.push(...projectedGroup);
       renderedRows.push(...renderedGroup);
-      processedRootCount += 1;
+
+      if (renderedRows.length >= renderedRowBudget) {
+        rowBudgetExhausted = true;
+      }
     },
     buildStreamChunk(
       totalRoots,
@@ -326,6 +369,9 @@ export function createMappingProjectionSession(
     },
     getRenderedRowCount() {
       return renderedRows.length;
+    },
+    isRowBudgetExhausted() {
+      return rowBudgetExhausted;
     },
   };
 }
@@ -369,7 +415,9 @@ export function convertJsonToCsvPreviewTable(
   handlersOrProgress: MappingConversionHandlers | ((progress: ProcessingProgress) => void) = {},
 ) {
   const handlers = normalizeMappingConversionHandlers(handlersOrProgress);
-  const session = createMappingProjectionSession(overrides);
+  const session = createMappingProjectionSession(overrides, {
+    renderedRowBudget: options.renderedRowBudget,
+  });
   const config = session.config;
 
   const rootNodes = selectRootNodes(input, config.rootPath, options.rootLimit);
@@ -401,21 +449,14 @@ export function inspectMappingPaths(
   onProgress?: (progress: ProcessingProgress) => void,
   rootLimit?: number,
 ) {
-  const registry = new Map<
-    string,
-    {
-      count: number;
-      depth: number;
-      kinds: Set<ValueKind>;
-    }
-  >();
+  const registry = createPathInspectionRegistry();
   const rootNodes = selectRootNodes(input, rootPath, rootLimit);
   const totalRoots = Math.max(rootNodes.length, 1);
 
   onProgress?.({ completed: 0, total: totalRoots });
 
   for (const [index, rootNode] of rootNodes.entries()) {
-    inspectNodePaths(rootNode, [], registry);
+    inspectRootNodePaths(rootNode, registry);
     onProgress?.({ completed: index + 1, total: totalRoots });
   }
 
@@ -423,17 +464,7 @@ export function inspectMappingPaths(
     onProgress?.({ completed: totalRoots, total: totalRoots });
   }
 
-  return [...registry.entries()]
-    .map(([path, entry]) => ({
-      count: entry.count,
-      depth: entry.depth,
-      kinds: [...entry.kinds].sort(compareValueKinds),
-      path,
-    }))
-    .filter((entry) => entry.path.length > 0)
-    .sort(
-      (left, right) => left.depth - right.depth || left.path.localeCompare(right.path),
-    ) satisfies InspectedPath[];
+  return finalizeInspectedPaths(registry);
 }
 
 function finalizeProjectionResult(
@@ -477,7 +508,16 @@ function finalizePreviewProjectionResult(
   config: MappingConfig,
   options: MappingPreviewOptions,
 ) {
-  const renderedRawRows = renderedRows.map((row) => ({ ...row.data }));
+  // For preview, cap the rows we process to avoid copying the entire dataset.
+  // Use a generous sample for schema/header accuracy, but avoid processing
+  // unbounded rows when only a small preview is needed.
+  const schemaSampleLimit = Math.max(options.previewRowLimit * 10, 1_000);
+  const sampledRenderedRows =
+    renderedRows.length > schemaSampleLimit
+      ? renderedRows.slice(0, schemaSampleLimit)
+      : renderedRows;
+
+  const renderedRawRows = sampledRenderedRows.map((row) => ({ ...row.data }));
   const sourceRegistry = cloneColumnRegistry(registry);
   const splitRows = applyTypeMismatchStrategy(
     renderedRawRows.map((row) => ({ ...row })),
@@ -493,7 +533,11 @@ function finalizePreviewProjectionResult(
     selectedHeaders,
     sourceRegistry,
     registry,
-    collectPrimaryKeys(projectedRows),
+    collectPrimaryKeys(
+      projectedRows.length > schemaSampleLimit
+        ? projectedRows.slice(0, schemaSampleLimit)
+        : projectedRows,
+    ),
     config,
   );
 

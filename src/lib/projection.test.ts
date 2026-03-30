@@ -233,12 +233,6 @@ describe("projection pipeline", () => {
           phase: "parse",
           phaseTotal: customJson.length,
         }),
-        expect.objectContaining({
-          label: "Inspecting root paths",
-          phase: "inspect",
-          phaseCompleted: 2,
-          phaseTotal: 2,
-        }),
       ]),
     );
     expect(result.parseError).toBeNull();

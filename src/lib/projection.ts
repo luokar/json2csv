@@ -7,8 +7,11 @@ import {
 import {
   convertJsonToCsvPreviewTable,
   createMappingProjectionSession,
+  createPathInspectionRegistry,
+  finalizeInspectedPaths,
   type InspectedPath,
   inspectMappingPaths,
+  inspectRootNodePaths,
   type JsonValue,
   type MappingConfig,
   type MappingPreviewResult,
@@ -96,6 +99,7 @@ export function computeProjectionPayload(
 export const projectionFlatRowPreviewLimit = 100;
 export const projectionFlatCsvPreviewCharacterLimit = 18_000;
 export const projectionPreviewRootLimit = 1_500;
+export const projectionRenderedRowBudget = 5_000;
 
 export function streamProjectionPayload(
   request: ProjectionRequest,
@@ -150,6 +154,7 @@ export function streamProjectionPayload(
         {
           csvPreviewCharacterLimit: projectionFlatCsvPreviewCharacterLimit,
           previewRowLimit: projectionFlatRowPreviewLimit,
+          renderedRowBudget: projectionRenderedRowBudget,
           rootLimit: previewRootLimit ?? undefined,
         },
         {
@@ -175,6 +180,7 @@ const projectionStreamPreviewRowLimit = projectionFlatRowPreviewLimit;
 const projectionStreamPreviewWarmupRootCount = 3;
 const projectionStreamPreviewWarmupInterval = 8;
 const projectionStreamPreviewSteadyInterval = 128;
+const projectionDynamicBudgetSampleSize = 10;
 
 const projectionPhaseLabels: Record<ProjectionPhase, string> = {
   flat: "Projecting flat CSV rows",
@@ -207,10 +213,12 @@ function streamCustomSelectorProjectionPayload(
   },
   reportProgress: (phase: ProjectionPhase, phaseCompleted: number, phaseTotal: number) => void,
 ) {
-  const rootNodes: JsonValue[] = [];
-  const previewRootLimit = projectionPreviewRootLimit;
+  const pathRegistry = createPathInspectionRegistry();
+  let effectiveRootLimit = projectionPreviewRootLimit;
   const flatProjectionSession = request.config
-    ? createMappingProjectionSession(request.config)
+    ? createMappingProjectionSession(request.config, {
+        renderedRowBudget: projectionRenderedRowBudget,
+      })
     : null;
   let totalParsedRootCount = 0;
 
@@ -222,11 +230,21 @@ function streamCustomSelectorProjectionPayload(
       onRoot: (value) => {
         totalParsedRootCount += 1;
 
-        if (previewRootLimit !== null && totalParsedRootCount > previewRootLimit) {
+        if (totalParsedRootCount > effectiveRootLimit) {
           return;
         }
 
-        rootNodes.push(value);
+        // After processing a sample of roots, check row expansion ratio
+        // and reduce the root limit if each root produces many rows.
+        if (flatProjectionSession && totalParsedRootCount === projectionDynamicBudgetSampleSize) {
+          effectiveRootLimit = resolveDynamicRootLimit(
+            flatProjectionSession.getRenderedRowCount(),
+            totalParsedRootCount,
+            effectiveRootLimit,
+          );
+        }
+
+        inspectRootNodePaths(value, pathRegistry);
         flatProjectionSession?.appendRoot(value);
 
         if (
@@ -261,7 +279,7 @@ function streamCustomSelectorProjectionPayload(
   if (flatProjectionSession && handlers.onFlatStreamPreview) {
     handlers.onFlatStreamPreview(
       flatProjectionSession.buildStreamChunk(
-        rootNodes.length,
+        totalParsedRootCount,
         projectionStreamPreviewRowLimit,
         projectionFlatCsvPreviewCharacterLimit,
       ),
@@ -270,22 +288,18 @@ function streamCustomSelectorProjectionPayload(
 
   reportProgress("parse", request.customJson.length, request.customJson.length);
 
-  const discoveredPaths = inspectMappingPaths(rootNodes, undefined, (progress) => {
-    reportProgress("inspect", progress.completed, progress.total);
-  });
+  const discoveredPaths = finalizeInspectedPaths(pathRegistry);
   const conversionResult = request.config
     ? finalizeFlatProjectionSession(flatProjectionSession, reportProgress)
     : null;
+  const previewCapped = totalParsedRootCount > effectiveRootLimit;
 
   return {
     conversionResult,
     discoveredPaths,
     parseError: null,
-    previewCapped: previewRootLimit !== null && totalParsedRootCount > previewRootLimit,
-    previewRootLimit:
-      previewRootLimit !== null && totalParsedRootCount > previewRootLimit
-        ? previewRootLimit
-        : null,
+    previewCapped,
+    previewRootLimit: previewCapped ? effectiveRootLimit : null,
   };
 }
 
@@ -357,6 +371,32 @@ function resolveProjectionPreviewRootLimit(
   }
 
   return null;
+}
+
+function resolveDynamicRootLimit(
+  renderedRowCount: number,
+  processedRoots: number,
+  currentLimit: number,
+) {
+  if (processedRoots === 0) {
+    return currentLimit;
+  }
+
+  const rowsPerRoot = renderedRowCount / processedRoots;
+
+  // For high-expansion data (many rows per root), reduce the root limit
+  // to keep total rendered rows within the budget.
+  if (rowsPerRoot > 10) {
+    return Math.min(
+      currentLimit,
+      Math.max(
+        Math.floor(projectionRenderedRowBudget / rowsPerRoot),
+        projectionDynamicBudgetSampleSize,
+      ),
+    );
+  }
+
+  return currentLimit;
 }
 
 function shouldEmitProjectionStreamPreview(

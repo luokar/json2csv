@@ -14,13 +14,14 @@ self.onmessage = (event: MessageEvent<OutputExportWorkerRequest>) => {
   const { payload, requestId } = event.data;
 
   try {
+    const artifact = buildOutputExportArtifact(payload);
     const response: OutputExportWorkerResultResponse = {
-      payload: buildOutputExportArtifact(payload),
+      payload: artifact,
       requestId,
       type: "result",
     };
 
-    self.postMessage(response);
+    self.postMessage(response, [artifact.bytes.buffer]);
   } catch (error) {
     const response: OutputExportWorkerErrorResponse = {
       error: error instanceof Error ? error.message : "Failed to prepare export.",

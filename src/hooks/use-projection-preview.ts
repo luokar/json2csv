@@ -153,6 +153,7 @@ export function useProjectionPreview(
       clearPendingCommit();
       workerRef.current?.terminate();
       workerRef.current = null;
+      setProjection(disabledProjectionState);
 
       return;
     }
@@ -172,12 +173,7 @@ export function useProjectionPreview(
       sourceMode,
     };
 
-    setProjection((previous) => ({
-      ...previous,
-      isProjecting: true,
-      progress: createInitialProjectionProgress(),
-      streamingFlatPreview: null,
-    }));
+    setProjection(emptyProjectionState);
 
     const commitProgress = (response: ProjectionWorkerResponse) => {
       if (response.type !== "progress" || response.requestId !== requestIdRef.current) {
@@ -225,13 +221,11 @@ export function useProjectionPreview(
       return;
     }
 
-    if (!workerRef.current) {
-      workerRef.current = new Worker(new URL("../workers/projection-worker.ts", import.meta.url), {
-        type: "module",
-      });
-    }
-
-    const worker = workerRef.current;
+    workerRef.current?.terminate();
+    const worker = new Worker(new URL("../workers/projection-worker.ts", import.meta.url), {
+      type: "module",
+    });
+    workerRef.current = worker;
     const handleMessage = (event: MessageEvent<ProjectionWorkerResponse>) => {
       commitProgress(event.data);
       commitStreamPreview(event.data);
@@ -243,6 +237,12 @@ export function useProjectionPreview(
 
     return () => {
       worker.removeEventListener("message", handleMessage);
+
+      if (workerRef.current === worker) {
+        workerRef.current = null;
+      }
+
+      worker.terminate();
     };
   }, [
     clearPendingCommit,

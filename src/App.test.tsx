@@ -63,6 +63,8 @@ const wideFlatPreviewJson = JSON.stringify([
   ),
 ]);
 
+const largeObjectRootJson = `{"blob":"${"x".repeat(600_000)}"}`;
+
 async function switchToCustomMode(
   user: ReturnType<typeof userEvent.setup>,
   options: {
@@ -345,6 +347,29 @@ describe("App", () => {
       expect(screen.getByText(/parsed successfully/i)).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /^email$/i })).toBeInTheDocument();
     });
+  });
+
+  it("suspends live preview for very large object-root custom json", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await switchToCustomMode(user, { waitForWorkbench: false });
+
+    fireEvent.change(screen.getByLabelText(/custom json/i), {
+      target: { value: largeObjectRootJson },
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getAllByText(/live preview is suspended for large object-root json/i).length,
+      ).toBeGreaterThan(0);
+      expect(screen.getAllByRole("button", { name: /download full csv/i })[0]).toBeDisabled();
+    });
+
+    expect(
+      screen.queryByText(/parsing and rebuilding the preview in the background/i),
+    ).not.toBeInTheDocument();
   });
 
   it("pivots arrays into indexed columns from the config form", async () => {

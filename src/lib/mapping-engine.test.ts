@@ -60,6 +60,25 @@ describe("mapping engine", () => {
     ]);
   });
 
+  it("stops nested wildcard root selection once the requested limit is reached", () => {
+    expect(
+      selectRootNodes(
+        {
+          groups: [
+            {
+              records: [{ id: "1" }, { id: "2" }],
+            },
+            {
+              records: [{ id: "3" }, { id: "4" }],
+            },
+          ],
+        },
+        "$.groups[*].records[*]",
+        2,
+      ),
+    ).toEqual([{ id: "1" }, { id: "2" }]);
+  });
+
   it("creates a cartesian product in cross-product mode", () => {
     const result = convertJsonToCsvTable(donutSample, {
       rootPath: "$.items.item[*]",

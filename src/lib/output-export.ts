@@ -1,6 +1,6 @@
 import { strToU8 } from "fflate";
 import { parseJsonInput } from "@/lib/json-input";
-import { convertJsonToCsvTable, type JsonValue, type MappingConfig } from "@/lib/mapping-engine";
+import { convertJsonToCsvText, type JsonValue, type MappingConfig } from "@/lib/mapping-engine";
 import type { ProjectionRequest } from "@/lib/projection";
 
 const csvMimeType = "text/csv;charset=utf-8";
@@ -43,7 +43,7 @@ export function buildOutputExportArtifact(request: OutputExportRequest): OutputE
   }
 
   const input = resolveExportInput(request);
-  const flatResult = convertJsonToCsvTable(input, request.config);
+  const flatResult = convertJsonToCsvText(input, request.config);
   const exportBaseName = sanitizeExportSegment(request.exportName, defaultExportBaseName);
 
   return createTextArtifact(`${exportBaseName}.csv`, flatResult.csv, csvMimeType);
@@ -54,9 +54,8 @@ export function downloadExportArtifact(artifact: OutputExportArtifact) {
     return;
   }
 
-  const blobBytes = new Uint8Array(artifact.bytes);
   const url = URL.createObjectURL(
-    new Blob([blobBytes], {
+    new Blob([artifact.bytes.buffer as ArrayBuffer], {
       type: artifact.mimeType,
     }),
   );
@@ -82,14 +81,10 @@ function createTextArtifact(
   mimeType: string,
 ): OutputExportArtifact {
   return {
-    bytes: normalizeBytes(strToU8(content)),
+    bytes: strToU8(content),
     fileName,
     mimeType,
   };
-}
-
-function normalizeBytes(bytes: Uint8Array) {
-  return new Uint8Array(bytes);
 }
 
 function resolveExportInput(request: ProjectionRequest): JsonValue {

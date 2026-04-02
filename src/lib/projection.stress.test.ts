@@ -5,6 +5,7 @@ import {
 } from "@/lib/mapping-engine";
 import {
   computeProjectionPayload,
+  projectionDiscoveredPathLimit,
   projectionFlatRowPreviewLimit,
   projectionPreviewRootLimit,
   projectionRenderedRowBudget,
@@ -155,6 +156,28 @@ describe("projection memory stress tests", () => {
   });
 
   describe("wide/deep objects", () => {
+    it("caps discovered path tracking for extremely wide roots", () => {
+      const record = Array.from(
+        { length: projectionDiscoveredPathLimit + 500 },
+        (_, index) => [`field_${index}`, `value-${index}`] as const,
+      ).reduce<Record<string, string>>((current, [key, value]) => {
+        current[key] = value;
+        return current;
+      }, {});
+      const json = JSON.stringify({ data: [record] });
+
+      const result = computeProjectionPayload({
+        config: createMappingConfig({ rootPath: "$.data[*]" }),
+        customJson: json,
+        rootPath: "$.data[*]",
+        sampleJson: { data: [record] } as JsonValue,
+        sourceMode: "custom",
+      });
+
+      expect(result.parseError).toBeNull();
+      expect(result.discoveredPaths.length).toBeLessThanOrEqual(projectionDiscoveredPathLimit);
+    });
+
     it("handles objects with many keys without excessive memory in path inspection", () => {
       // 50 unique keys per root, 200 roots
       const rootCount = 200;

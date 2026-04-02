@@ -50,16 +50,20 @@ export function useOutputExport() {
         requestIdRef.current += 1;
         const requestId = requestIdRef.current;
 
-        if (!workerRef.current) {
-          workerRef.current = new Worker(new URL("../workers/export-worker.ts", import.meta.url), {
-            type: "module",
-          });
-        }
-
-        const worker = workerRef.current;
+        workerRef.current?.terminate();
+        const worker = new Worker(new URL("../workers/export-worker.ts", import.meta.url), {
+          type: "module",
+        });
+        workerRef.current = worker;
         const cleanup = () => {
           worker.removeEventListener("message", handleMessage);
           worker.removeEventListener("error", handleError);
+
+          if (workerRef.current === worker) {
+            workerRef.current = null;
+          }
+
+          worker.terminate();
         };
 
         const handleMessage = (event: MessageEvent<OutputExportWorkerResponse>) => {

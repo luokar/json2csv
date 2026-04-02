@@ -18,7 +18,19 @@ if (!donutSample) {
 }
 
 class FakeProjectionWorker {
+  static instances: FakeProjectionWorker[] = [];
+  static terminateCount = 0;
+
   private listeners = new Set<(event: MessageEvent<ProjectionWorkerResponse>) => void>();
+
+  constructor() {
+    FakeProjectionWorker.instances.push(this);
+  }
+
+  static reset() {
+    FakeProjectionWorker.instances = [];
+    FakeProjectionWorker.terminateCount = 0;
+  }
 
   addEventListener(
     type: string,
@@ -81,7 +93,10 @@ class FakeProjectionWorker {
     }
   }
 
-  terminate() {}
+  terminate() {
+    FakeProjectionWorker.terminateCount += 1;
+    this.listeners.clear();
+  }
 
   private emit(data: ProjectionWorkerResponse) {
     const event = { data } as MessageEvent<ProjectionWorkerResponse>;
@@ -116,6 +131,7 @@ function ProjectionHarness({
 
 describe("useProjectionPreview", () => {
   it("stays idle when projection is disabled for input debugging", async () => {
+    FakeProjectionWorker.reset();
     vi.stubGlobal("Worker", FakeProjectionWorker);
 
     render(
@@ -142,6 +158,7 @@ describe("useProjectionPreview", () => {
   });
 
   it("consumes worker progress updates before committing the final result", async () => {
+    FakeProjectionWorker.reset();
     vi.stubGlobal("Worker", FakeProjectionWorker);
 
     render(
@@ -174,6 +191,59 @@ describe("useProjectionPreview", () => {
       expect(screen.getByText(/progress label: none/i)).toBeInTheDocument();
       expect(screen.getByText(/streaming rows: none/i)).toBeInTheDocument();
       expect(screen.getByText(/rows: 10/i)).toBeInTheDocument();
+    });
+  });
+
+  it("drops stale preview data and replaces the worker when the request changes", async () => {
+    FakeProjectionWorker.reset();
+    vi.stubGlobal("Worker", FakeProjectionWorker);
+
+    const { rerender } = render(
+      <ProjectionHarness
+        configVersion="initial-request"
+        request={{
+          config: createMappingConfig({
+            flattenMode: "parallel",
+            rootPath: "$.items.item[*]",
+          }),
+          customJson: "",
+          rootPath: "$.items.item[*]",
+          sampleJson: donutSample.json,
+          sourceMode: "sample",
+        }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/status: ready/i)).toBeInTheDocument();
+      expect(screen.getByText(/rows: 10/i)).toBeInTheDocument();
+    });
+
+    rerender(
+      <ProjectionHarness
+        configVersion="replacement-request"
+        request={{
+          config: createMappingConfig({
+            flattenMode: "parallel",
+            rootPath: "$.records[*]",
+          }),
+          customJson: JSON.stringify({
+            records: [{ id: "1", email: "user@example.com" }],
+          }),
+          rootPath: "$.records[*]",
+          sampleJson: donutSample.json,
+          sourceMode: "custom",
+        }}
+      />,
+    );
+
+    expect(screen.getByText(/status: projecting/i)).toBeInTheDocument();
+    expect(screen.getByText(/rows: 0/i)).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(FakeProjectionWorker.terminateCount).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText(/status: ready/i)).toBeInTheDocument();
+      expect(screen.getByText(/rows: 1/i)).toBeInTheDocument();
     });
   });
 });

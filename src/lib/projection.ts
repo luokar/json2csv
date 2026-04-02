@@ -98,8 +98,9 @@ export function computeProjectionPayload(
 
 export const projectionFlatRowPreviewLimit = 100;
 export const projectionFlatCsvPreviewCharacterLimit = 18_000;
+export const projectionDiscoveredPathLimit = 2_500;
 export const projectionPreviewRootLimit = 1_500;
-export const projectionRenderedRowBudget = 5_000;
+export const projectionRenderedRowBudget = 2_000;
 
 export function streamProjectionPayload(
   request: ProjectionRequest,
@@ -135,7 +136,11 @@ export function streamProjectionPayload(
     };
   }
 
-  const selectedRootCount = selectRootNodes(resolvedInput.value, request.rootPath).length;
+  const selectedRootCount = selectRootNodes(
+    resolvedInput.value,
+    request.rootPath,
+    projectionPreviewRootLimit + 1,
+  ).length;
   const previewRootLimit = resolveProjectionPreviewRootLimit(request, selectedRootCount);
   const previewCapped = previewRootLimit !== null && selectedRootCount > previewRootLimit;
 
@@ -146,6 +151,7 @@ export function streamProjectionPayload(
       reportProgress("inspect", progress.completed, progress.total);
     },
     previewRootLimit ?? undefined,
+    projectionDiscoveredPathLimit,
   );
   const conversionResult = request.config
     ? convertJsonToCsvPreviewTable(
@@ -244,7 +250,7 @@ function streamCustomSelectorProjectionPayload(
           );
         }
 
-        inspectRootNodePaths(value, pathRegistry);
+        inspectRootNodePaths(value, pathRegistry, projectionDiscoveredPathLimit);
         flatProjectionSession?.appendRoot(value);
 
         if (

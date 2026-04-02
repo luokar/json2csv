@@ -80,6 +80,7 @@ const exportNameMinLength = 3;
 const exportNameMaxLength = 80;
 const complexRootPathThreshold = 2_500;
 const complexRootColumnThreshold = 400;
+const largeObjectRootPreviewSuspendCharacterThreshold = 500_000;
 const sampleSourcePreviewCharacterLimit = 12_000;
 const schemaColumnPreviewLimit = 120;
 const schemaTypeReportPreviewLimit = 40;
@@ -248,6 +249,15 @@ function App() {
   const activeConfig = parsedValues.success
     ? toMappingConfig(parsedValues.data, entryKeyAlias)
     : undefined;
+  const previewSuspendedReason = useMemo(
+    () =>
+      describeLargeObjectRootPreviewSuspension(
+        liveValues.sourceMode,
+        liveValues.rootPath,
+        liveValues.customJson,
+      ),
+    [liveValues.customJson, liveValues.rootPath, liveValues.sourceMode],
+  );
   const projection = useProjectionPreview(
     {
       config: activeConfig,
@@ -257,6 +267,9 @@ function App() {
       sourceMode: liveValues.sourceMode,
     },
     activeConfig ? JSON.stringify(activeConfig) : "invalid-config",
+    {
+      enabled: previewSuspendedReason === null,
+    },
   );
   const discoveredPaths = projection.discoveredPaths;
   const conversionResult = projection.conversionResult;
@@ -289,8 +302,9 @@ function App() {
         : null,
     [activeSample.json, liveValues.sourceMode],
   );
-  const outputExportBlockedReason =
-    activeConfig === undefined
+  const outputExportBlockedReason = previewSuspendedReason
+    ? previewSuspendedReason
+    : activeConfig === undefined
       ? "Fix the current mapping config before exporting."
       : projection.parseError
         ? "Resolve the current JSON parse error before exporting."
@@ -393,7 +407,14 @@ function App() {
     }
 
     const text = await file.text();
-    const importedInput = parseJsonInput(text);
+    const importedPreviewSuspendedReason = describeLargeObjectRootPreviewSuspension(
+      "custom",
+      "$",
+      text,
+    );
+    const importedInput = importedPreviewSuspendedReason
+      ? { error: null, value: undefined }
+      : parseJsonInput(text);
     const importedSmartSuggestion =
       importedInput.value === undefined ? null : detectSmartConfigSuggestion(importedInput.value);
     event.target.value = "";
@@ -448,6 +469,17 @@ function App() {
   }
 
   function handleSmartDetect() {
+    if (previewSuspendedReason) {
+      setEntryKeyAlias(null);
+      setSmartDetectFeedback({
+        detail:
+          "Smart detect is suspended for very large object-root JSON. Set a narrower row root first, then run detection again if you still need it.",
+        previewHeaders: [],
+        tone: "info",
+      });
+      return;
+    }
+
     const resolvedInput =
       liveValues.sourceMode === "custom"
         ? parseJsonInput(liveValues.customJson)
@@ -564,6 +596,9 @@ function App() {
           notices={
             <>
               {outputExportError ? <Notice tone="error">{outputExportError}</Notice> : null}
+              {previewSuspendedReason ? (
+                <Notice tone="warning">{previewSuspendedReason}</Notice>
+              ) : null}
               {previewLimitNotice ? <Notice tone="warning">{previewLimitNotice}</Notice> : null}
               {isStreamingFlatPreview && streamingFlatPreview ? (
                 <Notice>{describeStreamingPreviewCaption(streamingFlatPreview)}</Notice>
@@ -876,7 +911,9 @@ function App() {
                             Custom input stays local to this browser for the current session and
                             updates the preview live.
                           </p>
-                          {projection.parseError ? (
+                          {previewSuspendedReason ? (
+                            <Notice tone="warning">{previewSuspendedReason}</Notice>
+                          ) : projection.parseError ? (
                             <Notice tone="error">Invalid JSON: {projection.parseError}</Notice>
                           ) : projection.isProjecting ? (
                             <Notice>
@@ -1211,6 +1248,26 @@ function describeStreamingPreviewCaption(preview: ProjectionFlatStreamPreview) {
 
 function describePreviewLimitNotice(rootLimit: number) {
   return `Large-input safety mode is active. Live preview and schema are limited to the first ${rootLimit.toLocaleString()} roots to control memory. Full CSV export still uses the full input.`;
+}
+
+function describeLargeObjectRootPreviewSuspension(
+  sourceMode: SourceMode,
+  rootPath: string,
+  customJson: string,
+) {
+  if (sourceMode !== "custom" || rootPath.trim() !== "$") {
+    return null;
+  }
+
+  if (customJson.length < largeObjectRootPreviewSuspendCharacterThreshold) {
+    return null;
+  }
+
+  if (!customJson.trimStart().startsWith("{")) {
+    return null;
+  }
+
+  return `Live preview is suspended for large object-root JSON above ${largeObjectRootPreviewSuspendCharacterThreshold.toLocaleString()} characters. Choose a narrower row root before rebuilding the preview.`;
 }
 
 function describeStreamingCsvProgress(preview: ProjectionFlatStreamPreview) {

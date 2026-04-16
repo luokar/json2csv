@@ -1,24 +1,33 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Database, Download, Settings2, Upload } from "lucide-react";
-import { type ChangeEvent, type ReactNode, useCallback, useMemo, useState } from "react";
-import { type UseFormRegisterReturn, useForm, useWatch } from "react-hook-form";
+import { Download, Search as SearchIcon, Settings2, Upload } from "lucide-react";
+import { type ChangeEvent, useCallback, useMemo, useState } from "react";
+import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { bufferedJsonEditorServiceProps } from "@/components/buffered-json-editor";
-import { DenseDataGrid } from "@/components/workbench/dense-data-grid";
+import { CommandPalette, createDefaultActions } from "@/components/command-palette";
+import { InspectorContextCard } from "@/components/inspector/inspector-context-card";
+import { InspectorSection } from "@/components/inspector/inspector-section";
+import { CollapsibleSidebar, SidebarToggleButton } from "@/components/layout/sidebar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { FieldError, SelectField, ToggleField, controlSelectClassName } from "@/components/ui/form-fields";
 import { Input } from "@/components/ui/input";
+import { Kbd } from "@/components/ui/kbd";
 import { Label } from "@/components/ui/label";
+import { Notice } from "@/components/ui/notice";
 import { Textarea } from "@/components/ui/textarea";
+import { CsvWorkbenchPanel } from "@/components/workbench/csv-workbench-panel";
+import { DenseDataGrid } from "@/components/workbench/dense-data-grid";
+import { SchemaWorkbenchPanel } from "@/components/workbench/schema-workbench-panel";
+import { WorkbenchMetric } from "@/components/workbench/workbench-metric";
+import { WorkbenchNavButton } from "@/components/workbench/workbench-nav-button";
+import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { useOutputExport } from "@/hooks/use-output-export";
 import { useProjectionPreview } from "@/hooks/use-projection-preview";
 import { parseJsonInput, stringifyJsonInput } from "@/lib/json-input";
 import { resolveStreamableJsonPath } from "@/lib/json-root-stream";
 import {
   booleanRepresentations,
-  type ColumnSchema,
-  type ColumnTypeReport,
   collisionStrategies,
   createMappingConfig,
   dateFormats,
@@ -35,13 +44,8 @@ import { mappingSamples } from "@/lib/mapping-samples";
 import { createOutputExportRequest, downloadExportArtifact } from "@/lib/output-export";
 import { createRowPreview, createTextPreview } from "@/lib/preview";
 import type { ProjectionFlatStreamPreview, ProjectionProgress } from "@/lib/projection";
-import {
-  type ProjectionConversionResult,
-  projectionFlatCsvPreviewCharacterLimit,
-  projectionFlatRowPreviewLimit,
-} from "@/lib/projection";
+import { projectionFlatRowPreviewLimit } from "@/lib/projection";
 import { detectSmartConfigSuggestion, type SmartConfigSuggestion } from "@/lib/smart-config";
-import { cn } from "@/lib/utils";
 
 const delimiterOptions = [
   { value: ",", label: "Comma (,)" },
@@ -87,8 +91,6 @@ const schemaTypeReportPreviewLimit = 40;
 const tableColumnPreviewLimit = 80;
 const emptyPreviewHeaders: string[] = [];
 const emptyPreviewRecords: Array<Record<string, string>> = [];
-const controlSelectClassName =
-  "flex h-9 w-full rounded-[calc(var(--radius)-2px)] border border-input bg-background/88 px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring";
 
 const converterFormSchema = z.object({
   exportName: z
@@ -181,6 +183,8 @@ function App() {
   const [selectedRow, setSelectedRow] = useState<SelectedWorkbenchRow | null>(null);
   const [entryKeyAlias, setEntryKeyAlias] = useState<string | null>(null);
   const [smartDetectFeedback, setSmartDetectFeedback] = useState<SmartDetectFeedback | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const inspectorMode: InspectorMode = selectedRow ? "row" : selectedColumn ? "column" : "mapping";
 
   const form = useForm<ConverterFormValues>({
@@ -574,6 +578,32 @@ function App() {
     setSelectedColumn({ header, view });
   }, []);
 
+  const keyboardShortcutHandlers = useMemo(
+    () => ({
+      onDownloadCsv: () => {
+        void handleFlatCsvExport();
+      },
+      onOpenCommandPalette: () => setCommandPaletteOpen(true),
+      onToggleSidebar: () => setSidebarOpen((prev) => !prev),
+    }),
+    [canExportOutputs],
+  );
+  useKeyboardShortcuts(keyboardShortcutHandlers);
+
+  const commandActions = useMemo(
+    () =>
+      createDefaultActions({
+        onDownloadCsv: () => {
+          void handleFlatCsvExport();
+        },
+        onResetDefaults: handleResetDefaults,
+        onSmartDetect: handleSmartDetect,
+        onSwitchView: setActiveView,
+        onToggleSidebar: () => setSidebarOpen((prev) => !prev),
+      }),
+    [canExportOutputs],
+  );
+
   function renderWorkbenchCenterPanel() {
     if (activeView === "flat") {
       return (
@@ -583,7 +613,7 @@ function App() {
               ? `Root path ${conversionResult.config.rootPath || "$"} with ${conversionResult.config.flattenMode} mode. ${flatPreviewRowsTruncated ? "Preview is row-bounded for responsiveness." : "All visible preview rows are loaded."}`
               : "Fix the current form errors to generate a preview."
           }
-          description="Full-width operational grid for projected flat rows. Header filters and selection stay available without leaving the table."
+          description="Projected flat rows with inline filtering, sorting, and column controls."
           emptyMessage={
             isStreamingFlatPreview || conversionResult
               ? "No rows match the current filter state."
@@ -626,7 +656,7 @@ function App() {
                 {describeActiveSource(liveValues.sourceMode, activeSample.title)}
               </Badge>
               <Badge variant="secondary">{activeConfigDescription}</Badge>
-              {isStreamingFlatPreview ? <Badge variant="secondary">Streaming</Badge> : null}
+              {isStreamingFlatPreview ? <Badge variant="accent">Streaming</Badge> : null}
             </>
           }
           title="Flat row grid"
@@ -642,8 +672,8 @@ function App() {
             >
               <Download className="size-4" />
               {isOutputExporting && outputExportLabel?.includes("flat CSV")
-                ? "Preparing full CSV"
-                : "Download full CSV"}
+                ? "Preparing..."
+                : "Download CSV"}
             </Button>
           }
           onInspectColumn={(header) => inspectColumn(header, "flat")}
@@ -685,507 +715,504 @@ function App() {
   }
 
   return (
-    <div className="relative isolate min-h-screen overflow-hidden">
-      <main className="mx-auto flex min-h-screen max-w-[1920px] flex-col gap-3 px-3 py-3 lg:px-4">
-        <header className="sticky top-3 z-20 rounded-[var(--radius)] border border-border/90 bg-card/92 px-4 py-3 shadow-[0_18px_44px_-36px_rgba(15,23,42,0.34)] backdrop-blur-sm">
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="space-y-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="outline" className="border-primary/20 bg-primary/6 text-primary">
-                    High-density JSON workspace
-                  </Badge>
-                  {isStreamingFlatPreview ? (
-                    <Badge variant="secondary">Streaming preview</Badge>
-                  ) : null}
-                </div>
-                <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-                  JSON-to-CSV workspace for dense nested data.
-                </h1>
-                <p className="max-w-4xl text-sm text-muted-foreground sm:text-base">
-                  Live root-path selection, flat projection tuning, and export-safe CSV shaping
-                  without extra workflow layers.
-                </p>
-              </div>
+    <div className="flex min-h-screen flex-col bg-muted/30">
+      {/* Top bar */}
+      <header className="border-b border-border bg-white">
+        <div className="mx-auto flex max-w-[1920px] items-center gap-4 px-5 py-3">
+          <div className="flex items-center gap-3">
+            <h1 className="text-base font-semibold text-foreground">json2csv</h1>
+            {isStreamingFlatPreview ? (
+              <Badge variant="accent">Streaming</Badge>
+            ) : null}
+          </div>
 
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  title={outputExportBlockedReason ?? "Download the full flat CSV output."}
-                  disabled={!canExportOutputs || isOutputExporting}
-                  onClick={() => {
-                    void handleFlatCsvExport();
-                  }}
-                >
-                  <Download className="size-4" />
-                  Download full CSV
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  disabled={inspectorMode === "mapping"}
-                  onClick={clearWorkbenchSelection}
-                >
-                  <Settings2 className="size-4" />
-                  Mapping controls
-                </Button>
-              </div>
-            </div>
+          <div className="hidden flex-1 items-center justify-center gap-2 lg:flex">
+            <WorkbenchMetric
+              label="Source"
+              value={describeActiveSource(liveValues.sourceMode, activeSample.title)}
+            />
+            <WorkbenchMetric label="Rows" value={flatRowCount.toLocaleString()} />
+            <WorkbenchMetric label="Cols" value={flatHeaders.length.toLocaleString()} />
+            <WorkbenchMetric
+              label="Status"
+              value={
+                projection.isProjecting && projection.progress
+                  ? `${projection.progress.label} ${formatProjectionProgressDetail(projection.progress)}`
+                  : projection.isProjecting
+                    ? "Updating"
+                    : "Ready"
+              }
+            />
+          </div>
 
-            <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
-              <div className="flex flex-wrap items-center gap-2">
-                <WorkbenchMetric
-                  label="Source"
-                  value={describeActiveSource(liveValues.sourceMode, activeSample.title)}
-                />
-                <WorkbenchMetric
-                  label="Export"
-                  value={liveValues.exportName.trim() || "Untitled"}
-                />
-                <WorkbenchMetric label="Root" value={liveValues.rootPath || "$"} mono />
-                <WorkbenchMetric label="Rows" value={flatRowCount.toLocaleString()} />
-                <WorkbenchMetric label="Columns" value={flatHeaders.length.toLocaleString()} />
-                <WorkbenchMetric
-                  label="Projection"
-                  value={
-                    projection.isProjecting && projection.progress
-                      ? `${projection.progress.label} ${formatProjectionProgressDetail(projection.progress)}`
-                      : projection.isProjecting
-                        ? "Updating preview"
-                        : projection.previewCapped && projection.previewRootLimit
-                          ? `Limited to ${projection.previewRootLimit.toLocaleString()} roots`
-                          : "Ready"
-                  }
-                />
-              </div>
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setCommandPaletteOpen(true)}
+            >
+              <SearchIcon className="size-4" />
+              Commands
+              <Kbd>⌘K</Kbd>
+            </Button>
 
-              <div className="flex flex-wrap gap-2">
-                <WorkbenchNavButton
-                  active={activeView === "flat"}
-                  label="Flat rows"
-                  meta={`${flatRowCount.toLocaleString()} rows`}
-                  onClick={() => setActiveView("flat")}
-                />
-                <WorkbenchNavButton
-                  active={activeView === "csv"}
-                  label="CSV"
-                  meta="Output"
-                  onClick={() => setActiveView("csv")}
-                />
-                <WorkbenchNavButton
-                  active={activeView === "schema"}
-                  label="Schema sidecar"
-                  meta={`${conversionResult?.schema.columns.length ?? 0} cols`}
-                  onClick={() => setActiveView("schema")}
-                />
-              </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              title={outputExportBlockedReason ?? "Download the full flat CSV output."}
+              disabled={!canExportOutputs || isOutputExporting}
+              onClick={() => {
+                void handleFlatCsvExport();
+              }}
+            >
+              <Download className="size-4" />
+              Download CSV
+            </Button>
+
+            <SidebarToggleButton
+              isOpen={sidebarOpen}
+              onToggle={() => setSidebarOpen((prev) => !prev)}
+            />
+          </div>
+        </div>
+      </header>
+
+      {/* Main content area */}
+      <div className="flex min-h-0 flex-1">
+        {/* Main workspace */}
+        <main className="flex min-w-0 flex-1 flex-col">
+          {/* View tabs */}
+          <div className="border-b border-border bg-white px-5 py-2">
+            <div className="flex items-center gap-1">
+              <WorkbenchNavButton
+                active={activeView === "flat"}
+                label="Flat rows"
+                meta={`${flatRowCount.toLocaleString()} rows`}
+                onClick={() => setActiveView("flat")}
+              />
+              <WorkbenchNavButton
+                active={activeView === "csv"}
+                label="CSV"
+                meta="Output"
+                onClick={() => setActiveView("csv")}
+              />
+              <WorkbenchNavButton
+                active={activeView === "schema"}
+                label="Schema"
+                meta={`${conversionResult?.schema.columns.length ?? 0} cols`}
+                onClick={() => setActiveView("schema")}
+              />
             </div>
           </div>
-        </header>
 
-        <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(0,1fr)_420px] 2xl:grid-cols-[minmax(0,1fr)_460px]">
-          <section className="order-2 min-w-0 xl:order-none">
+          {/* Workbench content */}
+          <div className="min-h-0 flex-1 overflow-auto p-4">
             {renderWorkbenchCenterPanel()}
-          </section>
+          </div>
+        </main>
 
-          <aside className="order-1 min-h-0 xl:order-none">
-            <div className="flex h-full min-h-[calc(100vh-6.5rem)] flex-col overflow-hidden rounded-[var(--radius)] border border-border/80 bg-background/78">
-              <div className="flex items-center justify-between border-b border-border/80 px-4 py-3">
-                <div>
-                  <p className="text-sm font-semibold text-foreground">Inspector</p>
-                  <p className="text-xs text-muted-foreground">
-                    Contextual detail and mapping controls stay visible beside the workspace.
-                  </p>
-                </div>
-                {inspectorMode !== "mapping" ? (
-                  <Button type="button" variant="ghost" size="sm" onClick={clearWorkbenchSelection}>
-                    Mapping controls
-                  </Button>
-                ) : null}
-              </div>
-
-              <div className="min-h-0 flex-1 overflow-y-auto p-3">
-                <InspectorContextCard
-                  inspectorMode={inspectorMode}
-                  selectedColumn={selectedColumn}
-                  selectedColumnSchema={selectedColumnSchema}
-                  selectedColumnTypeReport={selectedColumnTypeReport}
-                  selectedRow={selectedRow}
-                />
-
-                <div className="mt-3 space-y-3">
-                  <InspectorSection
-                    description="Session identity, source mode, and staged input management."
-                    title="Session"
-                  >
-                    <div className="space-y-2">
-                      <Label htmlFor="export-name">Export name</Label>
-                      <Input
-                        id="export-name"
-                        maxLength={exportNameMaxLength}
-                        placeholder="Donut CSV export"
-                        {...form.register("exportName")}
-                      />
-                      <FieldError message={form.formState.errors.exportName?.message} />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>Input source</Label>
-                      <div className="flex flex-wrap gap-2">
-                        {sourceModeOptions.map((option) => (
-                          <Button
-                            key={option.value}
-                            type="button"
-                            variant={liveValues.sourceMode === option.value ? "default" : "outline"}
-                            onClick={() => handleSourceModeChange(option.value)}
-                          >
-                            {option.label}
-                          </Button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {liveValues.sourceMode === "sample" ? (
-                      <div className="space-y-2">
-                        <Label htmlFor="sample-id">Sample dataset</Label>
-                        <select
-                          id="sample-id"
-                          className={controlSelectClassName}
-                          value={liveValues.sampleId}
-                          onChange={(event) => handleSampleChange(event.target.value)}
-                        >
-                          {mappingSamples.map((sample) => (
-                            <option key={sample.id} value={sample.id}>
-                              {sample.title}
-                            </option>
-                          ))}
-                        </select>
-                        <p className="text-sm text-muted-foreground">{activeSample.description}</p>
-                        {sampleSourcePreview?.truncated ? (
-                          <Notice>
-                            Showing the first {sampleSourcePreviewCharacterLimit.toLocaleString()}{" "}
-                            characters of the sample source preview.
-                          </Notice>
-                        ) : null}
-                        <Textarea
-                          readOnly
-                          value={sampleSourcePreview?.text ?? ""}
-                          className="min-h-36 font-mono text-[12px] leading-5"
-                        />
-                      </div>
-                    ) : (
-                      <div className="space-y-3 rounded-[calc(var(--radius)-2px)] border border-border/80 bg-card/80 p-3">
-                        <div className="flex flex-wrap gap-2">
-                          <label
-                            htmlFor="json-upload"
-                            className="inline-flex h-9 cursor-pointer items-center justify-center gap-2 rounded-[calc(var(--radius)-2px)] border border-border bg-background/88 px-3 text-sm font-medium text-foreground transition-colors hover:bg-secondary/85"
-                          >
-                            <Upload className="size-4" />
-                            Upload .json
-                          </label>
-                          <input
-                            id="json-upload"
-                            type="file"
-                            accept=".json,application/json"
-                            className="sr-only"
-                            onChange={handleFileImport}
-                          />
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label htmlFor="custom-json">Custom JSON</Label>
-                          <Textarea
-                            id="custom-json"
-                            {...bufferedJsonEditorServiceProps}
-                            placeholder='{"records": [{"id": "1", "email": "user@example.com"}]}'
-                            className="min-h-[18rem] font-mono text-[12px] leading-5"
-                            value={liveValues.customJson}
-                            onChange={(event) => {
-                              form.setValue("customJson", event.target.value, {
-                                shouldValidate: true,
-                              });
-                            }}
-                          />
-                          <p className="text-sm text-muted-foreground">
-                            Custom input stays local to this browser for the current session and
-                            updates the preview live.
-                          </p>
-                          {previewSuspendedReason ? (
-                            <Notice tone="warning">{previewSuspendedReason}</Notice>
-                          ) : projection.parseError ? (
-                            <Notice tone="error">Invalid JSON: {projection.parseError}</Notice>
-                          ) : projection.isProjecting ? (
-                            <Notice>
-                              Parsing and rebuilding the preview in the background as you edit.
-                              {projection.progress
-                                ? ` ${formatProjectionProgressDetail(projection.progress)}.`
-                                : ""}
-                            </Notice>
-                          ) : (
-                            <Notice>
-                              Parsed successfully. Point the root path at the branch that should
-                              become rows.
-                            </Notice>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </InspectorSection>
-
-                  <InspectorSection
-                    description="Root-path control and smart detection for the current payload."
-                    title="Scope"
-                  >
-                    <div className="space-y-2">
-                      <Label htmlFor="root-path">Root path</Label>
-                      <Input
-                        id="root-path"
-                        placeholder="$.items.item[*]"
-                        {...form.register("rootPath")}
-                      />
-                      <FieldError message={form.formState.errors.rootPath?.message} />
-                      {liveValues.sourceMode === "custom" ? (
-                        <p className="text-sm text-muted-foreground">
-                          {streamableCustomSelector
-                            ? "Incremental selector parsing is active for this path."
-                            : "This custom path currently falls back to full-document parsing."}
-                        </p>
-                      ) : null}
-                    </div>
-
-                    <div className="space-y-2 rounded-[calc(var(--radius)-2px)] border border-border/80 bg-card/80 p-3">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          disabled={projection.isProjecting}
-                          onClick={handleSmartDetect}
-                        >
-                          Smart detect
-                        </Button>
-                        <span className="text-sm text-muted-foreground">
-                          Analyze the current payload for a better row root and safer defaults.
-                        </span>
-                      </div>
-
-                      {smartDetectFeedback ? (
-                        <Notice
-                          tone={
-                            smartDetectFeedback.tone === "error"
-                              ? "error"
-                              : smartDetectFeedback.tone === "success"
-                                ? "success"
-                                : "info"
-                          }
-                        >
-                          {smartDetectFeedback.detail}
-                          {smartDetectFeedback.previewHeaders.length > 0 ? (
-                            <span className="mt-1 block font-mono text-[11px] text-muted-foreground">
-                              Preview columns: {smartDetectFeedback.previewHeaders.join(", ")}
-                            </span>
-                          ) : null}
-                        </Notice>
-                      ) : null}
-                    </div>
-
-                    {isBroadRootWarningVisible ? (
-                      <Notice tone="warning">
-                        Root `$` currently exposes {discoveredPaths.length.toLocaleString()}{" "}
-                        structural paths and about {broadRootColumnCount.toLocaleString()} preview
-                        columns. Narrow the root path or use Smart detect before tuning the rest of
-                        the mapping.
-                      </Notice>
-                    ) : (
-                      <Notice>
-                        Discovered {discoveredPaths.length.toLocaleString()} structural paths under
-                        the current root. Smart detect remains available for automatic row-root
-                        selection, but manual path rule editing has been removed to keep the
-                        workspace lean.
-                      </Notice>
-                    )}
-
-                    {previewLimitNotice ? (
-                      <Notice tone="warning">{previewLimitNotice}</Notice>
-                    ) : null}
-                  </InspectorSection>
-
-                  <InspectorSection
-                    description="Core row shaping and CSV behavior controls."
-                    title="Mapping"
-                  >
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <SelectField
-                        id="flatten-mode"
-                        label="Flatten mode"
-                        registration={form.register("flattenMode")}
-                        options={flattenModes.map((value) => ({
-                          label: toTitleCase(value),
-                          value,
-                        }))}
-                      />
-                      <SelectField
-                        id="placeholder-strategy"
-                        label="Parent fill"
-                        registration={form.register("placeholderStrategy")}
-                        options={placeholderStrategies.map((value) => ({
-                          label: toTitleCase(value),
-                          value,
-                        }))}
-                      />
-                      <SelectField
-                        id="missing-keys"
-                        label="Missing keys"
-                        registration={form.register("onMissingKey")}
-                        options={missingKeyStrategies.map((value) => ({
-                          label: toTitleCase(value),
-                          value,
-                        }))}
-                      />
-                      <SelectField
-                        id="type-mismatch"
-                        label="Type mismatch"
-                        registration={form.register("onTypeMismatch")}
-                        options={typeMismatchStrategies.map((value) => ({
-                          label: toTitleCase(value),
-                          value,
-                        }))}
-                      />
-                      <SelectField
-                        id="empty-array-behavior"
-                        label="Empty arrays"
-                        registration={form.register("emptyArrayBehavior")}
-                        options={emptyArrayBehaviors.map((value) => ({
-                          label: toTitleCase(value),
-                          value,
-                        }))}
-                      />
-                      <div className="space-y-2">
-                        <Label htmlFor="max-depth">Max depth</Label>
-                        <Input
-                          id="max-depth"
-                          type="number"
-                          min={1}
-                          max={32}
-                          {...form.register("maxDepth", {
-                            valueAsNumber: true,
-                          })}
-                        />
-                      </div>
-                      <SelectField
-                        id="collision-strategy"
-                        label="Collision strategy"
-                        registration={form.register("collisionStrategy")}
-                        options={collisionStrategies.map((value) => ({
-                          label: toTitleCase(value),
-                          value,
-                        }))}
-                      />
-                      <SelectField
-                        id="boolean-representation"
-                        label="Boolean output"
-                        registration={form.register("booleanRepresentation")}
-                        options={booleanRepresentations.map((value) => ({
-                          label: toTitleCase(value),
-                          value,
-                        }))}
-                      />
-                      <SelectField
-                        id="date-format"
-                        label="Date output"
-                        registration={form.register("dateFormat")}
-                        options={dateFormats.map((value) => ({
-                          label: toTitleCase(value),
-                          value,
-                        }))}
-                      />
-                      <SelectField
-                        id="delimiter"
-                        label="CSV delimiter"
-                        registration={form.register("delimiter")}
-                        options={delimiterOptions.map((option) => ({
-                          label: option.label,
-                          value: option.value,
-                        }))}
-                      />
-                      <div className="space-y-2">
-                        <Label htmlFor="path-separator">Path separator</Label>
-                        <Input
-                          id="path-separator"
-                          placeholder="."
-                          {...form.register("pathSeparator")}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="custom-placeholder">Custom placeholder</Label>
-                        <Input
-                          id="custom-placeholder"
-                          placeholder="NULL"
-                          {...form.register("customPlaceholder")}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                      <ToggleField
-                        label="Quote all cells"
-                        registration={form.register("quoteAll")}
-                      />
-                      <ToggleField
-                        label="Strict naming"
-                        registration={form.register("strictNaming")}
-                      />
-                      <ToggleField
-                        label="Indexed pivot columns"
-                        registration={form.register("arrayIndexSuffix")}
-                      />
-                    </div>
-                  </InspectorSection>
-
-                  <InspectorSection
-                    description="Download the current CSV or clear the workspace back to the baseline sample."
-                    title="Actions"
-                  >
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        title={outputExportBlockedReason ?? "Download the full flat CSV output."}
-                        disabled={!canExportOutputs || isOutputExporting}
-                        onClick={() => {
-                          void handleFlatCsvExport();
-                        }}
-                      >
-                        <Download className="size-4" />
-                        {isOutputExporting && outputExportLabel?.includes("flat CSV")
-                          ? "Preparing full CSV"
-                          : "Download full CSV"}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={projection.isProjecting}
-                        onClick={handleResetDefaults}
-                      >
-                        Reset defaults
-                      </Button>
-                    </div>
-
-                    {configErrors.length > 0 ? (
-                      <Notice tone="error">
-                        {configErrors.slice(0, 3).map((error) => (
-                          <span key={error} className="block">
-                            {error}
-                          </span>
-                        ))}
-                      </Notice>
-                    ) : null}
-                  </InspectorSection>
-                </div>
-              </div>
+        {/* Collapsible sidebar */}
+        <CollapsibleSidebar isOpen={sidebarOpen} onToggle={() => setSidebarOpen((prev) => !prev)}>
+          <div className="flex items-center justify-between border-b border-border px-4 py-3">
+            <div>
+              <p className="text-sm font-semibold text-foreground">Inspector</p>
+              <p className="text-xs text-muted-foreground">Mapping controls and context</p>
             </div>
-          </aside>
-        </div>
-      </main>
+            {inspectorMode !== "mapping" ? (
+              <Button type="button" variant="ghost" size="sm" onClick={clearWorkbenchSelection}>
+                <Settings2 className="size-3.5" />
+                Mapping
+              </Button>
+            ) : null}
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto p-3">
+            <InspectorContextCard
+              inspectorMode={inspectorMode}
+              selectedColumn={selectedColumn}
+              selectedColumnSchema={selectedColumnSchema}
+              selectedColumnTypeReport={selectedColumnTypeReport}
+              selectedRow={selectedRow}
+            />
+
+            <div className="mt-3 space-y-3">
+              <InspectorSection
+                description="Session identity, source mode, and staged input management."
+                title="Session"
+              >
+                <div className="space-y-1.5">
+                  <Label htmlFor="export-name">Export name</Label>
+                  <Input
+                    id="export-name"
+                    maxLength={exportNameMaxLength}
+                    placeholder="Donut CSV export"
+                    {...form.register("exportName")}
+                  />
+                  <FieldError message={form.formState.errors.exportName?.message} />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label>Input source</Label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {sourceModeOptions.map((option) => (
+                      <Button
+                        key={option.value}
+                        type="button"
+                        size="sm"
+                        variant={liveValues.sourceMode === option.value ? "default" : "outline"}
+                        onClick={() => handleSourceModeChange(option.value)}
+                      >
+                        {option.label}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                {liveValues.sourceMode === "sample" ? (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="sample-id">Sample dataset</Label>
+                    <select
+                      id="sample-id"
+                      className={controlSelectClassName}
+                      value={liveValues.sampleId}
+                      onChange={(event) => handleSampleChange(event.target.value)}
+                    >
+                      {mappingSamples.map((sample) => (
+                        <option key={sample.id} value={sample.id}>
+                          {sample.title}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-muted-foreground">{activeSample.description}</p>
+                    {sampleSourcePreview?.truncated ? (
+                      <Notice>
+                        Showing the first {sampleSourcePreviewCharacterLimit.toLocaleString()}{" "}
+                        characters of the sample source preview.
+                      </Notice>
+                    ) : null}
+                    <Textarea
+                      readOnly
+                      value={sampleSourcePreview?.text ?? ""}
+                      className="min-h-36 font-mono text-[12px] leading-5"
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
+                    <div className="flex flex-wrap gap-1.5">
+                      <label
+                        htmlFor="json-upload"
+                        className="inline-flex h-8 cursor-pointer items-center justify-center gap-2 rounded-lg border border-border bg-white px-3 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                      >
+                        <Upload className="size-4" />
+                        Upload .json
+                      </label>
+                      <input
+                        id="json-upload"
+                        type="file"
+                        accept=".json,application/json"
+                        className="sr-only"
+                        onChange={handleFileImport}
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="custom-json">Custom JSON</Label>
+                      <Textarea
+                        id="custom-json"
+                        {...bufferedJsonEditorServiceProps}
+                        placeholder='{"records": [{"id": "1", "email": "user@example.com"}]}'
+                        className="min-h-[18rem] font-mono text-[12px] leading-5"
+                        value={liveValues.customJson}
+                        onChange={(event) => {
+                          form.setValue("customJson", event.target.value, {
+                            shouldValidate: true,
+                          });
+                        }}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Custom input stays local and updates the preview live.
+                      </p>
+                      {previewSuspendedReason ? (
+                        <Notice tone="warning">{previewSuspendedReason}</Notice>
+                      ) : projection.parseError ? (
+                        <Notice tone="error">Invalid JSON: {projection.parseError}</Notice>
+                      ) : projection.isProjecting ? (
+                        <Notice>
+                          Rebuilding the preview in the background.
+                          {projection.progress
+                            ? ` ${formatProjectionProgressDetail(projection.progress)}.`
+                            : ""}
+                        </Notice>
+                      ) : (
+                        <Notice>
+                          Parsed successfully. Point the root path at the branch that should
+                          become rows.
+                        </Notice>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </InspectorSection>
+
+              <InspectorSection
+                description="Root-path control and smart detection."
+                title="Scope"
+              >
+                <div className="space-y-1.5">
+                  <Label htmlFor="root-path">Root path</Label>
+                  <Input
+                    id="root-path"
+                    placeholder="$.items.item[*]"
+                    {...form.register("rootPath")}
+                  />
+                  <FieldError message={form.formState.errors.rootPath?.message} />
+                  {liveValues.sourceMode === "custom" ? (
+                    <p className="text-xs text-muted-foreground">
+                      {streamableCustomSelector
+                        ? "Incremental selector parsing is active for this path."
+                        : "This custom path currently falls back to full-document parsing."}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      disabled={projection.isProjecting}
+                      onClick={handleSmartDetect}
+                    >
+                      Smart detect
+                    </Button>
+                    <span className="text-xs text-muted-foreground">
+                      Analyze the payload for a better row root.
+                    </span>
+                  </div>
+
+                  {smartDetectFeedback ? (
+                    <Notice
+                      tone={
+                        smartDetectFeedback.tone === "error"
+                          ? "error"
+                          : smartDetectFeedback.tone === "success"
+                            ? "success"
+                            : "info"
+                      }
+                    >
+                      {smartDetectFeedback.detail}
+                      {smartDetectFeedback.previewHeaders.length > 0 ? (
+                        <span className="mt-1 block font-mono text-[11px] text-muted-foreground">
+                          Preview columns: {smartDetectFeedback.previewHeaders.join(", ")}
+                        </span>
+                      ) : null}
+                    </Notice>
+                  ) : null}
+                </div>
+
+                {isBroadRootWarningVisible ? (
+                  <Notice tone="warning">
+                    Root `$` currently exposes {discoveredPaths.length.toLocaleString()}{" "}
+                    structural paths and about {broadRootColumnCount.toLocaleString()} preview
+                    columns. Narrow the root path or use Smart detect before tuning the rest of
+                    the mapping.
+                  </Notice>
+                ) : (
+                  <Notice>
+                    Discovered {discoveredPaths.length.toLocaleString()} structural paths under
+                    the current root.
+                  </Notice>
+                )}
+
+                {previewLimitNotice ? (
+                  <Notice tone="warning">{previewLimitNotice}</Notice>
+                ) : null}
+              </InspectorSection>
+
+              <InspectorSection
+                description="Core row shaping and CSV behavior controls."
+                title="Mapping"
+              >
+                <div className="grid gap-2.5 md:grid-cols-2">
+                  <SelectField
+                    id="flatten-mode"
+                    label="Flatten mode"
+                    registration={form.register("flattenMode")}
+                    options={flattenModes.map((value) => ({
+                      label: toTitleCase(value),
+                      value,
+                    }))}
+                  />
+                  <SelectField
+                    id="placeholder-strategy"
+                    label="Parent fill"
+                    registration={form.register("placeholderStrategy")}
+                    options={placeholderStrategies.map((value) => ({
+                      label: toTitleCase(value),
+                      value,
+                    }))}
+                  />
+                  <SelectField
+                    id="missing-keys"
+                    label="Missing keys"
+                    registration={form.register("onMissingKey")}
+                    options={missingKeyStrategies.map((value) => ({
+                      label: toTitleCase(value),
+                      value,
+                    }))}
+                  />
+                  <SelectField
+                    id="type-mismatch"
+                    label="Type mismatch"
+                    registration={form.register("onTypeMismatch")}
+                    options={typeMismatchStrategies.map((value) => ({
+                      label: toTitleCase(value),
+                      value,
+                    }))}
+                  />
+                  <SelectField
+                    id="empty-array-behavior"
+                    label="Empty arrays"
+                    registration={form.register("emptyArrayBehavior")}
+                    options={emptyArrayBehaviors.map((value) => ({
+                      label: toTitleCase(value),
+                      value,
+                    }))}
+                  />
+                  <div className="space-y-1.5">
+                    <Label htmlFor="max-depth">Max depth</Label>
+                    <Input
+                      id="max-depth"
+                      type="number"
+                      min={1}
+                      max={32}
+                      {...form.register("maxDepth", {
+                        valueAsNumber: true,
+                      })}
+                    />
+                  </div>
+                  <SelectField
+                    id="collision-strategy"
+                    label="Collision strategy"
+                    registration={form.register("collisionStrategy")}
+                    options={collisionStrategies.map((value) => ({
+                      label: toTitleCase(value),
+                      value,
+                    }))}
+                  />
+                  <SelectField
+                    id="boolean-representation"
+                    label="Boolean output"
+                    registration={form.register("booleanRepresentation")}
+                    options={booleanRepresentations.map((value) => ({
+                      label: toTitleCase(value),
+                      value,
+                    }))}
+                  />
+                  <SelectField
+                    id="date-format"
+                    label="Date output"
+                    registration={form.register("dateFormat")}
+                    options={dateFormats.map((value) => ({
+                      label: toTitleCase(value),
+                      value,
+                    }))}
+                  />
+                  <SelectField
+                    id="delimiter"
+                    label="CSV delimiter"
+                    registration={form.register("delimiter")}
+                    options={delimiterOptions.map((option) => ({
+                      label: option.label,
+                      value: option.value,
+                    }))}
+                  />
+                  <div className="space-y-1.5">
+                    <Label htmlFor="path-separator">Path separator</Label>
+                    <Input
+                      id="path-separator"
+                      placeholder="."
+                      {...form.register("pathSeparator")}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="custom-placeholder">Custom placeholder</Label>
+                    <Input
+                      id="custom-placeholder"
+                      placeholder="NULL"
+                      {...form.register("customPlaceholder")}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-1.5 md:grid-cols-2 xl:grid-cols-3">
+                  <ToggleField
+                    label="Quote all cells"
+                    registration={form.register("quoteAll")}
+                  />
+                  <ToggleField
+                    label="Strict naming"
+                    registration={form.register("strictNaming")}
+                  />
+                  <ToggleField
+                    label="Indexed pivot columns"
+                    registration={form.register("arrayIndexSuffix")}
+                  />
+                </div>
+              </InspectorSection>
+
+              <InspectorSection
+                description="Download or reset the workspace."
+                title="Actions"
+              >
+                <div className="flex flex-wrap gap-1.5">
+                  <Button
+                    type="button"
+                    title={outputExportBlockedReason ?? "Download the full flat CSV output."}
+                    disabled={!canExportOutputs || isOutputExporting}
+                    onClick={() => {
+                      void handleFlatCsvExport();
+                    }}
+                  >
+                    <Download className="size-4" />
+                    {isOutputExporting && outputExportLabel?.includes("flat CSV")
+                      ? "Preparing..."
+                      : "Download CSV"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={projection.isProjecting}
+                    onClick={handleResetDefaults}
+                  >
+                    Reset defaults
+                  </Button>
+                </div>
+
+                {configErrors.length > 0 ? (
+                  <Notice tone="error">
+                    {configErrors.slice(0, 3).map((error) => (
+                      <span key={error} className="block">
+                        {error}
+                      </span>
+                    ))}
+                  </Notice>
+                ) : null}
+              </InspectorSection>
+            </div>
+          </div>
+        </CollapsibleSidebar>
+      </div>
+
+      {/* Command palette */}
+      <CommandPalette
+        actions={commandActions}
+        isOpen={commandPaletteOpen}
+        onOpenChange={setCommandPaletteOpen}
+      />
     </div>
   );
 }
@@ -1234,12 +1261,6 @@ function describeConfig(config: MappingConfig) {
   return `${toTitleCase(config.flattenMode)} / ${config.headerPolicy.replaceAll("_", " ")} / ${config.delimiter === "\t" ? "tab" : config.delimiter}`;
 }
 
-function formatTypeReport(report: ColumnTypeReport) {
-  return report.typeBreakdown
-    .map((entry) => `${formatPercent(entry.percentage)} ${entry.kind}`)
-    .join(" / ");
-}
-
 function describeStreamingPreviewCaption(preview: ProjectionFlatStreamPreview) {
   return preview.totalRoots === null
     ? `Streaming preview from ${preview.processedRoots} parsed roots. Final schema and flat CSV preview are still building in the worker.`
@@ -1270,12 +1291,6 @@ function describeLargeObjectRootPreviewSuspension(
   return `Live preview is suspended for large object-root JSON above ${largeObjectRootPreviewSuspendCharacterThreshold.toLocaleString()} characters. Choose a narrower row root before rebuilding the preview.`;
 }
 
-function describeStreamingCsvProgress(preview: ProjectionFlatStreamPreview) {
-  return preview.totalRoots === null
-    ? `Processed ${preview.processedRoots} roots so far. The final CSV continues materializing in the worker.`
-    : `Processed ${preview.processedRoots} of ${preview.totalRoots} roots. The final CSV continues materializing in the worker.`;
-}
-
 function formatProjectionProgressDetail(progress: ProjectionProgress) {
   if (progress.phase === "parse" && progress.phaseTotal > 1) {
     return `${progress.phaseCompleted.toLocaleString()}/${progress.phaseTotal.toLocaleString()} chars · ${progress.percent}%`;
@@ -1286,10 +1301,6 @@ function formatProjectionProgressDetail(progress: ProjectionProgress) {
   }
 
   return `${progress.percent}%`;
-}
-
-function formatPercent(value: number) {
-  return Number.isInteger(value) ? `${value}%` : `${value.toFixed(1)}%`;
 }
 
 function toTitleCase(value: string) {
@@ -1331,420 +1342,6 @@ function createWorkbenchRowLabel(row: Record<string, string>, fallback: string) 
   }
 
   return fallback;
-}
-
-function WorkbenchMetric({
-  label,
-  mono = false,
-  value,
-}: {
-  label: string;
-  mono?: boolean;
-  value: string;
-}) {
-  return (
-    <div className="inline-flex items-center gap-2 rounded-[999px] border border-border/80 bg-background/86 px-3 py-1.5 text-xs text-muted-foreground">
-      <span className="uppercase tracking-[0.12em]">{label}</span>
-      <span className={cn("text-foreground", mono && "font-mono text-[11px]")}>{value}</span>
-    </div>
-  );
-}
-
-function WorkbenchNavButton({
-  active,
-  disabled = false,
-  label,
-  meta,
-  onClick,
-}: {
-  active: boolean;
-  disabled?: boolean;
-  label: string;
-  meta: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className={cn(
-        "inline-flex items-center gap-2 rounded-[calc(var(--radius)-2px)] border px-3 py-2 text-sm transition-colors disabled:pointer-events-none disabled:opacity-50",
-        active
-          ? "border-primary/25 bg-primary/7 text-foreground"
-          : "border-border/80 bg-background/86 text-muted-foreground hover:bg-secondary/85",
-      )}
-      disabled={disabled}
-      onClick={onClick}
-    >
-      <span className="font-medium">{label}</span>
-      <span className="text-xs text-muted-foreground">{meta}</span>
-    </button>
-  );
-}
-
-type NoticeTone = "error" | "info" | "success" | "warning";
-
-function Notice({ children, tone = "info" }: { children: ReactNode; tone?: NoticeTone }) {
-  return (
-    <div
-      className={cn(
-        "rounded-[calc(var(--radius)-2px)] border px-3 py-2 text-sm",
-        tone === "error" && "border-destructive/25 bg-destructive/6 text-destructive",
-        tone === "warning" && "border-amber-300/70 bg-amber-50 text-amber-900",
-        tone === "success" && "border-primary/20 bg-primary/6 text-foreground",
-        tone === "info" && "border-border/80 bg-background/80 text-muted-foreground",
-      )}
-    >
-      {children}
-    </div>
-  );
-}
-
-function InspectorSection({
-  children,
-  description,
-  title,
-}: {
-  children: ReactNode;
-  description: string;
-  title: string;
-}) {
-  return (
-    <section className="rounded-[var(--radius)] border border-border/80 bg-card/82">
-      <div className="px-4 py-3">
-        <div>
-          <p className="text-sm font-semibold text-foreground">{title}</p>
-          <p className="mt-1 text-xs text-muted-foreground">{description}</p>
-        </div>
-      </div>
-      <div className="space-y-3 border-t border-border/80 p-4">{children}</div>
-    </section>
-  );
-}
-
-function CsvWorkbenchPanel({
-  csvPreview,
-  isOutputExporting,
-  isStreamingFlatPreview,
-  onExport,
-  outputExportBlockedReason,
-  outputExportError,
-  outputExportLabel,
-  streamingFlatPreview,
-}: {
-  csvPreview: {
-    omittedCharacters: number;
-    omittedCharactersKnown?: boolean;
-    text: string;
-    truncated: boolean;
-  };
-  isOutputExporting: boolean;
-  isStreamingFlatPreview: boolean;
-  onExport: () => void;
-  outputExportBlockedReason: string | null;
-  outputExportError: string | null;
-  outputExportLabel: string | null;
-  streamingFlatPreview: ProjectionFlatStreamPreview | null;
-}) {
-  return (
-    <Card className="bg-card/90">
-      <CardHeader>
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <Download className="size-5 text-primary" />
-              CSV output
-            </CardTitle>
-            <CardDescription>
-              Operational CSV preview with export controls kept in the workspace.
-            </CardDescription>
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            title={outputExportBlockedReason ?? "Download the full flat CSV output."}
-            disabled={outputExportBlockedReason !== null || isOutputExporting}
-            onClick={onExport}
-          >
-            <Download className="size-4" />
-            {isOutputExporting && outputExportLabel?.includes("flat CSV")
-              ? "Preparing full CSV"
-              : "Download full CSV"}
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {outputExportError ? <Notice tone="error">{outputExportError}</Notice> : null}
-        {isStreamingFlatPreview && streamingFlatPreview ? (
-          <Notice>{describeStreamingCsvProgress(streamingFlatPreview)}</Notice>
-        ) : null}
-        {csvPreview.truncated ? (
-          <Notice>
-            Showing the first {projectionFlatCsvPreviewCharacterLimit.toLocaleString()} characters.
-            {csvPreview.omittedCharactersKnown === false
-              ? " Additional rows are hidden from the live preview."
-              : ` ${csvPreview.omittedCharacters.toLocaleString()} more characters are hidden from the live preview.`}
-          </Notice>
-        ) : null}
-        <Textarea
-          readOnly
-          value={csvPreview.text}
-          className="min-h-[34rem] font-mono text-[12px] leading-5"
-        />
-      </CardContent>
-    </Card>
-  );
-}
-
-function SchemaWorkbenchPanel({
-  conversionResult,
-  hiddenMixedTypeReportCount,
-  hiddenSchemaColumnCount,
-  onInspectColumn,
-  visibleMixedTypeReports,
-  visibleSchemaColumns,
-}: {
-  conversionResult: ProjectionConversionResult | null;
-  hiddenMixedTypeReportCount: number;
-  hiddenSchemaColumnCount: number;
-  onInspectColumn: (header: string) => void;
-  visibleMixedTypeReports: ColumnTypeReport[];
-  visibleSchemaColumns: ColumnSchema[];
-}) {
-  return (
-    <Card className="bg-card/90">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Database className="size-5 text-primary" />
-          Schema sidecar
-        </CardTitle>
-        <CardDescription>
-          Headers, source paths, value kinds, and regroup keys derived from structural provenance.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="rounded-[var(--radius)] border border-border/80 bg-background/80 p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-            Regroup keys
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {conversionResult?.schema.primaryKeys.map((key) => (
-              <Badge key={key} variant="outline">
-                {key}
-              </Badge>
-            ))}
-            {(conversionResult?.schema.primaryKeys.length ?? 0) === 0 ? (
-              <span className="text-sm text-muted-foreground">No regroup keys detected.</span>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="rounded-[var(--radius)] border border-border/80 bg-background/80 p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-            Type drift report
-          </p>
-          {hiddenMixedTypeReportCount > 0 ? (
-            <Notice>
-              Showing the first {schemaTypeReportPreviewLimit.toLocaleString()} mixed-type columns.
-              {` ${hiddenMixedTypeReportCount} more reports are hidden from the live sidecar.`}
-            </Notice>
-          ) : null}
-          {visibleMixedTypeReports.length > 0 ? (
-            <div className="mt-3 space-y-3">
-              {visibleMixedTypeReports.map((report) => (
-                <button
-                  key={report.header}
-                  type="button"
-                  className="block w-full rounded-[calc(var(--radius)-2px)] border border-border/70 bg-card px-3 py-3 text-left transition-colors hover:bg-secondary/75"
-                  onClick={() => onInspectColumn(report.header)}
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <span className="font-medium text-foreground">{report.header}</span>
-                    {report.coercedTo ? (
-                      <Badge variant="secondary">Coerced to {report.coercedTo}</Badge>
-                    ) : null}
-                  </div>
-                  <p className="mt-2 text-sm text-muted-foreground">{formatTypeReport(report)}</p>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <p className="mt-3 text-sm text-muted-foreground">
-              No mixed-type columns detected in the current projection.
-            </p>
-          )}
-        </div>
-
-        {hiddenSchemaColumnCount > 0 ? (
-          <Notice>
-            Showing the first {schemaColumnPreviewLimit.toLocaleString()} columns in the live
-            sidecar.
-            {` ${hiddenSchemaColumnCount} additional columns remain available in the full export.`}
-          </Notice>
-        ) : null}
-
-        <div className="grid gap-3">
-          {visibleSchemaColumns.map((column) => (
-            <button
-              key={column.header}
-              type="button"
-              className="rounded-[var(--radius)] border border-border/80 bg-background/80 p-4 text-left transition-colors hover:bg-secondary/70"
-              onClick={() => onInspectColumn(column.header)}
-            >
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="font-semibold text-foreground">{column.header}</p>
-                <div className="flex flex-wrap gap-2">
-                  {column.kinds.map((kind) => (
-                    <Badge key={`${column.header}-${kind}`} variant="secondary">
-                      {kind}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-              <p className="mt-2 text-sm text-muted-foreground">{column.sourcePath}</p>
-              <p className="mt-1 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-                {column.nullable ? "Nullable" : "Required"}
-              </p>
-            </button>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function InspectorContextCard({
-  inspectorMode,
-  selectedColumn,
-  selectedColumnSchema,
-  selectedColumnTypeReport,
-  selectedRow,
-}: {
-  inspectorMode: InspectorMode;
-  selectedColumn: { header: string; view: WorkbenchView } | null;
-  selectedColumnSchema: ColumnSchema | null;
-  selectedColumnTypeReport: ColumnTypeReport | null;
-  selectedRow: { label: string; row: Record<string, string>; view: WorkbenchView } | null;
-}) {
-  if (inspectorMode === "row" && selectedRow) {
-    return (
-      <Card className="bg-card/88">
-        <CardHeader>
-          <CardTitle>Row inspector</CardTitle>
-          <CardDescription>
-            {selectedRow.label} from the {selectedRow.view} workspace.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {Object.entries(selectedRow.row)
-            .slice(0, 12)
-            .map(([key, value]) => (
-              <div
-                key={key}
-                className="grid grid-cols-[minmax(0,9rem)_minmax(0,1fr)] gap-3 rounded-[calc(var(--radius)-2px)] border border-border/70 bg-background/80 px-3 py-2"
-              >
-                <span className="truncate font-mono text-[11px] text-muted-foreground">{key}</span>
-                <span className="truncate text-sm text-foreground">{value || " "}</span>
-              </div>
-            ))}
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (inspectorMode === "column" && selectedColumn) {
-    return (
-      <Card className="bg-card/88">
-        <CardHeader>
-          <CardTitle>Column inspector</CardTitle>
-          <CardDescription>
-            {selectedColumn.header} from the {selectedColumn.view} workspace.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm text-muted-foreground">
-          {selectedColumnSchema ? (
-            <>
-              <div className="rounded-[calc(var(--radius)-2px)] border border-border/70 bg-background/80 px-3 py-2">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em]">Source path</p>
-                <p className="mt-1 font-mono text-[12px] text-foreground">
-                  {selectedColumnSchema.sourcePath}
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {selectedColumnSchema.kinds.map((kind) => (
-                  <Badge key={`${selectedColumn.header}-${kind}`} variant="secondary">
-                    {kind}
-                  </Badge>
-                ))}
-                <Badge variant="outline">
-                  {selectedColumnSchema.nullable ? "Nullable" : "Required"}
-                </Badge>
-              </div>
-            </>
-          ) : (
-            <Notice>No schema metadata is available for the selected column.</Notice>
-          )}
-          {selectedColumnTypeReport ? (
-            <Notice>{formatTypeReport(selectedColumnTypeReport)}</Notice>
-          ) : null}
-        </CardContent>
-      </Card>
-    );
-  }
-
-  return (
-    <Card className="bg-card/88">
-      <CardHeader>
-        <CardTitle>Mapping inspector</CardTitle>
-        <CardDescription>
-          Use the sections below to steer the current projection without leaving the workspace.
-        </CardDescription>
-      </CardHeader>
-    </Card>
-  );
-}
-
-function FieldError({ message }: { message?: string }) {
-  return message ? <p className="text-sm text-destructive">{message}</p> : null;
-}
-
-function SelectField({
-  id,
-  label,
-  options,
-  registration,
-}: {
-  id: string;
-  label: string;
-  options: { label: string; value: string }[];
-  registration: UseFormRegisterReturn;
-}) {
-  return (
-    <div className="space-y-2">
-      <Label htmlFor={id}>{label}</Label>
-      <select id={id} className={controlSelectClassName} {...registration}>
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
-}
-
-function ToggleField({
-  label,
-  registration,
-}: {
-  label: string;
-  registration: UseFormRegisterReturn;
-}) {
-  return (
-    <label className="flex items-center gap-3 rounded-[calc(var(--radius)-2px)] border border-border/80 bg-background/86 px-3 py-2 text-sm font-medium text-foreground">
-      <input type="checkbox" className="size-3.5 rounded border-border" {...registration} />
-      {label}
-    </label>
-  );
 }
 
 export default App;

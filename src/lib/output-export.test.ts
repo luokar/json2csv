@@ -1,5 +1,5 @@
 import { strFromU8 } from "fflate";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it } from "vitest";
 import { createMappingConfig } from "@/lib/mapping-engine";
 import {
   buildOutputExportArtifact,

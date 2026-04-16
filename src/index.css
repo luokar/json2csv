@@ -2,26 +2,26 @@
 @import "tw-animate-css";
 
 :root {
-  --background: oklch(0.978 0.003 264.5);
-  --foreground: oklch(0.27 0.014 262.4);
-  --card: oklch(0.992 0.002 264.1);
-  --card-foreground: oklch(0.27 0.014 262.4);
-  --popover: oklch(0.994 0.002 264.1);
-  --popover-foreground: oklch(0.27 0.014 262.4);
-  --primary: oklch(0.49 0.084 252.6);
-  --primary-foreground: oklch(0.985 0.002 264.1);
-  --secondary: oklch(0.952 0.004 258.4);
-  --secondary-foreground: oklch(0.34 0.013 262.2);
-  --muted: oklch(0.962 0.003 260.2);
-  --muted-foreground: oklch(0.54 0.015 261.8);
-  --accent: oklch(0.91 0.016 235.7);
-  --accent-foreground: oklch(0.32 0.02 249.7);
-  --destructive: oklch(0.598 0.191 27.4);
-  --border: oklch(0.894 0.005 259.1);
-  --input: oklch(0.87 0.004 259.5);
-  --ring: oklch(0.66 0.06 252.5);
-  --radius: 0.95rem;
-  --font-sans: "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
+  --background: #ffffff;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --popover: #ffffff;
+  --popover-foreground: #0f172a;
+  --primary: #2563eb;
+  --primary-foreground: #ffffff;
+  --secondary: #f1f5f9;
+  --secondary-foreground: #334155;
+  --muted: #f8fafc;
+  --muted-foreground: #64748b;
+  --accent: #eff6ff;
+  --accent-foreground: #1e40af;
+  --destructive: #ef4444;
+  --border: #e2e8f0;
+  --input: #e2e8f0;
+  --ring: #3b82f6;
+  --radius: 0.625rem;
+  --font-sans: "IBM Plex Sans", "Inter", "Segoe UI", sans-serif;
   --font-mono: "IBM Plex Mono", "SFMono-Regular", "Menlo", "Consolas", monospace;
 }
 
@@ -46,10 +46,10 @@
   --color-ring: var(--ring);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
-  --radius-sm: calc(var(--radius) - 0.75rem);
-  --radius-md: calc(var(--radius) - 0.5rem);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 0.5rem);
+  --radius-xl: calc(var(--radius) + 4px);
 }
 
 @layer base {
@@ -64,19 +64,6 @@
 
   body {
     @apply min-h-screen bg-background text-foreground antialiased;
-    background-image:
-      linear-gradient(rgba(148, 163, 184, 0.09) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(148, 163, 184, 0.09) 1px, transparent 1px),
-      radial-gradient(circle at top left, rgba(37, 99, 235, 0.08), transparent 26%),
-      radial-gradient(circle at top right, rgba(15, 23, 42, 0.05), transparent 28%),
-      linear-gradient(180deg, #fbfcfe 0%, #f6f8fb 48%, #f2f5f9 100%);
-    background-size:
-      32px 32px,
-      32px 32px,
-      auto,
-      auto,
-      auto;
-    background-attachment: fixed;
     margin: 0;
   }
 

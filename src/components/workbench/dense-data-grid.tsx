@@ -10,7 +10,7 @@ import {
   useReactTable,
   type VisibilityState,
 } from "@tanstack/react-table";
-import { ArrowUpDown, Columns3, Search, SlidersHorizontal, X } from "lucide-react";
+import { ArrowUpDown, Columns3, Search, X } from "lucide-react";
 import { memo, type ReactNode, useEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -132,7 +132,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
             <input
               aria-label={`Select ${rowLabel} ${row.id}`}
               checked={row.getIsSelected()}
-              className="size-3.5 rounded border-border"
+              className="size-4 rounded border-border accent-primary"
               type="checkbox"
               onChange={row.getToggleSelectedHandler()}
             />
@@ -146,7 +146,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
             <input
               aria-label={`Select all visible ${rowLabel} rows`}
               checked={table.getIsAllPageRowsSelected()}
-              className="size-3.5 rounded border-border"
+              className="size-4 rounded border-border accent-primary"
               type="checkbox"
               onChange={table.getToggleAllPageRowsSelectedHandler()}
             />
@@ -165,14 +165,14 @@ export const DenseDataGrid = memo(function DenseDataGrid({
             <button
               type="button"
               className={cn(
-                "block w-full max-w-[18rem] truncate text-left text-[13px] text-foreground",
+                "block w-full max-w-[18rem] truncate text-left text-sm text-foreground",
                 isCompact && "font-mono text-[12px]",
               )}
               onClick={() => {
                 onInspectRow?.(row.original, row.id);
               }}
             >
-              {value || " "}
+              {value || "\u00A0"}
             </button>
           );
         },
@@ -185,7 +185,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
               <button
                 aria-label={header}
                 type="button"
-                className="flex w-full items-center justify-between gap-2 text-left text-[12px] font-semibold text-foreground"
+                className="flex w-full items-center justify-between gap-2 text-left text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
                 title={header}
                 onClick={() => {
                   column.toggleSorting(column.getIsSorted() === "asc");
@@ -193,11 +193,11 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                 }}
               >
                 <span className="truncate">{header}</span>
-                <ArrowUpDown aria-hidden className="size-3 text-muted-foreground" />
+                <ArrowUpDown aria-hidden className="size-3 shrink-0 text-muted-foreground/60" />
               </button>
               <Input
                 aria-label={`Filter ${header}`}
-                className="h-7 rounded-[10px] bg-background/96 px-2 text-xs"
+                className="h-7 rounded-md bg-white px-2 text-xs"
                 placeholder="Filter"
                 value={typeof filterValue === "string" ? filterValue : ""}
                 onChange={(event) => column.setFilterValue(event.target.value)}
@@ -257,8 +257,8 @@ export const DenseDataGrid = memo(function DenseDataGrid({
   }
 
   return (
-    <section className="flex min-h-[calc(100vh-10rem)] flex-col overflow-hidden rounded-[var(--radius)] border border-border/90 bg-card/92 shadow-[0_18px_44px_-36px_rgba(15,23,42,0.34)]">
-      <div className="border-b border-border/80 px-4 py-3">
+    <section className="flex min-h-[calc(100vh-10rem)] flex-col overflow-hidden rounded-xl border border-border bg-white shadow-sm">
+      <div className="border-b border-border px-5 py-4">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
           <div className="space-y-1">
             <div className="flex flex-wrap items-center gap-2">
@@ -272,17 +272,17 @@ export const DenseDataGrid = memo(function DenseDataGrid({
             <p className="text-sm text-muted-foreground">{description}</p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">{summaryBadges}</div>
+          <div className="flex flex-wrap items-center gap-1.5">{summaryBadges}</div>
         </div>
 
         <div className="mt-3 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex flex-1 flex-wrap items-center gap-2">
             <div className="relative min-w-[16rem] flex-1 xl:max-w-sm">
-              <Search className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 aria-label={filterLabel}
                 className="pl-9"
-                placeholder="Search visible rows"
+                placeholder="Search visible rows..."
                 value={globalSearch}
                 onChange={(event) => setGlobalSearch(event.target.value)}
               />
@@ -290,7 +290,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
 
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
               onClick={() => setShowColumnControls((current) => !current)}
             >
               <Columns3 className="size-4" />
@@ -307,27 +307,26 @@ export const DenseDataGrid = memo(function DenseDataGrid({
               }}
             >
               <X className="size-4" />
-              Clear filters
+              Clear
             </Button>
 
-            <div className="inline-flex items-center gap-2 rounded-[calc(var(--radius)-2px)] border border-border/80 bg-background/86 px-3 py-2 text-xs text-muted-foreground">
-              <SlidersHorizontal className="size-3.5 text-primary" />
-              {visibleRowCount.toLocaleString()} visible rows
-            </div>
+            <span className="text-xs text-muted-foreground">
+              {visibleRowCount.toLocaleString()} visible
+            </span>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">{toolbarActions}</div>
         </div>
 
         {showColumnControls ? (
-          <div className="mt-3 flex flex-wrap gap-2 rounded-[calc(var(--radius)-2px)] border border-border/80 bg-background/86 p-3">
+          <div className="mt-3 flex flex-wrap gap-1.5 rounded-lg border border-border bg-muted/30 p-3">
             {initialHiddenHeaders.length > 0 ? (
-              <div className="flex w-full flex-wrap items-center justify-between gap-2 rounded-[10px] border border-border/70 bg-card px-3 py-2 text-xs text-muted-foreground">
+              <div className="flex w-full flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-white px-3 py-2 text-xs text-muted-foreground">
                 <p>
                   Showing {defaultVisibleColumnCount.toLocaleString()} columns by default. Reveal
                   overflow fields here when you need deeper nested context.
                 </p>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-1.5">
                   {hiddenColumnCount > 0 ? (
                     <Button
                       type="button"
@@ -360,12 +359,12 @@ export const DenseDataGrid = memo(function DenseDataGrid({
               return (
                 <label
                   key={header}
-                  className="inline-flex items-center gap-2 rounded-[10px] border border-border/70 bg-card px-2.5 py-1.5 text-xs text-foreground"
+                  className="inline-flex items-center gap-2 rounded-lg border border-border bg-white px-2.5 py-1.5 text-xs text-foreground transition-colors hover:bg-muted/50 cursor-default"
                 >
                   <input
                     aria-label={`${header} column visibility`}
                     checked={column.getIsVisible()}
-                    className="size-3.5 rounded border-border"
+                    className="size-4 rounded border-border accent-primary"
                     type="checkbox"
                     onChange={column.getToggleVisibilityHandler()}
                   />
@@ -377,14 +376,11 @@ export const DenseDataGrid = memo(function DenseDataGrid({
         ) : null}
 
         {selectedRows.length > 0 ? (
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-[calc(var(--radius)-2px)] border border-primary/20 bg-primary/6 px-3 py-2 text-sm">
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border-l-2 border-l-primary bg-accent px-3 py-2 text-sm">
             <div className="flex flex-wrap items-center gap-2 text-foreground">
               <Badge>{selectedRows.length} selected</Badge>
-              <span className="text-sm text-muted-foreground">
-                Contextual action bar for the current selection.
-              </span>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-1.5">
               <Button
                 type="button"
                 size="sm"
@@ -408,15 +404,15 @@ export const DenseDataGrid = memo(function DenseDataGrid({
           </div>
         ) : null}
 
-        {notices ? <div className="mt-3 space-y-2">{notices}</div> : null}
+        {notices ? <div className="mt-3 space-y-1.5">{notices}</div> : null}
       </div>
 
       <div className="min-h-0 flex-1 overflow-hidden">
         <Table className="table-fixed">
-          <TableCaption className="px-4 pb-4 text-left">{caption}</TableCaption>
+          <TableCaption className="px-5 pb-4 text-left">{caption}</TableCaption>
           <TableHeader className="sticky top-0 z-20">
             {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id} className="bg-background/96 hover:bg-background/96">
+              <TableRow key={headerGroup.id} className="bg-white hover:bg-white border-b border-border">
                 {headerGroup.headers.map((header) => {
                   const isSelectionColumn = header.column.id === selectionColumnId;
                   const isPinnedDataColumn = header.column.id === pinnedDataColumnId;
@@ -425,9 +421,9 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                     <TableHead
                       key={header.id}
                       className={cn(
-                        "border-r border-border/70 bg-background/96 align-top",
+                        "border-r border-border/30 bg-white align-top",
                         isSelectionColumn && "sticky left-0 z-30 w-10 min-w-10 max-w-10 px-2",
-                        isPinnedDataColumn && "sticky left-10 z-20 bg-background/98",
+                        isPinnedDataColumn && "sticky left-10 z-20",
                       )}
                     >
                       {header.isPlaceholder
@@ -442,7 +438,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
           <TableBody>
             {table.getRowModel().rows.length > 0 ? (
               table.getRowModel().rows.map((row) => (
-                <TableRow key={row.id} className="bg-card/80">
+                <TableRow key={row.id}>
                   {row.getVisibleCells().map((cell) => {
                     const isSelectionColumn = cell.column.id === selectionColumnId;
                     const isPinnedDataColumn = cell.column.id === pinnedDataColumnId;
@@ -451,9 +447,9 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                       <TableCell
                         key={cell.id}
                         className={cn(
-                          "border-r border-border/60 bg-card/86",
+                          "border-r border-border/20 bg-white",
                           isSelectionColumn && "sticky left-0 z-10 w-10 min-w-10 max-w-10 px-2",
-                          isPinnedDataColumn && "sticky left-10 z-10 bg-card/96",
+                          isPinnedDataColumn && "sticky left-10 z-10",
                         )}
                       >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -463,7 +459,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                 </TableRow>
               ))
             ) : (
-              <TableRow className="bg-card/86 hover:bg-card/86">
+              <TableRow>
                 <TableCell
                   colSpan={Math.max(visibleLeafColumns.length, 1)}
                   className="py-20 text-center text-sm text-muted-foreground"

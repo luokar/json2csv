@@ -1,13 +1,9 @@
 import { fileURLToPath, URL } from "node:url";
 import { cloudflare } from "@cloudflare/vite-plugin";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite-plus";
+import { defineConfig } from "vite";
 
 export default defineConfig({
-  staged: {
-    "*": "vp check --fix",
-  },
-  lint: { options: { typeAware: true, typeCheck: true } },
   plugins: [react(), cloudflare()],
   resolve: {
     alias: {

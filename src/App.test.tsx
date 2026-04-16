@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, vi } from "vite-plus/test";
+import { afterEach, vi } from "vitest";
 
 const { downloadExportArtifactMock } = vi.hoisted(() => ({
   downloadExportArtifactMock: vi.fn(),
@@ -177,13 +177,13 @@ describe("App", () => {
 
     expect(
       screen.getByRole("heading", {
-        name: /json-to-csv workspace for dense nested data/i,
+        name: /json2csv/i,
       }),
     ).toBeInTheDocument();
 
     expect(screen.getByLabelText(/root path/i)).toHaveValue("$.items.item[*]");
     expect(screen.getByLabelText(/export name/i)).toHaveValue("Donut CSV export");
-    expect(screen.getByRole("button", { name: /schema sidecar/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /schema/i })).toBeInTheDocument();
     expect(screen.queryByLabelText(/header policy/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /header mapping/i })).not.toBeInTheDocument();
     expect(await screen.findByRole("button", { name: /^id$/i })).toBeInTheDocument();
@@ -195,7 +195,7 @@ describe("App", () => {
     render(<App />);
 
     await screen.findByRole("button", { name: /^id$/i });
-    await user.click(screen.getAllByRole("button", { name: /download full csv/i })[0]!);
+    await user.click(screen.getAllByRole("button", { name: /download csv/i })[0]!);
 
     await waitFor(() => {
       expect(downloadExportArtifactMock).toHaveBeenCalledWith(
@@ -228,7 +228,7 @@ describe("App", () => {
 
     await waitFor(() => {
       expect(filterInput).toHaveValue("Maple");
-      expect(screen.getByText(/^1 visible rows$/i)).toBeInTheDocument();
+      expect(screen.getByText(/^1 visible$/i)).toBeInTheDocument();
       expect(screen.getByLabelText(/export name/i)).toHaveValue("Donut CSV export");
     });
   });
@@ -364,7 +364,7 @@ describe("App", () => {
       expect(
         screen.getAllByText(/live preview is suspended for large object-root json/i).length,
       ).toBeGreaterThan(0);
-      expect(screen.getAllByRole("button", { name: /download full csv/i })[0]).toBeDisabled();
+      expect(screen.getAllByRole("button", { name: /download csv/i })[0]).toBeDisabled();
     });
 
     expect(
@@ -436,7 +436,7 @@ describe("App", () => {
     render(<App />);
 
     await user.selectOptions(screen.getByLabelText(/sample dataset/i), "heterogeneous");
-    await user.click(screen.getByRole("button", { name: /schema sidecar/i }));
+    await user.click(screen.getByRole("button", { name: /schema/i }));
 
     await waitFor(() => {
       expect(screen.getByText(/type drift report/i)).toBeInTheDocument();

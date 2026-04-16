@@ -23,15 +23,6 @@ These features were cut to keep the product easier to maintain:
 - relational split preview and export
 - mobile slide-over rails and inspector drawers
 
-## Commands
-
-- `vp dev`
-- `vp test`
-- `vp check`
-- `vp build`
-- `vp run preview`
-- `vp run deploy`
-
 ## Project structure
 
 - `src/App.tsx`: main UI and form flow

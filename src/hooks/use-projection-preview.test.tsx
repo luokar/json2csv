@@ -1,5 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import { vi } from "vite-plus/test";
+import { vi } from "vitest";
 
 import { useProjectionPreview } from "@/hooks/use-projection-preview";
 import { createMappingConfig } from "@/lib/mapping-engine";

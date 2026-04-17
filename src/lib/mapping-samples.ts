@@ -12,7 +12,7 @@ export const mappingSamples: MappingSample[] = [
     id: "donuts",
     title: "Donut Catalog",
     description:
-      "Nested batters and toppings from DATASET.md. This is the main ambiguity case for zip vs cross-product vs stringify.",
+      "A bakery menu with nested batters and toppings. Great for seeing how the tool handles layered data.",
     json: {
       items: {
         item: [
@@ -63,9 +63,9 @@ export const mappingSamples: MappingSample[] = [
   },
   {
     id: "heterogeneous",
-    title: "Heterogeneous Objects",
+    title: "Mixed-Shape Records",
     description:
-      "Rows do not share a stable shape. This sample is useful for header scans and type mismatch policies.",
+      "Rows with different fields. Useful for seeing how missing values and mixed data types are handled.",
     json: {
       records: [
         { id: "a1", price: 10, label: "starter", active: true },
@@ -76,9 +76,9 @@ export const mappingSamples: MappingSample[] = [
   },
   {
     id: "collisions",
-    title: "Collision Case",
+    title: "Duplicate Column Names",
     description:
-      "Top-level and nested keys collapse into the same header when separators are aggressive.",
+      "Data where different levels produce the same column name, showing how name conflicts are resolved.",
     json: {
       rows: [{ user_id: 1, user: { id: 2 }, meta: { user: { id: 3 } } }],
     },

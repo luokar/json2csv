@@ -29,16 +29,16 @@ export function SchemaWorkbenchPanel({
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Database className="size-4 text-primary" />
-          Schema sidecar
+          Column details
         </CardTitle>
         <CardDescription>
-          Headers, source paths, value kinds, and regroup keys derived from structural provenance.
+          See every column, its data source, and what types of values it contains.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="rounded-lg border border-border bg-muted/30 p-4">
           <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-            Regroup keys
+            ID columns
           </p>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {conversionResult?.schema.primaryKeys.map((key) => (
@@ -47,19 +47,19 @@ export function SchemaWorkbenchPanel({
               </Badge>
             ))}
             {(conversionResult?.schema.primaryKeys.length ?? 0) === 0 ? (
-              <span className="text-sm text-muted-foreground">No regroup keys detected.</span>
+              <span className="text-sm text-muted-foreground">No ID columns found.</span>
             ) : null}
           </div>
         </div>
 
         <div className="rounded-lg border border-border bg-muted/30 p-4">
           <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-            Type drift report
+            Mixed data types
           </p>
           {hiddenMixedTypeReportCount > 0 ? (
             <Notice>
               Showing the first {schemaTypeReportPreviewLimit.toLocaleString()} mixed-type columns.
-              {` ${hiddenMixedTypeReportCount} more reports are hidden from the live sidecar.`}
+              {` ${hiddenMixedTypeReportCount} more are not shown in this preview.`}
             </Notice>
           ) : null}
           {visibleMixedTypeReports.length > 0 ? (
@@ -74,7 +74,7 @@ export function SchemaWorkbenchPanel({
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="font-medium text-foreground">{report.header}</span>
                     {report.coercedTo ? (
-                      <Badge variant="secondary">Coerced to {report.coercedTo}</Badge>
+                      <Badge variant="secondary">Converted to {report.coercedTo}</Badge>
                     ) : null}
                   </div>
                   <p className="mt-1.5 text-sm text-muted-foreground">
@@ -85,16 +85,15 @@ export function SchemaWorkbenchPanel({
             </div>
           ) : (
             <p className="mt-2 text-sm text-muted-foreground">
-              No mixed-type columns detected in the current projection.
+              No mixed-type columns detected in this conversion.
             </p>
           )}
         </div>
 
         {hiddenSchemaColumnCount > 0 ? (
           <Notice>
-            Showing the first {schemaColumnPreviewLimit.toLocaleString()} columns in the live
-            sidecar.
-            {` ${hiddenSchemaColumnCount} additional columns remain available in the full export.`}
+            Showing the first {schemaColumnPreviewLimit.toLocaleString()} columns in this preview.
+            {` ${hiddenSchemaColumnCount} additional columns will appear in the full download.`}
           </Notice>
         ) : null}
 
@@ -118,7 +117,7 @@ export function SchemaWorkbenchPanel({
               </div>
               <p className="mt-1.5 text-sm text-muted-foreground">{column.sourcePath}</p>
               <p className="mt-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                {column.nullable ? "Nullable" : "Required"}
+                {column.nullable ? "Can be empty" : "Always present"}
               </p>
             </button>
           ))}

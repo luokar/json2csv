@@ -39,7 +39,7 @@ export type OutputExportWorkerResponse =
 
 export function buildOutputExportArtifact(request: OutputExportRequest): OutputExportArtifact {
   if (!request.config) {
-    throw new Error("Fix the current mapping config before exporting.");
+    throw new Error("Fix the settings errors before downloading.");
   }
 
   const input = resolveExportInput(request);

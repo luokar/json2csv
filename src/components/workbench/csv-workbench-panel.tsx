@@ -38,23 +38,23 @@ export function CsvWorkbenchPanel({
           <div>
             <CardTitle className="flex items-center gap-2">
               <Download className="size-4 text-primary" />
-              CSV output
+              CSV preview
             </CardTitle>
             <CardDescription>
-              Preview of the generated CSV output with export controls.
+              See what your CSV file will look like, and download it when ready.
             </CardDescription>
           </div>
           <Button
             type="button"
             variant="outline"
-            title={outputExportBlockedReason ?? "Download the full flat CSV output."}
+            title={outputExportBlockedReason ?? "Download the CSV file."}
             disabled={outputExportBlockedReason !== null || isOutputExporting}
             onClick={onExport}
           >
             <Download className="size-4" />
-            {isOutputExporting && outputExportLabel?.includes("flat CSV")
-              ? "Preparing full CSV"
-              : "Download full CSV"}
+            {isOutputExporting && outputExportLabel?.includes("CSV")
+              ? "Preparing..."
+              : "Download CSV"}
           </Button>
         </div>
       </CardHeader>
@@ -67,8 +67,8 @@ export function CsvWorkbenchPanel({
           <Notice>
             Showing the first {projectionFlatCsvPreviewCharacterLimit.toLocaleString()} characters.
             {csvPreview.omittedCharactersKnown === false
-              ? " Additional rows are hidden from the live preview."
-              : ` ${csvPreview.omittedCharacters.toLocaleString()} more characters are hidden from the live preview.`}
+              ? " Additional rows are not shown in this preview."
+              : ` ${csvPreview.omittedCharacters.toLocaleString()} more characters are not shown in this preview.`}
           </Notice>
         ) : null}
         <Textarea
@@ -83,6 +83,6 @@ export function CsvWorkbenchPanel({
 
 function describeStreamingCsvProgress(preview: ProjectionFlatStreamPreview) {
   return preview.totalRoots === null
-    ? `Processed ${preview.processedRoots} roots so far. The final CSV continues materializing in the worker.`
-    : `Processed ${preview.processedRoots} of ${preview.totalRoots} roots. The final CSV continues materializing in the worker.`;
+    ? `Processed ${preview.processedRoots} items so far. Building CSV in the background.`
+    : `Processed ${preview.processedRoots} of ${preview.totalRoots} items. Building CSV in the background.`;
 }

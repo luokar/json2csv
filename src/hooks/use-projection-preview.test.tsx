@@ -45,7 +45,7 @@ class FakeProjectionWorker {
     setTimeout(() => {
       this.emit({
         progress: {
-          label: "Projecting flat CSV rows",
+          label: "Building spreadsheet rows",
           percent: 45,
           phase: "flat",
           phaseCompleted: 1,
@@ -178,10 +178,10 @@ describe("useProjectionPreview", () => {
     );
 
     expect(screen.getByText(/status: projecting/i)).toBeInTheDocument();
-    expect(screen.getByText(/progress label: parsing json/i)).toBeInTheDocument();
+    expect(screen.getByText(/progress label: reading json/i)).toBeInTheDocument();
 
     await waitFor(() => {
-      expect(screen.getByText(/progress label: projecting flat csv rows/i)).toBeInTheDocument();
+      expect(screen.getByText(/progress label: building spreadsheet rows/i)).toBeInTheDocument();
       expect(screen.getByText(/progress percent: 45/i)).toBeInTheDocument();
       expect(screen.getByText(/streaming rows: 7/i)).toBeInTheDocument();
     });

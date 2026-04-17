@@ -62,7 +62,7 @@ export function CommandPalette({
               <input
                 autoFocus
                 className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-                placeholder="Type a command..."
+                placeholder="Search for an action..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 onKeyDown={(e) => {
@@ -77,7 +77,7 @@ export function CommandPalette({
             <div className="max-h-72 overflow-y-auto p-1.5">
               {filteredActions.length === 0 ? (
                 <p className="px-3 py-6 text-center text-sm text-muted-foreground">
-                  No matching commands.
+                  No matching actions.
                 </p>
               ) : (
                 filteredActions.map((action) => (
@@ -118,45 +118,45 @@ export function createDefaultActions({
     {
       icon: <Download className="size-4" />,
       id: "download-csv",
-      label: "Download full CSV",
+      label: "Download CSV",
       onSelect: onDownloadCsv,
       shortcut: "⌘D",
     },
     {
       icon: <Sparkles className="size-4" />,
       id: "smart-detect",
-      label: "Smart detect",
+      label: "Auto-detect rows",
       onSelect: onSmartDetect,
     },
     {
       icon: <RotateCcw className="size-4" />,
       id: "reset-defaults",
-      label: "Reset defaults",
+      label: "Start over",
       onSelect: onResetDefaults,
     },
     {
       icon: <Eye className="size-4" />,
       id: "toggle-sidebar",
-      label: "Toggle sidebar",
+      label: "Show/hide settings",
       onSelect: onToggleSidebar,
       shortcut: "⌘B",
     },
     {
       icon: <Table2 className="size-4" />,
       id: "view-flat",
-      label: "Switch to Flat rows",
+      label: "Switch to Table view",
       onSelect: () => onSwitchView("flat"),
     },
     {
       icon: <FileText className="size-4" />,
       id: "view-csv",
-      label: "Switch to CSV output",
+      label: "Switch to CSV preview",
       onSelect: () => onSwitchView("csv"),
     },
     {
       icon: <Layers className="size-4" />,
       id: "view-schema",
-      label: "Switch to Schema sidecar",
+      label: "Switch to Column details",
       onSelect: () => onSwitchView("schema"),
     },
   ];

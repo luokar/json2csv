@@ -73,14 +73,14 @@ async function switchToCustomMode(
 ) {
   const waitForWorkbench = options.waitForWorkbench ?? true;
 
-  await user.click(screen.getByRole("button", { name: /custom json/i }));
+  await user.click(screen.getByRole("button", { name: /your own json/i }));
 
   await waitFor(
     () => {
-      expect(screen.getByLabelText(/custom json/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/your json/i)).toBeInTheDocument();
 
       if (waitForWorkbench) {
-        expect(screen.getByRole("button", { name: /reset defaults/i })).toBeEnabled();
+        expect(screen.getByRole("button", { name: /start over/i })).toBeEnabled();
       }
     },
     {
@@ -105,7 +105,7 @@ class FakeStreamingAppWorker {
     setTimeout(() => {
       this.emit({
         progress: {
-          label: "Projecting flat CSV rows",
+          label: "Building spreadsheet rows",
           percent: 45,
           phase: "flat",
           phaseCompleted: 1,
@@ -177,13 +177,13 @@ describe("App", () => {
 
     expect(
       screen.getByRole("heading", {
-        name: /json2csv/i,
+        name: /json to spreadsheet/i,
       }),
     ).toBeInTheDocument();
 
-    expect(screen.getByLabelText(/root path/i)).toHaveValue("$.items.item[*]");
-    expect(screen.getByLabelText(/export name/i)).toHaveValue("Donut CSV export");
-    expect(screen.getByRole("button", { name: /schema/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/data location/i)).toHaveValue("$.items.item[*]");
+    expect(screen.getByLabelText(/file name/i)).toHaveValue("Donut CSV export");
+    expect(screen.getByRole("button", { name: /column details/i })).toBeInTheDocument();
     expect(screen.queryByLabelText(/header policy/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /header mapping/i })).not.toBeInTheDocument();
     expect(await screen.findByRole("button", { name: /^id$/i })).toBeInTheDocument();
@@ -213,7 +213,7 @@ describe("App", () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByText(/projecting flat csv rows 1\/2 roots/i)).toBeInTheDocument();
+      expect(screen.getByText(/building spreadsheet rows 1\/2 items/i)).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /^cake$/i })).toBeInTheDocument();
     });
   });
@@ -223,13 +223,13 @@ describe("App", () => {
 
     render(<App />);
 
-    const filterInput = screen.getByLabelText(/filter visible csv rows/i);
+    const filterInput = screen.getByLabelText(/filter rows/i);
     await user.type(filterInput, "Maple");
 
     await waitFor(() => {
       expect(filterInput).toHaveValue("Maple");
-      expect(screen.getByText(/^1 visible$/i)).toBeInTheDocument();
-      expect(screen.getByLabelText(/export name/i)).toHaveValue("Donut CSV export");
+      expect(screen.getByText(/^1 shown$/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/file name/i)).toHaveValue("Donut CSV export");
     });
   });
 
@@ -253,7 +253,7 @@ describe("App", () => {
 
     expect(await screen.findByDisplayValue(/contacts export/i)).toBeInTheDocument();
 
-    const rootPath = await screen.findByLabelText(/root path/i);
+    const rootPath = await screen.findByLabelText(/data location/i);
     expect(rootPath).toHaveValue("$");
 
     fireEvent.change(rootPath, {
@@ -269,7 +269,7 @@ describe("App", () => {
     });
 
     expect(
-      screen.getByText(/incremental selector parsing is active for this path/i),
+      screen.getByText(/incremental parsing is active for this location/i),
     ).toBeInTheDocument();
   });
 
@@ -292,8 +292,8 @@ describe("App", () => {
     fireEvent.change(uploadInput, { target: { files: [file] } });
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/root path/i)).toHaveValue("$.data.*");
-      expect(screen.getByText(/auto-applied smart row detection/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/data location/i)).toHaveValue("$.data.*");
+      expect(screen.getByText(/auto-applied row detection/i)).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /^period$/i })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /^value$/i })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /^anomaly$/i })).toBeInTheDocument();
@@ -307,23 +307,23 @@ describe("App", () => {
 
     await switchToCustomMode(user);
 
-    fireEvent.change(screen.getByLabelText(/custom json/i), {
+    fireEvent.change(screen.getByLabelText(/your json/i), {
       target: {
         value: multiCollectionCustomJson,
       },
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /^smart detect$/i })).toBeEnabled();
+      expect(screen.getByRole("button", { name: /^auto-detect$/i })).toBeEnabled();
     });
 
-    await user.click(screen.getByRole("button", { name: /^smart detect$/i }));
+    await user.click(screen.getByRole("button", { name: /^auto-detect$/i }));
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/root path/i)).toHaveValue("$");
-      expect(screen.getByLabelText(/flatten mode/i)).toHaveValue("stringify");
+      expect(screen.getByLabelText(/data location/i)).toHaveValue("$");
+      expect(screen.getByLabelText(/nesting style/i)).toHaveValue("stringify");
       expect(
-        screen.getByText(/keep \$ as the root and switch flatten mode to stringify/i),
+        screen.getByText(/keep the current data location and switch nesting style to text/i),
       ).toBeInTheDocument();
     });
   });
@@ -339,7 +339,7 @@ describe("App", () => {
     expect(screen.queryByRole("button", { name: /format json/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /load active sample/i })).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText(/custom json/i), {
+    fireEvent.change(screen.getByLabelText(/your json/i), {
       target: { value: '{"id":"1","email":"one@example.com"}' },
     });
 
@@ -356,13 +356,13 @@ describe("App", () => {
 
     await switchToCustomMode(user, { waitForWorkbench: false });
 
-    fireEvent.change(screen.getByLabelText(/custom json/i), {
+    fireEvent.change(screen.getByLabelText(/your json/i), {
       target: { value: largeObjectRootJson },
     });
 
     await waitFor(() => {
       expect(
-        screen.getAllByText(/live preview is suspended for large object-root json/i).length,
+        screen.getAllByText(/preview is paused for large object-root json/i).length,
       ).toBeGreaterThan(0);
       expect(screen.getAllByRole("button", { name: /download csv/i })[0]).toBeDisabled();
     });
@@ -377,10 +377,10 @@ describe("App", () => {
 
     render(<App />);
 
-    await user.selectOptions(screen.getByLabelText(/sample dataset/i), "heterogeneous");
-    await user.selectOptions(screen.getByLabelText(/flatten mode/i), "stringify");
+    await user.selectOptions(screen.getByLabelText(/example dataset/i), "heterogeneous");
+    await user.selectOptions(screen.getByLabelText(/nesting style/i), "stringify");
 
-    const indexedPivotToggle = screen.getByLabelText(/indexed pivot columns/i);
+    const indexedPivotToggle = screen.getByLabelText(/number list items/i);
     await user.click(indexedPivotToggle);
 
     await waitFor(() => {
@@ -403,7 +403,7 @@ describe("App", () => {
 
     await switchToCustomMode(user);
 
-    fireEvent.change(screen.getByLabelText(/custom json/i), {
+    fireEvent.change(screen.getByLabelText(/your json/i), {
       target: { value: wideFlatPreviewJson },
     });
 
@@ -415,7 +415,7 @@ describe("App", () => {
 
     expect(screen.queryByRole("button", { name: /^field_85$/i })).not.toBeInTheDocument();
     expect(
-      screen.getByText(/large flat previews start in a bounded column set/i),
+      screen.getByText(/some columns are hidden by default/i),
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /^columns$/i }));
@@ -435,12 +435,12 @@ describe("App", () => {
 
     render(<App />);
 
-    await user.selectOptions(screen.getByLabelText(/sample dataset/i), "heterogeneous");
-    await user.click(screen.getByRole("button", { name: /schema/i }));
+    await user.selectOptions(screen.getByLabelText(/example dataset/i), "heterogeneous");
+    await user.click(screen.getByRole("button", { name: /column details/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/type drift report/i)).toBeInTheDocument();
-      expect(screen.getByText(/coerced to string/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/mixed data types/i).length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText(/converted to string/i)).toBeInTheDocument();
       expect(screen.getByText(/50% string \/ 50% number/i)).toBeInTheDocument();
     });
   });

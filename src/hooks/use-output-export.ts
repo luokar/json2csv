@@ -7,7 +7,7 @@ import {
 } from "@/lib/output-export";
 
 function toErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Failed to prepare export.";
+  return error instanceof Error ? error.message : "Something went wrong while preparing your download.";
 }
 
 export function useOutputExport() {
@@ -83,7 +83,7 @@ export function useOutputExport() {
 
         const handleError = (event: ErrorEvent) => {
           cleanup();
-          settleError(event.message || "Failed to prepare export.");
+          settleError(event.message || "Something went wrong while preparing your download.");
         };
 
         worker.addEventListener("message", handleMessage);

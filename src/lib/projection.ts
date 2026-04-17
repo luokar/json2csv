@@ -189,9 +189,9 @@ const projectionStreamPreviewSteadyInterval = 128;
 const projectionDynamicBudgetSampleSize = 10;
 
 const projectionPhaseLabels: Record<ProjectionPhase, string> = {
-  flat: "Projecting flat CSV rows",
-  inspect: "Inspecting root paths",
-  parse: "Parsing JSON",
+  flat: "Building spreadsheet rows",
+  inspect: "Scanning data structure",
+  parse: "Reading JSON",
 };
 
 const projectionPhaseOffsets: Record<ProjectionPhase, number> = {

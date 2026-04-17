@@ -1,4 +1,4 @@
-import { type FlattenMode, type JsonValue, objectMapEntryKeyField } from "@/lib/mapping-engine";
+import { type FlattenMode, type JsonValue } from "@/lib/mapping-engine";
 
 interface SmartConfigSuggestionBase {
   detail: string;
@@ -60,7 +60,7 @@ export function detectSmartConfigSuggestion(input: JsonValue): SmartConfigSugges
   }
 
   return {
-    detail: `Detected ${bestCandidate.entryCount.toLocaleString()} homogeneous keyed entries under ${bestCandidate.recordMapPath}. Treat them as rows instead of flattening each key into its own column namespace.`,
+    detail: `Found ${bestCandidate.entryCount.toLocaleString()} similar items grouped under ${bestCandidate.recordMapPath}. These will work better as individual rows.`,
     kind: "keyed-map",
     entryCount: bestCandidate.entryCount,
     estimatedSiblingColumnsAvoided: bestCandidate.estimatedSiblingColumnsAvoided,
@@ -68,7 +68,7 @@ export function detectSmartConfigSuggestion(input: JsonValue): SmartConfigSugges
     previewHeaders: bestCandidate.previewHeaders,
     recordMapPath: bestCandidate.recordMapPath,
     rootPath: `${bestCandidate.recordMapPath}.*`,
-    summary: `Use ${bestCandidate.recordMapPath}.* and rename ${objectMapEntryKeyField} to ${bestCandidate.keyAlias}. This avoids roughly ${bestCandidate.estimatedSiblingColumnsAvoided.toLocaleString()} extra sibling columns.`,
+    summary: `Using ${bestCandidate.recordMapPath}.* and labeling each item with ${bestCandidate.keyAlias}. This avoids creating roughly ${bestCandidate.estimatedSiblingColumnsAvoided.toLocaleString()} unnecessary columns.`,
   };
 }
 
@@ -90,7 +90,7 @@ function detectPreserveRootSuggestion(input: JsonValue): SmartPreserveRootSugges
   const repeatingBranchDetail = repeatingBranchList.join(", ");
 
   return {
-    detail: `Detected multiple repeating branches at the current root (${repeatingBranchDetail}). Keep the entity root intact and preserve completeness instead of collapsing the payload onto a single collection.`,
+    detail: `Found multiple lists in your data (${repeatingBranchDetail}). Keeping all of them instead of picking just one.`,
     flattenMode: "stringify",
     kind: "preserve-root",
     previewHeaders,
@@ -98,8 +98,8 @@ function detectPreserveRootSuggestion(input: JsonValue): SmartPreserveRootSugges
     rootPath: "$",
     summary:
       repeatingBranches.length > repeatingBranchList.length
-        ? `Keep $ as the root and switch Flatten mode to stringify. This preserves branches such as ${repeatingBranchDetail}, and ${repeatingBranches.length - repeatingBranchList.length} more, without exploding the flat CSV into redundant rows.`
-        : `Keep $ as the root and switch Flatten mode to stringify. This preserves branches such as ${repeatingBranchDetail} without exploding the flat CSV into redundant rows.`,
+        ? `Keep the current data location and switch nesting style to text. This preserves sections like ${repeatingBranchDetail}, and ${repeatingBranches.length - repeatingBranchList.length} more, without creating duplicate rows.`
+        : `Keep the current data location and switch nesting style to text. This preserves sections like ${repeatingBranchDetail} without creating duplicate rows.`,
   };
 }
 

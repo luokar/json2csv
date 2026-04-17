@@ -229,7 +229,7 @@ describe("projection pipeline", () => {
     expect(progressEvents).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          label: "Parsing JSON",
+          label: "Reading JSON",
           phase: "parse",
           phaseTotal: customJson.length,
         }),
@@ -367,7 +367,7 @@ describe("projection pipeline", () => {
 
     expect(progressEvents[0]).toEqual(
       expect.objectContaining({
-        label: "Parsing JSON",
+        label: "Reading JSON",
         percent: 0,
         phase: "parse",
       }),
@@ -375,7 +375,7 @@ describe("projection pipeline", () => {
     expect(progressEvents).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          label: "Inspecting root paths",
+          label: "Scanning data structure",
           phase: "inspect",
           phaseCompleted: 2,
           phaseTotal: 2,
@@ -395,7 +395,7 @@ describe("projection pipeline", () => {
     ).toBe(true);
     expect(progressEvents.at(-1)).toEqual(
       expect.objectContaining({
-        label: "Projecting flat CSV rows",
+        label: "Building spreadsheet rows",
         percent: 100,
         phase: "flat",
       }),

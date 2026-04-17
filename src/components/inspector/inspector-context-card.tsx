@@ -21,9 +21,9 @@ export function InspectorContextCard({
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Row inspector</CardTitle>
+          <CardTitle>Row details</CardTitle>
           <CardDescription>
-            {selectedRow.label} from the {selectedRow.view} workspace.
+            {selectedRow.label} from the {selectedRow.view} view.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-1.5">
@@ -47,9 +47,9 @@ export function InspectorContextCard({
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Column inspector</CardTitle>
+          <CardTitle>Column details</CardTitle>
           <CardDescription>
-            {selectedColumn.header} from the {selectedColumn.view} workspace.
+            {selectedColumn.header} from the {selectedColumn.view} view.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3 text-sm text-muted-foreground">
@@ -57,7 +57,7 @@ export function InspectorContextCard({
             <>
               <div className="rounded-lg border border-border bg-muted/50 px-3 py-2">
                 <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                  Source path
+                  Data source
                 </p>
                 <p className="mt-1 font-mono text-[12px] text-foreground">
                   {selectedColumnSchema.sourcePath}
@@ -70,12 +70,12 @@ export function InspectorContextCard({
                   </Badge>
                 ))}
                 <Badge variant="outline">
-                  {selectedColumnSchema.nullable ? "Nullable" : "Required"}
+                  {selectedColumnSchema.nullable ? "Can be empty" : "Always present"}
                 </Badge>
               </div>
             </>
           ) : (
-            <Notice>No schema metadata is available for the selected column.</Notice>
+            <Notice>No additional details are available for this column.</Notice>
           )}
           {selectedColumnTypeReport ? (
             <Notice>{formatTypeReport(selectedColumnTypeReport)}</Notice>
@@ -88,9 +88,9 @@ export function InspectorContextCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Mapping inspector</CardTitle>
+        <CardTitle>Conversion settings</CardTitle>
         <CardDescription>
-          Use the sections below to steer the current projection without leaving the workspace.
+          Use the sections below to adjust how your data is converted.
         </CardDescription>
       </CardHeader>
     </Card>

@@ -198,7 +198,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
               <Input
                 aria-label={`Filter ${header}`}
                 className="h-7 rounded-md bg-white px-2 text-xs"
-                placeholder="Filter"
+                placeholder="Filter..."
                 value={typeof filterValue === "string" ? filterValue : ""}
                 onChange={(event) => column.setFilterValue(event.target.value)}
               />
@@ -264,7 +264,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-base font-semibold text-foreground">{title}</h2>
               <Badge variant="outline">{rowCount.toLocaleString()} rows</Badge>
-              <Badge variant="secondary">{visibleLeafColumns.length - 1} visible columns</Badge>
+              <Badge variant="secondary">{visibleLeafColumns.length - 1} columns shown</Badge>
               {hiddenColumnCount > 0 ? (
                 <Badge variant="outline">{hiddenColumnCount} hidden</Badge>
               ) : null}
@@ -282,7 +282,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
               <Input
                 aria-label={filterLabel}
                 className="pl-9"
-                placeholder="Search visible rows..."
+                placeholder="Search rows..."
                 value={globalSearch}
                 onChange={(event) => setGlobalSearch(event.target.value)}
               />
@@ -311,7 +311,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
             </Button>
 
             <span className="text-xs text-muted-foreground">
-              {visibleRowCount.toLocaleString()} visible
+              {visibleRowCount.toLocaleString()} shown
             </span>
           </div>
 
@@ -323,8 +323,8 @@ export const DenseDataGrid = memo(function DenseDataGrid({
             {initialHiddenHeaders.length > 0 ? (
               <div className="flex w-full flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-white px-3 py-2 text-xs text-muted-foreground">
                 <p>
-                  Showing {defaultVisibleColumnCount.toLocaleString()} columns by default. Reveal
-                  overflow fields here when you need deeper nested context.
+                  Showing {defaultVisibleColumnCount.toLocaleString()} columns by default. Use the
+                  checkboxes below to show or hide additional columns.
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {hiddenColumnCount > 0 ? (
@@ -343,7 +343,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                     variant="ghost"
                     onClick={handleResetColumnPreview}
                   >
-                    Reset column preview
+                    Reset to default columns
                   </Button>
                 </div>
               </div>
@@ -395,7 +395,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                   onInspectRow?.(firstSelected.original, firstSelected.id);
                 }}
               >
-                Inspect selection
+                View details
               </Button>
               <Button type="button" size="sm" variant="ghost" onClick={() => setRowSelection({})}>
                 Clear selection

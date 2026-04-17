@@ -70,8 +70,8 @@ interface SelectedWorkbenchRow {
 }
 
 const sourceModeOptions: Array<{ label: string; value: SourceMode }> = [
-  { value: "sample", label: "Sample catalog" },
-  { value: "custom", label: "Custom JSON" },
+  { value: "sample", label: "Example data" },
+  { value: "custom", label: "Your own JSON" },
 ];
 
 const defaultRootPaths: Record<string, string> = {
@@ -96,18 +96,18 @@ const converterFormSchema = z.object({
   exportName: z
     .string()
     .trim()
-    .min(exportNameMinLength, "Export name must be at least 3 characters.")
-    .max(exportNameMaxLength, `Export name must stay under ${exportNameMaxLength} characters.`),
+    .min(exportNameMinLength, "File name must be at least 3 characters.")
+    .max(exportNameMaxLength, `File name must stay under ${exportNameMaxLength} characters.`),
   sourceMode: z.enum(["sample", "custom"]),
   sampleId: z.string().trim().min(1),
   customJson: z.string(),
-  rootPath: z.string().trim().min(1, "Root path is required."),
+  rootPath: z.string().trim().min(1, "Data location is required."),
   flattenMode: z.enum(flattenModes),
   pathSeparator: z
     .string()
     .trim()
-    .min(1, "Path separator is required.")
-    .max(3, "Path separator is too long."),
+    .min(1, "Name separator is required.")
+    .max(3, "Name separator is too long."),
   arrayIndexSuffix: z.boolean(),
   placeholderStrategy: z.enum(placeholderStrategies),
   customPlaceholder: z.string().trim(),
@@ -309,11 +309,11 @@ function App() {
   const outputExportBlockedReason = previewSuspendedReason
     ? previewSuspendedReason
     : activeConfig === undefined
-      ? "Fix the current mapping config before exporting."
+      ? "Fix the settings errors before exporting."
       : projection.parseError
-        ? "Resolve the current JSON parse error before exporting."
+        ? "Resolve the JSON error before exporting."
         : projection.isProjecting
-          ? "Wait for the current preview rebuild to finish before exporting."
+          ? "Wait for the preview to finish before exporting."
           : null;
   const canExportOutputs = outputExportBlockedReason === null;
   const broadRootColumnCount = conversionResult?.schema.columns.length ?? flatHeaders.length;
@@ -364,7 +364,7 @@ function App() {
           sampleJson: activeSample.json,
           sourceMode: liveValues.sourceMode,
         }),
-        "Preparing full flat CSV export",
+        "Preparing your CSV download",
       );
 
       downloadExportArtifact(artifact);
@@ -465,7 +465,7 @@ function App() {
 
     setSmartDetectFeedback({
       detail: options.auto
-        ? `Auto-applied smart row detection. ${suggestion.summary}`
+        ? `Auto-applied row detection. ${suggestion.summary}`
         : suggestion.summary,
       previewHeaders: suggestion.previewHeaders,
       tone: "success",
@@ -477,7 +477,7 @@ function App() {
       setEntryKeyAlias(null);
       setSmartDetectFeedback({
         detail:
-          "Smart detect is suspended for very large object-root JSON. Set a narrower row root first, then run detection again if you still need it.",
+          "Auto-detect is not available for very large object-root JSON. Set a narrower data location first, then try again.",
         previewHeaders: [],
         tone: "info",
       });
@@ -491,7 +491,7 @@ function App() {
 
     if (resolvedInput.value === undefined) {
       setSmartDetectFeedback({
-        detail: `Smart detect needs valid JSON before it can analyze the current payload.${resolvedInput.error ? ` ${resolvedInput.error}` : ""}`,
+        detail: `Auto-detect needs valid JSON before it can analyze your data.${resolvedInput.error ? ` ${resolvedInput.error}` : ""}`,
         previewHeaders: [],
         tone: "error",
       });
@@ -504,7 +504,7 @@ function App() {
       setEntryKeyAlias(null);
       setSmartDetectFeedback({
         detail:
-          "Smart detect did not find a better row-root or preserve-completeness strategy for the current payload.",
+          "Auto-detect did not find a better row layout for your data.",
         previewHeaders: [],
         tone: "info",
       });
@@ -610,16 +610,16 @@ function App() {
         <DenseDataGrid
           caption={
             conversionResult
-              ? `Root path ${conversionResult.config.rootPath || "$"} with ${conversionResult.config.flattenMode} mode. ${flatPreviewRowsTruncated ? "Preview is row-bounded for responsiveness." : "All visible preview rows are loaded."}`
-              : "Fix the current form errors to generate a preview."
+              ? `Data location ${conversionResult.config.rootPath || "$"} with ${conversionResult.config.flattenMode} nesting style. ${flatPreviewRowsTruncated ? "Preview is limited for performance." : "All preview rows are loaded."}`
+              : "Fix the settings errors to generate a preview."
           }
-          description="Projected flat rows with inline filtering, sorting, and column controls."
+          description="Your converted data with filtering, sorting, and column controls."
           emptyMessage={
             isStreamingFlatPreview || conversionResult
-              ? "No rows match the current filter state."
-              : "No projection is available for the current form values."
+              ? "No rows match the current filters."
+              : "Adjust the settings to generate a preview."
           }
-          filterLabel="Filter visible CSV rows"
+          filterLabel="Filter rows"
           getRowId={(row, index) => createGridRowId(row, index, flatHeaders)}
           headers={flatHeaders}
           initialHiddenHeaders={initialHiddenFlatHeaders}
@@ -635,20 +635,20 @@ function App() {
               ) : null}
               {flatPreviewRowsTruncated ? (
                 <Notice>
-                  Showing the first {projectionFlatRowPreviewLimit.toLocaleString()} rows of the
-                  live preview.
+                  Showing the first {projectionFlatRowPreviewLimit.toLocaleString()} rows in the
+                  preview.
                 </Notice>
               ) : null}
               {initialHiddenFlatColumnCount > 0 ? (
                 <Notice>
-                  Large flat previews start in a bounded column set. Use Columns or Show all columns
-                  to reveal the remaining {initialHiddenFlatColumnCount.toLocaleString()} fields.
+                  Some columns are hidden by default. Use Columns or Show all columns
+                  to reveal the remaining {initialHiddenFlatColumnCount.toLocaleString()} columns.
                 </Notice>
               ) : null}
             </>
           }
           rowCount={flatRowCount}
-          rowLabel="flat row"
+          rowLabel="row"
           rows={flatPreviewRows.rows}
           summaryBadges={
             <>
@@ -656,22 +656,22 @@ function App() {
                 {describeActiveSource(liveValues.sourceMode, activeSample.title)}
               </Badge>
               <Badge variant="secondary">{activeConfigDescription}</Badge>
-              {isStreamingFlatPreview ? <Badge variant="accent">Streaming</Badge> : null}
+              {isStreamingFlatPreview ? <Badge variant="accent">Loading...</Badge> : null}
             </>
           }
-          title="Flat row grid"
+          title="Data table"
           toolbarActions={
             <Button
               type="button"
               variant="outline"
-              title={outputExportBlockedReason ?? "Download the full flat CSV output."}
+              title={outputExportBlockedReason ?? "Download the CSV file."}
               disabled={!canExportOutputs || isOutputExporting}
               onClick={() => {
                 void handleFlatCsvExport();
               }}
             >
               <Download className="size-4" />
-              {isOutputExporting && outputExportLabel?.includes("flat CSV")
+              {isOutputExporting && outputExportLabel?.includes("CSV")
                 ? "Preparing..."
                 : "Download CSV"}
             </Button>
@@ -720,26 +720,26 @@ function App() {
       <header className="border-b border-border bg-white">
         <div className="mx-auto flex max-w-[1920px] items-center gap-4 px-5 py-3">
           <div className="flex items-center gap-3">
-            <h1 className="text-base font-semibold text-foreground">json2csv</h1>
+            <h1 className="text-base font-semibold text-foreground">JSON to Spreadsheet</h1>
             {isStreamingFlatPreview ? (
-              <Badge variant="accent">Streaming</Badge>
+              <Badge variant="accent">Loading...</Badge>
             ) : null}
           </div>
 
           <div className="hidden flex-1 items-center justify-center gap-2 lg:flex">
             <WorkbenchMetric
-              label="Source"
+              label="Data"
               value={describeActiveSource(liveValues.sourceMode, activeSample.title)}
             />
             <WorkbenchMetric label="Rows" value={flatRowCount.toLocaleString()} />
-            <WorkbenchMetric label="Cols" value={flatHeaders.length.toLocaleString()} />
+            <WorkbenchMetric label="Columns" value={flatHeaders.length.toLocaleString()} />
             <WorkbenchMetric
               label="Status"
               value={
                 projection.isProjecting && projection.progress
                   ? `${projection.progress.label} ${formatProjectionProgressDetail(projection.progress)}`
                   : projection.isProjecting
-                    ? "Updating"
+                    ? "Working..."
                     : "Ready"
               }
             />
@@ -761,7 +761,7 @@ function App() {
               type="button"
               variant="outline"
               size="sm"
-              title={outputExportBlockedReason ?? "Download the full flat CSV output."}
+              title={outputExportBlockedReason ?? "Download the CSV file."}
               disabled={!canExportOutputs || isOutputExporting}
               onClick={() => {
                 void handleFlatCsvExport();
@@ -788,19 +788,19 @@ function App() {
             <div className="flex items-center gap-1">
               <WorkbenchNavButton
                 active={activeView === "flat"}
-                label="Flat rows"
+                label="Table"
                 meta={`${flatRowCount.toLocaleString()} rows`}
                 onClick={() => setActiveView("flat")}
               />
               <WorkbenchNavButton
                 active={activeView === "csv"}
                 label="CSV"
-                meta="Output"
+                meta="Preview"
                 onClick={() => setActiveView("csv")}
               />
               <WorkbenchNavButton
                 active={activeView === "schema"}
-                label="Schema"
+                label="Column details"
                 meta={`${conversionResult?.schema.columns.length ?? 0} cols`}
                 onClick={() => setActiveView("schema")}
               />
@@ -817,13 +817,13 @@ function App() {
         <CollapsibleSidebar isOpen={sidebarOpen} onToggle={() => setSidebarOpen((prev) => !prev)}>
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <div>
-              <p className="text-sm font-semibold text-foreground">Inspector</p>
-              <p className="text-xs text-muted-foreground">Mapping controls and context</p>
+              <p className="text-sm font-semibold text-foreground">Settings</p>
+              <p className="text-xs text-muted-foreground">Adjust how your data is converted</p>
             </div>
             {inspectorMode !== "mapping" ? (
               <Button type="button" variant="ghost" size="sm" onClick={clearWorkbenchSelection}>
                 <Settings2 className="size-3.5" />
-                Mapping
+                Settings
               </Button>
             ) : null}
           </div>
@@ -839,11 +839,11 @@ function App() {
 
             <div className="mt-3 space-y-3">
               <InspectorSection
-                description="Session identity, source mode, and staged input management."
-                title="Session"
+                description="Choose a file name and pick your data source."
+                title="File & data source"
               >
                 <div className="space-y-1.5">
-                  <Label htmlFor="export-name">Export name</Label>
+                  <Label htmlFor="export-name">File name</Label>
                   <Input
                     id="export-name"
                     maxLength={exportNameMaxLength}
@@ -872,7 +872,7 @@ function App() {
 
                 {liveValues.sourceMode === "sample" ? (
                   <div className="space-y-1.5">
-                    <Label htmlFor="sample-id">Sample dataset</Label>
+                    <Label htmlFor="sample-id">Example dataset</Label>
                     <select
                       id="sample-id"
                       className={controlSelectClassName}
@@ -918,7 +918,7 @@ function App() {
                     </div>
 
                     <div className="space-y-1.5">
-                      <Label htmlFor="custom-json">Custom JSON</Label>
+                      <Label htmlFor="custom-json">Your JSON</Label>
                       <Textarea
                         id="custom-json"
                         {...bufferedJsonEditorServiceProps}
@@ -932,7 +932,7 @@ function App() {
                         }}
                       />
                       <p className="text-xs text-muted-foreground">
-                        Custom input stays local and updates the preview live.
+                        Your data stays local and updates the preview live.
                       </p>
                       {previewSuspendedReason ? (
                         <Notice tone="warning">{previewSuspendedReason}</Notice>
@@ -947,8 +947,8 @@ function App() {
                         </Notice>
                       ) : (
                         <Notice>
-                          Parsed successfully. Point the root path at the branch that should
-                          become rows.
+                          Parsed successfully. Set the data location to choose which part becomes
+                          rows.
                         </Notice>
                       )}
                     </div>
@@ -957,11 +957,11 @@ function App() {
               </InspectorSection>
 
               <InspectorSection
-                description="Root-path control and smart detection."
-                title="Scope"
+                description="Tell the tool where your rows live inside the JSON."
+                title="Data location"
               >
                 <div className="space-y-1.5">
-                  <Label htmlFor="root-path">Root path</Label>
+                  <Label htmlFor="root-path">Data location</Label>
                   <Input
                     id="root-path"
                     placeholder="$.items.item[*]"
@@ -971,8 +971,8 @@ function App() {
                   {liveValues.sourceMode === "custom" ? (
                     <p className="text-xs text-muted-foreground">
                       {streamableCustomSelector
-                        ? "Incremental selector parsing is active for this path."
-                        : "This custom path currently falls back to full-document parsing."}
+                        ? "Incremental parsing is active for this location."
+                        : "This location currently uses full-document parsing."}
                     </p>
                   ) : null}
                 </div>
@@ -986,10 +986,10 @@ function App() {
                       disabled={projection.isProjecting}
                       onClick={handleSmartDetect}
                     >
-                      Smart detect
+                      Auto-detect
                     </Button>
                     <span className="text-xs text-muted-foreground">
-                      Analyze the payload for a better row root.
+                      Analyze your data for a better row layout.
                     </span>
                   </div>
 
@@ -1016,14 +1016,14 @@ function App() {
                 {isBroadRootWarningVisible ? (
                   <Notice tone="warning">
                     Root `$` currently exposes {discoveredPaths.length.toLocaleString()}{" "}
-                    structural paths and about {broadRootColumnCount.toLocaleString()} preview
-                    columns. Narrow the root path or use Smart detect before tuning the rest of
-                    the mapping.
+                    paths and about {broadRootColumnCount.toLocaleString()} preview
+                    columns. Narrow the data location or use Auto-detect before adjusting other
+                    settings.
                   </Notice>
                 ) : (
                   <Notice>
-                    Discovered {discoveredPaths.length.toLocaleString()} structural paths under
-                    the current root.
+                    Found {discoveredPaths.length.toLocaleString()} data paths under
+                    the current location.
                   </Notice>
                 )}
 
@@ -1033,13 +1033,14 @@ function App() {
               </InspectorSection>
 
               <InspectorSection
-                description="Core row shaping and CSV behavior controls."
-                title="Mapping"
+                description="Control how nested data becomes columns and how values appear in the CSV."
+                title="Conversion options"
               >
                 <div className="grid gap-2.5 md:grid-cols-2">
                   <SelectField
                     id="flatten-mode"
-                    label="Flatten mode"
+                    label="Nesting style"
+                    hint="How nested objects inside each row are turned into columns."
                     registration={form.register("flattenMode")}
                     options={flattenModes.map((value) => ({
                       label: toTitleCase(value),
@@ -1048,7 +1049,8 @@ function App() {
                   />
                   <SelectField
                     id="placeholder-strategy"
-                    label="Parent fill"
+                    label="Fill empty cells"
+                    hint="What to put in cells when a parent row is repeated for nested items."
                     registration={form.register("placeholderStrategy")}
                     options={placeholderStrategies.map((value) => ({
                       label: toTitleCase(value),
@@ -1057,7 +1059,8 @@ function App() {
                   />
                   <SelectField
                     id="missing-keys"
-                    label="Missing keys"
+                    label="Missing values"
+                    hint="What to show when a field exists in some rows but not others."
                     registration={form.register("onMissingKey")}
                     options={missingKeyStrategies.map((value) => ({
                       label: toTitleCase(value),
@@ -1066,7 +1069,8 @@ function App() {
                   />
                   <SelectField
                     id="type-mismatch"
-                    label="Type mismatch"
+                    label="Mixed types"
+                    hint="What to do when the same field contains different kinds of data."
                     registration={form.register("onTypeMismatch")}
                     options={typeMismatchStrategies.map((value) => ({
                       label: toTitleCase(value),
@@ -1075,7 +1079,7 @@ function App() {
                   />
                   <SelectField
                     id="empty-array-behavior"
-                    label="Empty arrays"
+                    label="Empty lists"
                     registration={form.register("emptyArrayBehavior")}
                     options={emptyArrayBehaviors.map((value) => ({
                       label: toTitleCase(value),
@@ -1083,7 +1087,7 @@ function App() {
                     }))}
                   />
                   <div className="space-y-1.5">
-                    <Label htmlFor="max-depth">Max depth</Label>
+                    <Label htmlFor="max-depth">Max nesting level</Label>
                     <Input
                       id="max-depth"
                       type="number"
@@ -1096,7 +1100,8 @@ function App() {
                   </div>
                   <SelectField
                     id="collision-strategy"
-                    label="Collision strategy"
+                    label="Duplicate column names"
+                    hint="What to do when different parts of the data produce columns with the same name."
                     registration={form.register("collisionStrategy")}
                     options={collisionStrategies.map((value) => ({
                       label: toTitleCase(value),
@@ -1105,7 +1110,7 @@ function App() {
                   />
                   <SelectField
                     id="boolean-representation"
-                    label="Boolean output"
+                    label="True/false format"
                     registration={form.register("booleanRepresentation")}
                     options={booleanRepresentations.map((value) => ({
                       label: toTitleCase(value),
@@ -1114,7 +1119,7 @@ function App() {
                   />
                   <SelectField
                     id="date-format"
-                    label="Date output"
+                    label="Date format"
                     registration={form.register("dateFormat")}
                     options={dateFormats.map((value) => ({
                       label: toTitleCase(value),
@@ -1123,7 +1128,7 @@ function App() {
                   />
                   <SelectField
                     id="delimiter"
-                    label="CSV delimiter"
+                    label="Column separator"
                     registration={form.register("delimiter")}
                     options={delimiterOptions.map((option) => ({
                       label: option.label,
@@ -1131,7 +1136,7 @@ function App() {
                     }))}
                   />
                   <div className="space-y-1.5">
-                    <Label htmlFor="path-separator">Path separator</Label>
+                    <Label htmlFor="path-separator">Name separator</Label>
                     <Input
                       id="path-separator"
                       placeholder="."
@@ -1150,35 +1155,37 @@ function App() {
 
                 <div className="grid gap-1.5 md:grid-cols-2 xl:grid-cols-3">
                   <ToggleField
-                    label="Quote all cells"
+                    label="Quote every cell"
                     registration={form.register("quoteAll")}
                   />
                   <ToggleField
-                    label="Strict naming"
+                    label="Clean column names"
+                    hint="Remove special characters from column headers."
                     registration={form.register("strictNaming")}
                   />
                   <ToggleField
-                    label="Indexed pivot columns"
+                    label="Number list items"
+                    hint="Add a number to each column created from a list."
                     registration={form.register("arrayIndexSuffix")}
                   />
                 </div>
               </InspectorSection>
 
               <InspectorSection
-                description="Download or reset the workspace."
-                title="Actions"
+                description="Save your CSV file or start over."
+                title="Download & reset"
               >
                 <div className="flex flex-wrap gap-1.5">
                   <Button
                     type="button"
-                    title={outputExportBlockedReason ?? "Download the full flat CSV output."}
+                    title={outputExportBlockedReason ?? "Download the CSV file."}
                     disabled={!canExportOutputs || isOutputExporting}
                     onClick={() => {
                       void handleFlatCsvExport();
                     }}
                   >
                     <Download className="size-4" />
-                    {isOutputExporting && outputExportLabel?.includes("flat CSV")
+                    {isOutputExporting && outputExportLabel?.includes("CSV")
                       ? "Preparing..."
                       : "Download CSV"}
                   </Button>
@@ -1188,7 +1195,7 @@ function App() {
                     disabled={projection.isProjecting}
                     onClick={handleResetDefaults}
                   >
-                    Reset defaults
+                    Start over
                   </Button>
                 </div>
 
@@ -1246,7 +1253,7 @@ function getSampleById(sampleId: string) {
 }
 
 function describeActiveSource(sourceMode: SourceMode, sampleTitle: string) {
-  return sourceMode === "custom" ? "Custom JSON" : sampleTitle;
+  return sourceMode === "custom" ? "Your JSON" : sampleTitle;
 }
 
 function stripFileExtension(fileName: string) {
@@ -1263,12 +1270,12 @@ function describeConfig(config: MappingConfig) {
 
 function describeStreamingPreviewCaption(preview: ProjectionFlatStreamPreview) {
   return preview.totalRoots === null
-    ? `Streaming preview from ${preview.processedRoots} parsed roots. Final schema and flat CSV preview are still building in the worker.`
-    : `Streaming preview from ${preview.processedRoots}/${preview.totalRoots} roots. Final schema and flat CSV preview are still building in the worker.`;
+    ? `Loading preview from ${preview.processedRoots} items. Still building the final result in the background.`
+    : `Loading preview from ${preview.processedRoots}/${preview.totalRoots} items. Still building the final result in the background.`;
 }
 
 function describePreviewLimitNotice(rootLimit: number) {
-  return `Large-input safety mode is active. Live preview and schema are limited to the first ${rootLimit.toLocaleString()} roots to control memory. Full CSV export still uses the full input.`;
+  return `Large-input safety mode is active. The preview is limited to the first ${rootLimit.toLocaleString()} items to save memory. The full CSV download still uses all your data.`;
 }
 
 function describeLargeObjectRootPreviewSuspension(
@@ -1288,7 +1295,7 @@ function describeLargeObjectRootPreviewSuspension(
     return null;
   }
 
-  return `Live preview is suspended for large object-root JSON above ${largeObjectRootPreviewSuspendCharacterThreshold.toLocaleString()} characters. Choose a narrower row root before rebuilding the preview.`;
+  return `Preview is paused for large object-root JSON above ${largeObjectRootPreviewSuspendCharacterThreshold.toLocaleString()} characters. Choose a narrower data location to resume the preview.`;
 }
 
 function formatProjectionProgressDetail(progress: ProjectionProgress) {
@@ -1297,7 +1304,7 @@ function formatProjectionProgressDetail(progress: ProjectionProgress) {
   }
 
   if (progress.phaseTotal > 1) {
-    return `${progress.phaseCompleted}/${progress.phaseTotal} roots · ${progress.percent}%`;
+    return `${progress.phaseCompleted}/${progress.phaseTotal} items · ${progress.percent}%`;
   }
 
   return `${progress.percent}%`;

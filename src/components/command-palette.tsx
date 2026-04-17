@@ -1,7 +1,11 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import {
+  BarChart3,
+  Clipboard,
+  Database,
   Download,
   Eye,
+  FileDown,
   FileText,
   Layers,
   RotateCcw,
@@ -102,17 +106,25 @@ export function CommandPalette({
 }
 
 export function createDefaultActions({
+  onCopyJqSnippet,
+  onCopySqlSnippet,
   onDownloadCsv,
+  onExportConfig,
   onResetDefaults,
   onSmartDetect,
   onSwitchView,
   onToggleSidebar,
+  onViewProfiles,
 }: {
+  onCopyJqSnippet: () => void;
+  onCopySqlSnippet: () => void;
   onDownloadCsv: () => void;
+  onExportConfig: () => void;
   onResetDefaults: () => void;
   onSmartDetect: () => void;
   onSwitchView: (view: "csv" | "flat" | "schema") => void;
   onToggleSidebar: () => void;
+  onViewProfiles: () => void;
 }): CommandAction[] {
   return [
     {
@@ -158,6 +170,30 @@ export function createDefaultActions({
       id: "view-schema",
       label: "Switch to Column details",
       onSelect: () => onSwitchView("schema"),
+    },
+    {
+      icon: <FileDown className="size-4" />,
+      id: "export-config",
+      label: "Save config as JSON",
+      onSelect: onExportConfig,
+    },
+    {
+      icon: <BarChart3 className="size-4" />,
+      id: "view-profiles",
+      label: "View column profiles",
+      onSelect: onViewProfiles,
+    },
+    {
+      icon: <Clipboard className="size-4" />,
+      id: "copy-jq",
+      label: "Copy jq snippet",
+      onSelect: onCopyJqSnippet,
+    },
+    {
+      icon: <Database className="size-4" />,
+      id: "copy-sql",
+      label: "Copy SQL schema",
+      onSelect: onCopySqlSnippet,
     },
   ];
 }

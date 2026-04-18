@@ -68,7 +68,7 @@ export function SchemaWorkbenchPanel({
                 <button
                   key={report.header}
                   type="button"
-                  className="block w-full rounded-lg border border-border bg-white px-3 py-3 text-left transition-colors duration-100 hover:bg-muted/50"
+                  className="block w-full rounded-lg border border-border bg-card px-3 py-3 text-left transition-colors duration-100 hover:bg-muted/50"
                   onClick={() => onInspectColumn(report.header)}
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -102,7 +102,7 @@ export function SchemaWorkbenchPanel({
             <button
               key={column.header}
               type="button"
-              className="rounded-lg border border-border bg-white p-4 text-left transition-colors duration-100 hover:bg-muted/50"
+              className="rounded-lg border border-border bg-card p-4 text-left transition-colors duration-100 hover:bg-muted/50"
               onClick={() => onInspectColumn(column.header)}
             >
               <div className="flex flex-wrap items-center justify-between gap-2">

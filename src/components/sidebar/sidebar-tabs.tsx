@@ -21,7 +21,7 @@ export function SidebarTabs({
   onTabChange: (tab: SidebarTab) => void;
 }) {
   return (
-    <nav className="flex w-12 flex-shrink-0 flex-col gap-1 border-r border-border bg-white py-2">
+    <nav className="flex w-12 flex-shrink-0 flex-col gap-1 border-r border-border bg-background py-2">
       {tabs.map((tab) => {
         const Icon = tab.icon;
         const isActive = activeTab === tab.id;

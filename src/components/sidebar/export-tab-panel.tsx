@@ -49,13 +49,13 @@ function highlightPythonInner(text: string): ReactNode {
 
     if (match[1]) {
       parts.push(
-        <span key={match.index} className="text-emerald-600">
+        <span key={match.index} className="text-emerald-600 dark:text-emerald-400">
           {match[0]}
         </span>,
       );
     } else {
       parts.push(
-        <span key={match.index} className="text-blue-600 font-medium">
+        <span key={match.index} className="text-blue-600 font-medium dark:text-blue-400">
           {match[0]}
         </span>,
       );
@@ -89,7 +89,7 @@ function highlightSql(line: string): ReactNode {
       parts.push(line.slice(lastIndex, match.index));
     }
     parts.push(
-      <span key={match.index} className="text-blue-600 font-medium">
+      <span key={match.index} className="text-blue-600 font-medium dark:text-blue-400">
         {match[0]}
       </span>,
     );
@@ -226,7 +226,7 @@ export function ExportTabPanel({
           </Button>
           <label
             htmlFor="config-upload"
-            className="inline-flex h-8 cursor-pointer items-center justify-center gap-2 rounded-lg border border-border bg-white px-3 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+            className="inline-flex h-8 cursor-pointer items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 text-sm font-medium text-foreground transition-colors hover:bg-muted"
           >
             <FileUp className="size-4" />
             Load config
@@ -254,7 +254,7 @@ export function ExportTabPanel({
                 className={cn(
                   "flex-1 rounded-md px-2 py-1 text-xs font-medium transition-colors",
                   snippetTab === tab
-                    ? "bg-white text-foreground shadow-sm"
+                    ? "bg-background text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground",
                 )}
                 onClick={() => {

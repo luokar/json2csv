@@ -69,7 +69,7 @@ export function InspectTabPanel({
       />
 
       {inspectorMode === "column" && selectedColumn ? (
-        <div className="space-y-3 rounded-lg border border-border bg-white p-3 shadow-sm">
+        <div className="space-y-3 rounded-lg border border-border bg-card p-3 shadow-sm">
           <div className="space-y-1.5">
             <Label htmlFor="column-display-name">Display name</Label>
             <Input

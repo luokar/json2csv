@@ -13,6 +13,7 @@ function toErrorMessage(error: unknown) {
 export function useOutputExport() {
   const [activeLabel, setActiveLabel] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<{ completed: number; total: number } | null>(null);
   const workerRef = useRef<Worker | null>(null);
   const requestIdRef = useRef(0);
 
@@ -25,14 +26,17 @@ export function useOutputExport() {
       new Promise<OutputExportArtifact>((resolve, reject) => {
         setActiveLabel(label);
         setError(null);
+        setProgress(null);
 
         const settleSuccess = (artifact: OutputExportArtifact) => {
           setActiveLabel(null);
+          setProgress(null);
           resolve(artifact);
         };
 
         const settleError = (message: string) => {
           setActiveLabel(null);
+          setProgress(null);
           setError(message);
           reject(new Error(message));
         };
@@ -71,6 +75,11 @@ export function useOutputExport() {
             return;
           }
 
+          if (event.data.type === "progress") {
+            setProgress(event.data.progress);
+            return;
+          }
+
           cleanup();
 
           if (event.data.type === "error") {
@@ -105,6 +114,7 @@ export function useOutputExport() {
     activeLabel,
     error,
     isExporting: activeLabel !== null,
+    progress,
     resetError,
     runExport,
   };

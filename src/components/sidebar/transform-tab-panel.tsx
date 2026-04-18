@@ -8,6 +8,7 @@ import {
   ChevronsUp,
   Eye,
   EyeOff,
+  GripVertical,
   Replace,
   RotateCcw,
   X,
@@ -19,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Notice } from "@/components/ui/notice";
 import { SelectField, ToggleField } from "@/components/ui/form-fields";
+import { cn } from "@/lib/utils";
 
 interface SelectOption {
   label: string;
@@ -99,6 +101,8 @@ export function TransformTabPanel({
   const [bulkUseRegex, setBulkUseRegex] = useState(false);
   const [visibilityFilter, setVisibilityFilter] = useState("");
   const [selectedForReorder, setSelectedForReorder] = useState<Set<string>>(new Set());
+  const [draggedHeader, setDraggedHeader] = useState<string | null>(null);
+  const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
 
   function moveColumn(header: string, direction: "up" | "down") {
     const current = columnOrder.length > 0 ? [...columnOrder] : [...headers];
@@ -146,6 +150,26 @@ export function TransformTabPanel({
       }
     }
     onColumnOrderChange(current);
+  }
+
+  function resetDragState() {
+    setDraggedHeader(null);
+    setDropTargetIndex(null);
+  }
+
+  function handleDrop(e: React.DragEvent, targetIndex: number) {
+    e.preventDefault();
+    if (!draggedHeader) return;
+    const current = columnOrder.length > 0 ? [...columnOrder] : [...headers];
+    const fromIndex = current.indexOf(draggedHeader);
+    if (fromIndex === -1 || fromIndex === targetIndex) {
+      resetDragState();
+      return;
+    }
+    const [item] = current.splice(fromIndex, 1);
+    current.splice(targetIndex, 0, item!);
+    onColumnOrderChange(current);
+    resetDragState();
   }
 
   function computeBulkRenamePreview(): Array<{ from: string; to: string }> {
@@ -453,14 +477,39 @@ export function TransformTabPanel({
                 </>
               ) : null}
             </div>
-            <div className="max-h-60 space-y-0.5 overflow-y-auto">
+            <div
+              className="max-h-60 space-y-0.5 overflow-y-auto"
+              onDragLeave={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                  setDropTargetIndex(null);
+                }
+              }}
+            >
               {(columnOrder.length > 0 ? columnOrder : headers).map((header, index) => {
                 const list = columnOrder.length > 0 ? columnOrder : headers;
                 return (
                   <div
                     key={header}
-                    className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs hover:bg-muted"
+                    draggable
+                    className={cn(
+                      "flex items-center gap-1 rounded px-1.5 py-0.5 text-xs hover:bg-muted",
+                      draggedHeader === header && "opacity-40",
+                      dropTargetIndex === index && draggedHeader !== header && "border-t-2 border-t-primary",
+                    )}
+                    onDragStart={(e) => {
+                      setDraggedHeader(header);
+                      e.dataTransfer.effectAllowed = "move";
+                      e.dataTransfer.setData("text/plain", header);
+                    }}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "move";
+                      setDropTargetIndex(index);
+                    }}
+                    onDrop={(e) => handleDrop(e, index)}
+                    onDragEnd={resetDragState}
                   >
+                    <GripVertical className="size-3 shrink-0 cursor-grab text-muted-foreground" />
                     <input
                       type="checkbox"
                       className="rounded border-border"

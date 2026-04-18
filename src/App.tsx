@@ -1,9 +1,11 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Download, Search as SearchIcon } from "lucide-react";
-import { type ChangeEvent, useCallback, useMemo, useState } from "react";
+import { Download, Moon, Search as SearchIcon, Sun, Monitor } from "lucide-react";
+import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { CommandPalette, createDefaultActions } from "@/components/command-palette";
+import { KeyboardShortcutsDialog } from "@/components/keyboard-shortcuts-dialog";
+import { RowDetailDrawer } from "@/components/workbench/row-detail-drawer";
 import type { SidebarTab } from "@/components/inspector/inspector-types";
 import { CollapsibleSidebar, SidebarToggleButton } from "@/components/layout/sidebar";
 import { DataTabPanel } from "@/components/sidebar/data-tab-panel";
@@ -22,8 +24,12 @@ import { SchemaWorkbenchPanel } from "@/components/workbench/schema-workbench-pa
 import { WorkbenchMetric } from "@/components/workbench/workbench-metric";
 import { WorkbenchNavButton } from "@/components/workbench/workbench-nav-button";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { useOutputExport } from "@/hooks/use-output-export";
+import { buildDatasetKey, loadColumnPreferences, saveColumnPreferences } from "@/hooks/use-column-preferences";
 import { useProjectionPreview } from "@/hooks/use-projection-preview";
+import { useTheme } from "@/hooks/use-theme";
+import { useUndoStack } from "@/hooks/use-undo-stack";
 import { parseJsonInput, stringifyJsonInput } from "@/lib/json-input";
 import { resolveStreamableJsonPath } from "@/lib/json-root-stream";
 import {
@@ -42,7 +48,7 @@ import {
 } from "@/lib/mapping-engine";
 import { computeColumnProfiles } from "@/lib/column-profiling";
 import { mappingSamples } from "@/lib/mapping-samples";
-import { createOutputExportRequest, downloadExportArtifact } from "@/lib/output-export";
+import { buildSelectedRowsExportArtifact, createOutputExportRequest, downloadExportArtifact } from "@/lib/output-export";
 import {
   buildPipelineConfig,
   downloadPipelineConfig,
@@ -140,6 +146,18 @@ interface SmartDetectFeedback {
   tone: "error" | "info" | "success";
 }
 
+interface ColumnConfig {
+  columnOrder: string[];
+  headerAliases: Record<string, string>;
+  hiddenColumns: Set<string>;
+}
+
+const initialColumnConfig: ColumnConfig = {
+  columnOrder: [],
+  headerAliases: {},
+  hiddenColumns: new Set(),
+};
+
 const defaultFormValues: ConverterFormValues = {
   exportName: "Donut CSV export",
   sourceMode: "sample",
@@ -192,11 +210,40 @@ function App() {
   const [selectedColumn, setSelectedColumn] = useState<SelectedWorkbenchColumn | null>(null);
   const [selectedRow, setSelectedRow] = useState<SelectedWorkbenchRow | null>(null);
   const [entryKeyAlias, setEntryKeyAlias] = useState<string | null>(null);
-  const [headerAliases, setHeaderAliases] = useState<Record<string, string>>({});
-  const [columnOrder, setColumnOrder] = useState<string[]>([]);
-  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());  const [smartDetectFeedback, setSmartDetectFeedback] = useState<SmartDetectFeedback | null>(null);
+  const columnConfigStack = useUndoStack<ColumnConfig>(initialColumnConfig);
+  const { columnOrder, headerAliases, hiddenColumns } = columnConfigStack.state;
+  const setHeaderAliases = useCallback(
+    (updater: (prev: Record<string, string>) => Record<string, string>) => {
+      columnConfigStack.set({
+        ...columnConfigStack.state,
+        headerAliases: updater(columnConfigStack.state.headerAliases),
+      });
+    },
+    [columnConfigStack],
+  );
+  const setColumnOrder = useCallback(
+    (next: string[]) => {
+      columnConfigStack.set({ ...columnConfigStack.state, columnOrder: next });
+    },
+    [columnConfigStack],
+  );
+  const setHiddenColumns = useCallback(
+    (next: Set<string>) => {
+      columnConfigStack.set({ ...columnConfigStack.state, hiddenColumns: next });
+    },
+    [columnConfigStack],
+  );
+  const [smartDetectFeedback, setSmartDetectFeedback] = useState<SmartDetectFeedback | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [shortcutsDialogOpen, setShortcutsDialogOpen] = useState(false);
+  const [detailDrawerRow, setDetailDrawerRow] = useState<{
+    label: string;
+    row: Record<string, string>;
+  } | null>(null);
+  const [pinnedColumnId, setPinnedColumnId] = useState<string | null>(null);
+  const { theme, setTheme, resolvedTheme } = useTheme();
+  const isMobile = !useMediaQuery("(min-width: 1024px)");
   const inspectorMode: InspectorMode = selectedRow ? "row" : selectedColumn ? "column" : "mapping";
 
   const form = useForm<ConverterFormValues>({
@@ -207,6 +254,7 @@ function App() {
     activeLabel: outputExportLabel,
     error: outputExportError,
     isExporting: isOutputExporting,
+    progress: outputExportProgress,
     runExport,
   } = useOutputExport();
 
@@ -367,6 +415,44 @@ function App() {
         conversionResult !== null &&
         conversionResult.rowCount > conversionResult.records.length);
 
+  // Column preferences persistence
+  const datasetKey = useMemo(
+    () => buildDatasetKey(sourceMode, sampleId, flatHeaders, flatRowCount),
+    [sourceMode, sampleId, flatHeaders, flatRowCount],
+  );
+  const prevDatasetKeyRef = useRef(datasetKey);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  // Save column preferences on change (debounced)
+  useEffect(() => {
+    if (flatHeaders.length === 0) return;
+    clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      saveColumnPreferences(datasetKey, {
+        columnOrder,
+        headerAliases,
+        hiddenColumns: [...hiddenColumns],
+        pinnedColumnId,
+      });
+    }, 500);
+    return () => clearTimeout(saveTimerRef.current);
+  }, [columnOrder, headerAliases, hiddenColumns, pinnedColumnId, datasetKey, flatHeaders.length]);
+
+  // Restore column preferences on dataset change
+  useEffect(() => {
+    if (prevDatasetKeyRef.current === datasetKey) return;
+    prevDatasetKeyRef.current = datasetKey;
+    if (flatHeaders.length === 0) return;
+    const saved = loadColumnPreferences(datasetKey);
+    if (!saved) return;
+    columnConfigStack.reset({
+      columnOrder: saved.columnOrder,
+      headerAliases: saved.headerAliases,
+      hiddenColumns: new Set(saved.hiddenColumns),
+    });
+    setPinnedColumnId(saved.pinnedColumnId);
+  }, [datasetKey, flatHeaders.length]);
+
   function clearWorkbenchSelection() {
     setSelectedColumn(null);
     setSelectedRow(null);
@@ -467,9 +553,7 @@ function App() {
     clearWorkbenchSelection();
     form.reset(defaultFormValues);
     setEntryKeyAlias(null);
-    setHeaderAliases({});
-    setColumnOrder([]);
-    setHiddenColumns(new Set());
+    columnConfigStack.reset(initialColumnConfig);
     setSmartDetectFeedback(null);
   }
 
@@ -536,7 +620,7 @@ function App() {
     if (typeof result.mappingConfig.maxDepth === "number") {
       form.setValue("maxDepth", result.mappingConfig.maxDepth, { shouldValidate: true });
     }
-    if (result.headerAliases) setHeaderAliases(result.headerAliases);
+    if (result.headerAliases) setHeaderAliases(() => result.headerAliases!);
     if (result.columnOrder) setColumnOrder(result.columnOrder);
   }
 
@@ -721,9 +805,12 @@ function App() {
         void handleFlatCsvExport();
       },
       onOpenCommandPalette: () => setCommandPaletteOpen(true),
+      onRedo: () => columnConfigStack.redo(),
+      onShowShortcutsHelp: () => setShortcutsDialogOpen(true),
       onToggleSidebar: () => setSidebarOpen((prev) => !prev),
+      onUndo: () => columnConfigStack.undo(),
     }),
-    [canExportOutputs],
+    [canExportOutputs, columnConfigStack],
   );
   useKeyboardShortcuts(keyboardShortcutHandlers);
 
@@ -740,13 +827,16 @@ function App() {
           void handleFlatCsvExport();
         },
         onExportConfig: handleExportConfig,
+        onRedo: () => columnConfigStack.redo(),
         onResetDefaults: handleResetDefaults,
+        onShowShortcutsHelp: () => setShortcutsDialogOpen(true),
         onSmartDetect: handleSmartDetect,
         onSwitchView: setActiveView,
         onToggleSidebar: () => setSidebarOpen((prev) => !prev),
+        onUndo: () => columnConfigStack.undo(),
         onViewProfiles: () => setActiveSidebarTab("profile"),
       }),
-    [canExportOutputs, jqSnippet, sqlSnippet],
+    [canExportOutputs, columnConfigStack, jqSnippet, sqlSnippet],
   );
 
   function renderWorkbenchCenterPanel() {
@@ -817,12 +907,30 @@ function App() {
             >
               <Download className="size-4" />
               {isOutputExporting && outputExportLabel?.includes("CSV")
-                ? "Preparing..."
+                ? outputExportProgress
+                  ? `Preparing... ${Math.round((outputExportProgress.completed / outputExportProgress.total) * 100)}%`
+                  : "Preparing..."
                 : "Download CSV"}
             </Button>
           }
           onInspectColumn={(header) => inspectColumn(header, "flat")}
           onInspectRow={(row, rowId) => inspectRow(row, rowId, "flat")}
+          onOpenRowDetail={(row, rowId) => {
+            setDetailDrawerRow({
+              label: createWorkbenchRowLabel(row, rowId),
+              row,
+            });
+          }}
+          onPinnedColumnChange={setPinnedColumnId}
+          pinnedColumnId={pinnedColumnId}
+          onExportSelected={(rows) => {
+            const artifact = buildSelectedRowsExportArtifact(visibleHeaders, rows, {
+              delimiter: liveValues.delimiter,
+              exportName: liveValues.exportName,
+              quoteAll: liveValues.quoteAll,
+            });
+            downloadExportArtifact(artifact);
+          }}
         />
       );
     }
@@ -862,7 +970,7 @@ function App() {
   return (
     <div className="flex min-h-screen flex-col bg-muted/30">
       {/* Top bar */}
-      <header className="border-b border-border bg-white">
+      <header className="border-b border-border bg-background">
         <div className="mx-auto flex max-w-[1920px] items-center gap-4 px-5 py-3">
           <div className="flex items-center gap-3">
             <h1 className="text-base font-semibold text-foreground">JSON to Spreadsheet</h1>
@@ -898,8 +1006,8 @@ function App() {
               onClick={() => setCommandPaletteOpen(true)}
             >
               <SearchIcon className="size-4" />
-              Commands
-              <Kbd>⌘K</Kbd>
+              <span className="hidden sm:inline">Commands</span>
+              <Kbd className="hidden sm:inline-flex">⌘K</Kbd>
             </Button>
 
             <Button
@@ -913,7 +1021,37 @@ function App() {
               }}
             >
               <Download className="size-4" />
-              Download CSV
+              <span className="hidden sm:inline">
+                {isOutputExporting
+                  ? outputExportProgress
+                    ? `${Math.round((outputExportProgress.completed / outputExportProgress.total) * 100)}%`
+                    : "Preparing..."
+                  : "Download CSV"}
+              </span>
+            </Button>
+
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              title={`Theme: ${theme}`}
+              onClick={() =>
+                setTheme(
+                  theme === "system"
+                    ? "light"
+                    : theme === "light"
+                      ? "dark"
+                      : "system",
+                )
+              }
+            >
+              {theme === "system" ? (
+                <Monitor className="size-4" />
+              ) : resolvedTheme === "dark" ? (
+                <Moon className="size-4" />
+              ) : (
+                <Sun className="size-4" />
+              )}
             </Button>
 
             <SidebarToggleButton
@@ -929,7 +1067,7 @@ function App() {
         {/* Main workspace */}
         <main className="flex min-w-0 flex-1 flex-col">
           {/* View tabs */}
-          <div className="border-b border-border bg-white px-5 py-2">
+          <div className="border-b border-border bg-background px-5 py-2">
             <div className="flex items-center gap-1">
               <WorkbenchNavButton
                 active={activeView === "flat"}
@@ -960,6 +1098,7 @@ function App() {
 
         {/* Collapsible sidebar */}
         <CollapsibleSidebar
+          isMobile={isMobile}
           isOpen={sidebarOpen}
           onToggle={() => setSidebarOpen((prev) => !prev)}
           tabStrip={
@@ -1148,6 +1287,23 @@ function App() {
         actions={commandActions}
         isOpen={commandPaletteOpen}
         onOpenChange={setCommandPaletteOpen}
+      />
+
+      {/* Keyboard shortcuts help */}
+      <KeyboardShortcutsDialog
+        isOpen={shortcutsDialogOpen}
+        onOpenChange={setShortcutsDialogOpen}
+      />
+
+      {/* Row detail drawer */}
+      <RowDetailDrawer
+        headers={visibleHeaders}
+        isOpen={detailDrawerRow !== null}
+        onOpenChange={(open) => {
+          if (!open) setDetailDrawerRow(null);
+        }}
+        row={detailDrawerRow?.row ?? null}
+        rowLabel={detailDrawerRow?.label ?? "Row detail"}
       />
     </div>
   );

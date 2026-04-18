@@ -10,7 +10,7 @@ export function WorkbenchMetric({
   value: string;
 }) {
   return (
-    <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-white px-2.5 py-1 text-xs text-muted-foreground">
+    <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground">
       <span className="font-medium">{label}</span>
       <span className={cn("text-foreground", mono && "font-mono text-[11px]")}>{value}</span>
     </div>

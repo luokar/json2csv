@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --background: #ffffff;
   --foreground: #0f172a;
@@ -23,6 +25,27 @@
   --radius: 0.625rem;
   --font-sans: "IBM Plex Sans", "Inter", "Segoe UI", sans-serif;
   --font-mono: "IBM Plex Mono", "SFMono-Regular", "Menlo", "Consolas", monospace;
+}
+
+.dark {
+  --background: #0f172a;
+  --foreground: #f1f5f9;
+  --card: #1e293b;
+  --card-foreground: #f1f5f9;
+  --popover: #1e293b;
+  --popover-foreground: #f1f5f9;
+  --primary: #3b82f6;
+  --primary-foreground: #ffffff;
+  --secondary: #334155;
+  --secondary-foreground: #cbd5e1;
+  --muted: #1e293b;
+  --muted-foreground: #94a3b8;
+  --accent: #1e3a5f;
+  --accent-foreground: #93c5fd;
+  --destructive: #f87171;
+  --border: #334155;
+  --input: #334155;
+  --ring: #3b82f6;
 }
 
 @theme inline {
@@ -59,7 +82,7 @@
 
   html {
     font-family: var(--font-sans);
-    color-scheme: light;
+    color-scheme: light dark;
   }
 
   body {

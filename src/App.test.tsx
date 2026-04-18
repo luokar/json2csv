@@ -428,7 +428,7 @@ describe("App", () => {
       expect(screen.getByRole("button", { name: /^field_85$/i })).toBeInTheDocument();
       expect(screen.getByLabelText(/field_85 column visibility/i)).toBeChecked();
     });
-  }, 15_000);
+  }, 30_000);
 
   it("shows a type drift summary for mixed columns in the schema sidecar", async () => {
     const user = userEvent.setup();

@@ -149,7 +149,7 @@ export function DataTabPanel({
             <div className="flex flex-wrap gap-1.5">
               <label
                 htmlFor="json-upload"
-                className="inline-flex h-8 cursor-pointer items-center justify-center gap-2 rounded-lg border border-border bg-white px-3 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                className="inline-flex h-8 cursor-pointer items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 text-sm font-medium text-foreground transition-colors hover:bg-muted"
               >
                 <Upload className="size-4" />
                 Upload .json

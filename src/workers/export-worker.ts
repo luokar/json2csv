@@ -3,6 +3,7 @@
 import {
   buildOutputExportArtifact,
   type OutputExportWorkerErrorResponse,
+  type OutputExportWorkerProgressResponse,
   type OutputExportWorkerRequest,
   type OutputExportWorkerResponse,
   type OutputExportWorkerResultResponse,
@@ -14,7 +15,15 @@ self.onmessage = (event: MessageEvent<OutputExportWorkerRequest>) => {
   const { payload, requestId } = event.data;
 
   try {
-    const artifact = buildOutputExportArtifact(payload);
+    const artifact = buildOutputExportArtifact(payload, (progress) => {
+      const response: OutputExportWorkerProgressResponse = {
+        progress,
+        requestId,
+        type: "progress",
+      };
+
+      self.postMessage(response);
+    });
     const response: OutputExportWorkerResultResponse = {
       payload: artifact,
       requestId,

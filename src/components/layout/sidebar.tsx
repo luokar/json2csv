@@ -6,15 +6,38 @@ import { cn } from "@/lib/utils";
 
 export function CollapsibleSidebar({
   children,
+  isMobile,
   isOpen,
   onToggle,
   tabStrip,
 }: {
   children: ReactNode;
+  isMobile?: boolean;
   isOpen: boolean;
   onToggle: () => void;
   tabStrip?: ReactNode;
 }) {
+  if (isMobile) {
+    if (!isOpen) return null;
+
+    return (
+      <>
+        <div
+          className="fixed inset-0 z-40 bg-black/20 animate-in fade-in duration-150"
+          onClick={onToggle}
+        />
+        <aside className="fixed inset-y-0 right-0 z-50 flex w-[min(448px,100vw)] flex-col border-l border-border bg-muted/30 shadow-xl animate-in slide-in-from-right duration-200">
+          <div className="flex h-full flex-row">
+            {tabStrip}
+            <div className="flex min-w-0 flex-1 flex-col">
+              {children}
+            </div>
+          </div>
+        </aside>
+      </>
+    );
+  }
+
   return (
     <aside
       className={cn(

@@ -10,7 +10,7 @@ export function InspectorSection({
   title: string;
 }) {
   return (
-    <section className="rounded-xl border border-border bg-white">
+    <section className="rounded-xl border border-border bg-card">
       <div className="px-4 py-3">
         <p className="text-sm font-semibold text-foreground">{title}</p>
         <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>

@@ -79,10 +79,10 @@ export function ColumnProfileCard({
                 <span
                   className={cn(
                     "rounded-full px-1.5 py-px text-[9px] font-medium",
-                    profile.nullPattern === "sparse" && "bg-emerald-100 text-emerald-700",
-                    profile.nullPattern === "moderate" && "bg-amber-100 text-amber-700",
-                    profile.nullPattern === "heavy" && "bg-orange-100 text-orange-700",
-                    profile.nullPattern === "all" && "bg-red-100 text-red-700",
+                    profile.nullPattern === "sparse" && "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400",
+                    profile.nullPattern === "moderate" && "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400",
+                    profile.nullPattern === "heavy" && "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400",
+                    profile.nullPattern === "all" && "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400",
                   )}
                 >
                   {profile.nullPattern === "sparse"

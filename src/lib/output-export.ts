@@ -1,6 +1,6 @@
 import { strToU8 } from "fflate";
 import { parseJsonInput } from "@/lib/json-input";
-import { convertJsonToCsvText, type JsonValue, type MappingConfig } from "@/lib/mapping-engine";
+import { convertJsonToCsvText, createMappingConfig, type JsonValue, type MappingConfig, type ProcessingProgress, toCsv } from "@/lib/mapping-engine";
 import type { ProjectionRequest } from "@/lib/projection";
 
 const csvMimeType = "text/csv;charset=utf-8";
@@ -33,17 +33,27 @@ export interface OutputExportWorkerErrorResponse {
   type: "error";
 }
 
+export interface OutputExportWorkerProgressResponse {
+  progress: { completed: number; total: number };
+  requestId: number;
+  type: "progress";
+}
+
 export type OutputExportWorkerResponse =
   | OutputExportWorkerErrorResponse
+  | OutputExportWorkerProgressResponse
   | OutputExportWorkerResultResponse;
 
-export function buildOutputExportArtifact(request: OutputExportRequest): OutputExportArtifact {
+export function buildOutputExportArtifact(
+  request: OutputExportRequest,
+  onProgress?: (progress: ProcessingProgress) => void,
+): OutputExportArtifact {
   if (!request.config) {
     throw new Error("Fix the settings errors before downloading.");
   }
 
   const input = resolveExportInput(request);
-  const flatResult = convertJsonToCsvText(input, request.config);
+  const flatResult = convertJsonToCsvText(input, request.config, onProgress);
   const exportBaseName = sanitizeExportSegment(request.exportName, defaultExportBaseName);
 
   return createTextArtifact(`${exportBaseName}.csv`, flatResult.csv, csvMimeType);
@@ -114,6 +124,17 @@ function sanitizeExportSegment(value: string, fallback: string) {
 export const outputExportMimeTypes = {
   csv: csvMimeType,
 } as const;
+
+export function buildSelectedRowsExportArtifact(
+  headers: string[],
+  records: Array<Record<string, string>>,
+  options: { delimiter: string; exportName: string; quoteAll: boolean },
+): OutputExportArtifact {
+  const config = createMappingConfig({ delimiter: options.delimiter, quoteAll: options.quoteAll });
+  const csv = toCsv(headers, records, config);
+  const exportBaseName = sanitizeExportSegment(options.exportName, defaultExportBaseName);
+  return createTextArtifact(`${exportBaseName}-selected.csv`, csv, csvMimeType);
+}
 
 export function createOutputExportRequest(options: {
   config?: MappingConfig;

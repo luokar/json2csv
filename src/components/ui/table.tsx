@@ -13,7 +13,7 @@ export function Table({ className, ...props }: React.ComponentProps<"table">) {
 export function TableHeader({ className, ...props }: React.ComponentProps<"thead">) {
   return (
     <thead
-      className={cn("bg-white [&_tr]:border-b [&_tr]:border-border", className)}
+      className={cn("bg-background [&_tr]:border-b [&_tr]:border-border", className)}
       {...props}
     />
   );

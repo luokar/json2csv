@@ -240,6 +240,7 @@ function App() {
   const [detailDrawerRow, setDetailDrawerRow] = useState<{
     label: string;
     row: Record<string, string>;
+    rowIndex: number;
   } | null>(null);
   const [pinnedColumnId, setPinnedColumnId] = useState<string | null>(null);
   const { theme, setTheme, resolvedTheme } = useTheme();
@@ -802,6 +803,26 @@ function App() {
     setActiveSidebarTab("inspect");
   }, []);
 
+  const handleDetailDrawerNavigate = useCallback(
+    (direction: "prev" | "next") => {
+      if (!detailDrawerRow) return;
+      const rows = flatPreviewRows.rows;
+      const nextIndex =
+        direction === "prev"
+          ? detailDrawerRow.rowIndex - 1
+          : detailDrawerRow.rowIndex + 1;
+      if (nextIndex < 0 || nextIndex >= rows.length) return;
+      const nextRow = rows[nextIndex]!;
+      const nextRowId = createGridRowId(nextRow, nextIndex, visibleHeaders);
+      setDetailDrawerRow({
+        label: createWorkbenchRowLabel(nextRow, nextRowId),
+        row: nextRow,
+        rowIndex: nextIndex,
+      });
+    },
+    [detailDrawerRow, flatPreviewRows.rows, visibleHeaders],
+  );
+
   const keyboardShortcutHandlers = useMemo(
     () => ({
       onDownloadCsv: () => {
@@ -916,12 +937,15 @@ function App() {
                 : "Download CSV"}
             </Button>
           }
+          onColumnOrderChange={setColumnOrder}
           onInspectColumn={(header) => inspectColumn(header, "flat")}
           onInspectRow={(row, rowId) => inspectRow(row, rowId, "flat")}
           onOpenRowDetail={(row, rowId) => {
+            const rowIndex = flatPreviewRows.rows.indexOf(row);
             setDetailDrawerRow({
               label: createWorkbenchRowLabel(row, rowId),
               row,
+              rowIndex: rowIndex >= 0 ? rowIndex : 0,
             });
           }}
           onPinnedColumnChange={setPinnedColumnId}
@@ -1300,8 +1324,11 @@ function App() {
 
       {/* Row detail drawer */}
       <RowDetailDrawer
+        hasNext={(detailDrawerRow?.rowIndex ?? 0) < flatPreviewRows.rows.length - 1}
+        hasPrev={(detailDrawerRow?.rowIndex ?? 0) > 0}
         headers={visibleHeaders}
         isOpen={detailDrawerRow !== null}
+        onNavigate={handleDetailDrawerNavigate}
         onOpenChange={(open) => {
           if (!open) setDetailDrawerRow(null);
         }}

@@ -12,8 +12,24 @@ import {
   type VisibilityState,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import {
+  closestCenter,
+  DndContext,
+  type DragEndEvent,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  horizontalListSortingStrategy,
+  SortableContext,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { ArrowDown, ArrowUp, ArrowUpDown, Columns3, Download, Filter, FilterX, Search, X } from "lucide-react";
-import { memo, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -31,6 +47,44 @@ import { cn } from "@/lib/utils";
 const selectionColumnId = "__select__";
 const emptyHiddenHeaders: string[] = [];
 
+function SortableHeaderCell({
+  children,
+  className,
+  headerId,
+  style,
+}: {
+  children: ReactNode;
+  className?: string;
+  headerId: string;
+  style?: CSSProperties;
+}) {
+  const {
+    isDragging,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+  } = useSortable({ id: headerId });
+
+  const combinedStyle: CSSProperties = {
+    ...style,
+    transform: CSS.Translate.toString(transform),
+    transition,
+    ...(isDragging ? { opacity: 0.5, zIndex: 30 } : undefined),
+  };
+
+  return (
+    <TableHead
+      ref={setNodeRef}
+      className={cn(className, "cursor-grab", isDragging && "cursor-grabbing")}
+      style={combinedStyle}
+      {...listeners}
+    >
+      {children}
+    </TableHead>
+  );
+}
+
 interface DenseDataGridProps {
   caption: string;
   description: string;
@@ -40,6 +94,7 @@ interface DenseDataGridProps {
   headers: string[];
   initialHiddenHeaders?: string[];
   notices?: ReactNode;
+  onColumnOrderChange?: (newOrder: string[]) => void;
   onExportSelected?: (rows: Array<Record<string, string>>) => void;
   onInspectColumn?: (header: string) => void;
   onInspectRow?: (row: Record<string, string>, rowId: string) => void;
@@ -63,6 +118,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
   headers,
   initialHiddenHeaders = emptyHiddenHeaders,
   notices,
+  onColumnOrderChange,
   onExportSelected,
   onInspectColumn,
   onInspectRow,
@@ -227,22 +283,39 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                 }}
               >
                 <span className="truncate">{header}</span>
-                {sorted === "asc" ? (
-                  <ArrowUp aria-hidden className="size-3 shrink-0 text-primary" />
-                ) : sorted === "desc" ? (
-                  <ArrowDown aria-hidden className="size-3 shrink-0 text-primary" />
-                ) : (
-                  <ArrowUpDown aria-hidden className="size-3 shrink-0 text-muted-foreground/60" />
-                )}
+                <span className="flex shrink-0 items-center gap-0.5">
+                  {!showColumnFiltersRef.current && typeof filterValue === "string" && filterValue ? (
+                    <Filter aria-hidden className="size-3 text-primary" />
+                  ) : null}
+                  {sorted === "asc" ? (
+                    <ArrowUp aria-hidden className="size-3 text-primary" />
+                  ) : sorted === "desc" ? (
+                    <ArrowDown aria-hidden className="size-3 text-primary" />
+                  ) : (
+                    <ArrowUpDown aria-hidden className="size-3 text-muted-foreground/60" />
+                  )}
+                </span>
               </button>
               {showColumnFiltersRef.current ? (
-                <Input
-                  aria-label={`Filter ${header}`}
-                  className="h-7 rounded-md bg-background px-2 text-xs"
-                  placeholder="Filter..."
-                  value={typeof filterValue === "string" ? filterValue : ""}
-                  onChange={(event) => column.setFilterValue(event.target.value)}
-                />
+                <div className="relative">
+                  <Input
+                    aria-label={`Filter ${header}`}
+                    className="h-7 rounded-md bg-background px-2 pr-7 text-xs"
+                    placeholder="Filter..."
+                    value={typeof filterValue === "string" ? filterValue : ""}
+                    onChange={(event) => column.setFilterValue(event.target.value)}
+                  />
+                  {typeof filterValue === "string" && filterValue ? (
+                    <button
+                      type="button"
+                      aria-label={`Clear ${header} filter`}
+                      className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground"
+                      onClick={() => column.setFilterValue("")}
+                    >
+                      <X className="size-3" />
+                    </button>
+                  ) : null}
+                </div>
               ) : null}
             </div>
           );
@@ -315,6 +388,27 @@ export const DenseDataGrid = memo(function DenseDataGrid({
     setColumnVisibility(nextVisibility);
   }
 
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor),
+  );
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+
+      if (!over || active.id === over.id || !onColumnOrderChange) return;
+
+      const oldIndex = headers.indexOf(String(active.id));
+      const newIndex = headers.indexOf(String(over.id));
+
+      if (oldIndex === -1 || newIndex === -1) return;
+
+      onColumnOrderChange(arrayMove(headers, oldIndex, newIndex));
+    },
+    [headers, onColumnOrderChange],
+  );
+
   return (
     <section className="flex min-h-[calc(100vh-10rem)] flex-col overflow-hidden rounded-xl border border-border bg-background shadow-sm">
       <div className="border-b border-border px-5 py-4">
@@ -358,11 +452,14 @@ export const DenseDataGrid = memo(function DenseDataGrid({
 
             <Button
               type="button"
-              variant="ghost"
+              variant={showColumnFilters ? "outline" : "ghost"}
               onClick={() => setShowColumnFilters((current) => !current)}
             >
               <Filter className="size-4" />
               Filters
+              {!showColumnFilters && columnFilters.length > 0 ? (
+                <Badge variant="secondary">{columnFilters.length}</Badge>
+              ) : null}
             </Button>
 
             {columnFilters.length > 0 ? (
@@ -507,43 +604,60 @@ export const DenseDataGrid = memo(function DenseDataGrid({
             {caption}
           </caption>
           <TableHeader className="sticky top-0 z-20">
-            {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id} className="bg-background hover:bg-background border-b border-border">
-                {headerGroup.headers.map((header) => {
-                  const isSelectionColumn = header.column.id === selectionColumnId;
-                  const isPinnedDataColumn = header.column.id === pinnedDataColumnId;
+            <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={headers} strategy={horizontalListSortingStrategy}>
+                {table.getHeaderGroups().map((headerGroup) => (
+                  <TableRow key={headerGroup.id} className="bg-background hover:bg-background border-b border-border">
+                    {headerGroup.headers.map((header) => {
+                      const isSelectionColumn = header.column.id === selectionColumnId;
+                      const isPinnedDataColumn = header.column.id === pinnedDataColumnId;
 
-                  return (
-                    <TableHead
-                      key={header.id}
-                      className={cn(
-                        "relative border-r border-border/30 bg-background align-top",
-                        isSelectionColumn && "sticky left-0 z-30 w-10 min-w-10 max-w-10 px-2",
-                        isPinnedDataColumn && "sticky left-10 z-20",
-                      )}
-                      style={isSelectionColumn ? undefined : { width: header.getSize() }}
-                    >
-                      {header.isPlaceholder
-                        ? null
-                        : flexRender(header.column.columnDef.header, header.getContext())}
-                      {!isSelectionColumn && header.column.getCanResize() ? (
-                        <div
+                      if (isSelectionColumn) {
+                        return (
+                          <TableHead
+                            key={header.id}
+                            className="relative sticky left-0 z-30 w-10 min-w-10 max-w-10 border-r border-border/30 bg-background px-2 align-top"
+                          >
+                            {header.isPlaceholder
+                              ? null
+                              : flexRender(header.column.columnDef.header, header.getContext())}
+                          </TableHead>
+                        );
+                      }
+
+                      return (
+                        <SortableHeaderCell
+                          key={header.id}
+                          headerId={header.column.id}
                           className={cn(
-                            "absolute right-0 top-0 h-full w-1 cursor-col-resize select-none touch-none",
-                            header.column.getIsResizing()
-                              ? "bg-primary opacity-100"
-                              : "opacity-0 hover:opacity-100 bg-border",
+                            "relative border-r border-border/30 bg-background align-top",
+                            isPinnedDataColumn && "sticky left-10 z-20",
                           )}
-                          onDoubleClick={() => header.column.resetSize()}
-                          onMouseDown={header.getResizeHandler()}
-                          onTouchStart={header.getResizeHandler()}
-                        />
-                      ) : null}
-                    </TableHead>
-                  );
-                })}
-              </TableRow>
-            ))}
+                          style={{ width: header.getSize() }}
+                        >
+                          {header.isPlaceholder
+                            ? null
+                            : flexRender(header.column.columnDef.header, header.getContext())}
+                          {header.column.getCanResize() ? (
+                            <div
+                              className={cn(
+                                "absolute right-0 top-0 h-full w-1 cursor-col-resize select-none touch-none",
+                                header.column.getIsResizing()
+                                  ? "bg-primary opacity-100"
+                                  : "opacity-0 hover:opacity-100 bg-border",
+                              )}
+                              onDoubleClick={() => header.column.resetSize()}
+                              onMouseDown={header.getResizeHandler()}
+                              onTouchStart={header.getResizeHandler()}
+                            />
+                          ) : null}
+                        </SortableHeaderCell>
+                      );
+                    })}
+                  </TableRow>
+                ))}
+              </SortableContext>
+            </DndContext>
           </TableHeader>
           <tbody className="[&_tr:last-child]:border-0 [&_tr]:border-b [&_tr]:border-border/50">
             {tableRows.length > 0 ? (

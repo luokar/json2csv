@@ -59,7 +59,7 @@ import {
 } from "@/lib/pipeline-export";
 import { createRowPreview, createTextPreview } from "@/lib/preview";
 import type { ProjectionFlatStreamPreview, ProjectionProgress } from "@/lib/projection";
-import { projectionFlatRowPreviewLimit } from "@/lib/projection";
+import { projectionFlatRowPreviewLimit, projectionSmallInputRootThreshold } from "@/lib/projection";
 import { detectSmartConfigSuggestion, type SmartConfigSuggestion } from "@/lib/smart-config";
 
 const delimiterOptions = [
@@ -404,10 +404,13 @@ function App() {
     [visibleHeaders],
   );
   const initialHiddenFlatColumnCount = initialHiddenFlatHeaders.length;
-  const flatPreviewRows = useMemo(
-    () => createRowPreview(flatRecords, projectionFlatRowPreviewLimit),
-    [flatRecords],
-  );
+  const flatPreviewRows = useMemo(() => {
+    const limit =
+      flatRowCount < projectionSmallInputRootThreshold
+        ? flatRecords.length
+        : projectionFlatRowPreviewLimit;
+    return createRowPreview(flatRecords, limit);
+  }, [flatRecords, flatRowCount]);
   const flatPreviewRowsTruncated = isStreamingFlatPreview
     ? flatRowCount > flatRecords.length
     : flatPreviewRows.truncated ||

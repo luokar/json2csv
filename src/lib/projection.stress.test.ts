@@ -202,9 +202,8 @@ describe("projection memory stress tests", () => {
       expect(result.conversionResult).not.toBeNull();
       expect(result.discoveredPaths.length).toBe(51); // id + 50 fields
       expect(result.conversionResult!.headers.length).toBe(51);
-      expect(result.conversionResult!.records.length).toBeLessThanOrEqual(
-        projectionFlatRowPreviewLimit,
-      );
+      // 200 roots is under the small-input threshold, so all records are returned
+      expect(result.conversionResult!.records.length).toBe(rootCount);
     });
 
     it("handles deeply nested objects (10 levels) within depth limits", () => {

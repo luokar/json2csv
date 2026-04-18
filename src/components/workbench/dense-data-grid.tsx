@@ -177,7 +177,8 @@ export const DenseDataGrid = memo(function DenseDataGrid({
         size: 40,
       },
       ...headers.map<ColumnDef<Record<string, string>>>((header) => ({
-        accessorKey: header,
+        accessorFn: (row) => row[header],
+        id: header,
         cell: ({ getValue, row }) => {
           const value = getValue<string | undefined>() ?? "";
           const isCompact = header.includes("id") || header.includes("path");

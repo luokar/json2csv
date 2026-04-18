@@ -444,4 +444,23 @@ describe("App", () => {
       expect(screen.getByText(/50% string \/ 50% number/i)).toBeInTheDocument();
     });
   });
+
+  it("displays dot-notation headers and their values for the duplicate column names sample", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.selectOptions(screen.getByLabelText(/example dataset/i), "collisions");
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /^user_id$/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^user\.id$/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^meta\.user\.id$/i })).toBeInTheDocument();
+    });
+
+    // Verify cell values are rendered (not empty due to dot-path accessor)
+    expect(screen.getByRole("button", { name: "1" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "2" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "3" })).toBeInTheDocument();
+  });
 });

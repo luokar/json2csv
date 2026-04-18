@@ -101,6 +101,7 @@ export const projectionFlatCsvPreviewCharacterLimit = 18_000;
 export const projectionDiscoveredPathLimit = 2_500;
 export const projectionPreviewRootLimit = 1_500;
 export const projectionRenderedRowBudget = 2_000;
+export const projectionSmallInputRootThreshold = 500;
 
 export function streamProjectionPayload(
   request: ProjectionRequest,
@@ -144,6 +145,8 @@ export function streamProjectionPayload(
   const previewRootLimit = resolveProjectionPreviewRootLimit(request, selectedRootCount);
   const previewCapped = previewRootLimit !== null && selectedRootCount > previewRootLimit;
 
+  const isSmallInput = selectedRootCount < projectionSmallInputRootThreshold;
+
   const discoveredPaths = inspectMappingPaths(
     resolvedInput.value,
     request.rootPath,
@@ -158,9 +161,15 @@ export function streamProjectionPayload(
         resolvedInput.value,
         request.config,
         {
-          csvPreviewCharacterLimit: projectionFlatCsvPreviewCharacterLimit,
-          previewRowLimit: projectionFlatRowPreviewLimit,
-          renderedRowBudget: projectionRenderedRowBudget,
+          csvPreviewCharacterLimit: isSmallInput
+            ? Number.POSITIVE_INFINITY
+            : projectionFlatCsvPreviewCharacterLimit,
+          previewRowLimit: isSmallInput
+            ? Number.MAX_SAFE_INTEGER
+            : projectionFlatRowPreviewLimit,
+          renderedRowBudget: isSmallInput
+            ? undefined
+            : projectionRenderedRowBudget,
           rootLimit: previewRootLimit ?? undefined,
         },
         {
@@ -179,6 +188,7 @@ export function streamProjectionPayload(
     parseError: resolvedInput.error ?? null,
     previewCapped,
     previewRootLimit: previewCapped ? previewRootLimit : null,
+    rootCount: selectedRootCount,
   });
 }
 
@@ -296,7 +306,7 @@ function streamCustomSelectorProjectionPayload(
 
   const discoveredPaths = finalizeInspectedPaths(pathRegistry);
   const conversionResult = request.config
-    ? finalizeFlatProjectionSession(flatProjectionSession, reportProgress)
+    ? finalizeFlatProjectionSession(flatProjectionSession, reportProgress, totalParsedRootCount)
     : null;
   const previewCapped = totalParsedRootCount > effectiveRootLimit;
 
@@ -306,6 +316,7 @@ function streamCustomSelectorProjectionPayload(
     parseError: null,
     previewCapped,
     previewRootLimit: previewCapped ? effectiveRootLimit : null,
+    rootCount: totalParsedRootCount,
   };
 }
 
@@ -315,10 +326,11 @@ function compactProjectionPayload(payload: {
   parseError: string | null;
   previewCapped: boolean;
   previewRootLimit: number | null;
+  rootCount?: number;
 }): ProjectionPayload {
   return {
     conversionResult: payload.conversionResult
-      ? compactProjectionResult(payload.conversionResult)
+      ? compactProjectionResult(payload.conversionResult, payload.rootCount)
       : null,
     discoveredPaths: payload.discoveredPaths,
     parseError: payload.parseError,
@@ -329,16 +341,20 @@ function compactProjectionPayload(payload: {
 
 function compactProjectionResult(
   result: MappingPreviewResult | MappingResult,
+  rootCount?: number,
 ): ProjectionConversionResult {
   if ("csvPreview" in result) {
     return result;
   }
 
+  const isSmallInput = rootCount !== undefined && rootCount < projectionSmallInputRootThreshold;
   return {
     config: result.config,
     csvPreview: createTextPreview(result.csv, projectionFlatCsvPreviewCharacterLimit),
     headers: result.headers,
-    records: result.records.slice(0, projectionFlatRowPreviewLimit),
+    records: isSmallInput
+      ? result.records
+      : result.records.slice(0, projectionFlatRowPreviewLimit),
     rowCount: result.rowCount,
     schema: result.schema,
   };
@@ -347,15 +363,21 @@ function compactProjectionResult(
 function finalizeFlatProjectionSession(
   session: ReturnType<typeof createMappingProjectionSession> | null,
   reportProgress: (phase: ProjectionPhase, phaseCompleted: number, phaseTotal: number) => void,
+  rootCount?: number,
 ) {
   if (!session) {
     return null;
   }
 
+  const isSmallInput = rootCount !== undefined && rootCount < projectionSmallInputRootThreshold;
   reportProgress("flat", 0, 1);
   const result = session.finalizePreview({
-    csvPreviewCharacterLimit: projectionFlatCsvPreviewCharacterLimit,
-    previewRowLimit: projectionFlatRowPreviewLimit,
+    csvPreviewCharacterLimit: isSmallInput
+      ? Number.POSITIVE_INFINITY
+      : projectionFlatCsvPreviewCharacterLimit,
+    previewRowLimit: isSmallInput
+      ? Number.MAX_SAFE_INTEGER
+      : projectionFlatRowPreviewLimit,
   });
   reportProgress("flat", 1, 1);
 

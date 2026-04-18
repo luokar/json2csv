@@ -5,6 +5,7 @@ import {
   projectionFlatCsvPreviewCharacterLimit,
   projectionFlatRowPreviewLimit,
   projectionPreviewRootLimit,
+  projectionSmallInputRootThreshold,
   streamProjectionPayload,
 } from "@/lib/projection";
 
@@ -90,9 +91,11 @@ describe("projection pipeline", () => {
   });
 
   it("caps live preview payloads to preview-sized flat slices", () => {
+    // Use a root count above the small-input threshold so capping is enforced
+    const recordCount = projectionSmallInputRootThreshold + 25;
     const customJson = JSON.stringify(
       {
-        records: Array.from({ length: projectionFlatRowPreviewLimit + 25 }, (_, index) => ({
+        records: Array.from({ length: recordCount }, (_, index) => ({
           id: String(index + 1),
           note: `row-${index + 1}-${"x".repeat(320)}`,
           status: index % 2 === 0,
@@ -114,7 +117,7 @@ describe("projection pipeline", () => {
     });
 
     expect(result.parseError).toBeNull();
-    expect(result.conversionResult?.rowCount).toBe(projectionFlatRowPreviewLimit + 25);
+    expect(result.conversionResult?.rowCount).toBe(recordCount);
     expect(result.conversionResult?.records).toHaveLength(projectionFlatRowPreviewLimit);
     expect(result.conversionResult?.csvPreview.truncated).toBe(true);
     expect(result.conversionResult?.csvPreview.text).toContain("[Preview truncated]");

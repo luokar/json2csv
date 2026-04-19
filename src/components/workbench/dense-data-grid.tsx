@@ -16,6 +16,8 @@ import {
   closestCenter,
   DndContext,
   type DragEndEvent,
+  DragOverlay,
+  type DragStartEvent,
   KeyboardSensor,
   PointerSensor,
   useSensor,
@@ -28,7 +30,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ArrowDown, ArrowUp, ArrowUpDown, Columns3, Download, Filter, FilterX, Search, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Clipboard, Columns3, Download, FileJson, Filter, FilterX, Search, X } from "lucide-react";
 import { type CSSProperties, memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -60,6 +62,7 @@ function SortableHeaderCell({
 }) {
   const {
     isDragging,
+    isOver,
     listeners,
     setNodeRef,
     transform,
@@ -70,13 +73,18 @@ function SortableHeaderCell({
     ...style,
     transform: CSS.Translate.toString(transform),
     transition,
-    ...(isDragging ? { opacity: 0.5, zIndex: 30 } : undefined),
+    ...(isDragging ? { opacity: 0.3, zIndex: 30 } : undefined),
   };
 
   return (
     <TableHead
       ref={setNodeRef}
-      className={cn(className, "cursor-grab", isDragging && "cursor-grabbing")}
+      className={cn(
+        className,
+        "cursor-grab",
+        isDragging && "cursor-grabbing border-dashed border-primary",
+        isOver && !isDragging && "border-l-2 border-l-primary",
+      )}
       style={combinedStyle}
       {...listeners}
     >
@@ -87,6 +95,7 @@ function SortableHeaderCell({
 
 interface DenseDataGridProps {
   caption: string;
+  columnFiltersVisible?: boolean;
   description: string;
   emptyMessage: string;
   filterLabel: string;
@@ -94,8 +103,11 @@ interface DenseDataGridProps {
   headers: string[];
   initialHiddenHeaders?: string[];
   notices?: ReactNode;
+  onColumnFiltersVisibleChange?: (visible: boolean) => void;
   onColumnOrderChange?: (newOrder: string[]) => void;
+  onCopySelectedToClipboard?: (rows: Array<Record<string, string>>) => void;
   onExportSelected?: (rows: Array<Record<string, string>>) => void;
+  onExportSelectedJson?: (rows: Array<Record<string, string>>) => void;
   onInspectColumn?: (header: string) => void;
   onInspectRow?: (row: Record<string, string>, rowId: string) => void;
   onOpenRowDetail?: (row: Record<string, string>, rowId: string) => void;
@@ -104,6 +116,7 @@ interface DenseDataGridProps {
   rowCount: number;
   rowLabel: string;
   rows: Array<Record<string, string>>;
+  searchInputRef?: React.RefObject<HTMLInputElement | null>;
   summaryBadges?: ReactNode;
   title: string;
   toolbarActions?: ReactNode;
@@ -111,6 +124,7 @@ interface DenseDataGridProps {
 
 export const DenseDataGrid = memo(function DenseDataGrid({
   caption,
+  columnFiltersVisible,
   description,
   emptyMessage,
   filterLabel,
@@ -118,8 +132,11 @@ export const DenseDataGrid = memo(function DenseDataGrid({
   headers,
   initialHiddenHeaders = emptyHiddenHeaders,
   notices,
+  onColumnFiltersVisibleChange,
   onColumnOrderChange,
+  onCopySelectedToClipboard,
   onExportSelected,
+  onExportSelectedJson,
   onInspectColumn,
   onInspectRow,
   onOpenRowDetail,
@@ -128,6 +145,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
   rowCount,
   rowLabel,
   rows,
+  searchInputRef,
   summaryBadges,
   title,
   toolbarActions,
@@ -136,9 +154,25 @@ export const DenseDataGrid = memo(function DenseDataGrid({
   const globalSearchRef = useRef(globalSearch);
   globalSearchRef.current = globalSearch;
   const [showColumnControls, setShowColumnControls] = useState(false);
-  const [showColumnFilters, setShowColumnFilters] = useState(true);
+  const [showColumnFilters, setShowColumnFiltersInternal] = useState(true);
+  const setShowColumnFilters = useCallback(
+    (updater: boolean | ((prev: boolean) => boolean)) => {
+      setShowColumnFiltersInternal((prev) => {
+        const next = typeof updater === "function" ? updater(prev) : updater;
+        onColumnFiltersVisibleChange?.(next);
+        return next;
+      });
+    },
+    [onColumnFiltersVisibleChange],
+  );
   const showColumnFiltersRef = useRef(showColumnFilters);
   showColumnFiltersRef.current = showColumnFilters;
+
+  useEffect(() => {
+    if (columnFiltersVisible !== undefined) {
+      setShowColumnFiltersInternal(columnFiltersVisible);
+    }
+  }, [columnFiltersVisible]);
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
@@ -393,8 +427,15 @@ export const DenseDataGrid = memo(function DenseDataGrid({
     useSensor(KeyboardSensor),
   );
 
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    setActiveDragId(String(event.active.id));
+  }, []);
+
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
+      setActiveDragId(null);
       const { active, over } = event;
 
       if (!over || active.id === over.id || !onColumnOrderChange) return;
@@ -433,6 +474,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
             <div className="relative min-w-[16rem] flex-1 xl:max-w-sm">
               <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
+                ref={searchInputRef}
                 aria-label={filterLabel}
                 className="pl-9"
                 placeholder="Search rows..."
@@ -582,7 +624,29 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                   onClick={() => onExportSelected(selectedRows.map((r) => r.original))}
                 >
                   <Download className="size-4" />
-                  Export selected
+                  Export CSV
+                </Button>
+              ) : null}
+              {onExportSelectedJson ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onExportSelectedJson(selectedRows.map((r) => r.original))}
+                >
+                  <FileJson className="size-4" />
+                  Export JSON
+                </Button>
+              ) : null}
+              {onCopySelectedToClipboard ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onCopySelectedToClipboard(selectedRows.map((r) => r.original))}
+                >
+                  <Clipboard className="size-4" />
+                  Copy
                 </Button>
               ) : null}
               <Button type="button" size="sm" variant="ghost" onClick={() => setRowSelection({})}>
@@ -604,7 +668,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
             {caption}
           </caption>
           <TableHeader className="sticky top-0 z-20">
-            <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
               <SortableContext items={headers} strategy={horizontalListSortingStrategy}>
                 {table.getHeaderGroups().map((headerGroup) => (
                   <TableRow key={headerGroup.id} className="bg-background hover:bg-background border-b border-border">
@@ -657,6 +721,13 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                   </TableRow>
                 ))}
               </SortableContext>
+              <DragOverlay>
+                {activeDragId ? (
+                  <div className="rounded border border-primary bg-background px-3 py-2 text-xs font-medium text-foreground shadow-lg">
+                    {activeDragId}
+                  </div>
+                ) : null}
+              </DragOverlay>
             </DndContext>
           </TableHeader>
           <tbody className="[&_tr:last-child]:border-0 [&_tr]:border-b [&_tr]:border-border/50">

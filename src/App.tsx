@@ -48,7 +48,7 @@ import {
 } from "@/lib/mapping-engine";
 import { computeColumnProfiles } from "@/lib/column-profiling";
 import { mappingSamples } from "@/lib/mapping-samples";
-import { buildSelectedRowsExportArtifact, createOutputExportRequest, downloadExportArtifact } from "@/lib/output-export";
+import { buildSelectedRowsExportArtifact, buildSelectedRowsJsonExportArtifact, copyRowsToClipboard, createOutputExportRequest, downloadExportArtifact } from "@/lib/output-export";
 import {
   buildPipelineConfig,
   downloadPipelineConfig,
@@ -237,6 +237,8 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [shortcutsDialogOpen, setShortcutsDialogOpen] = useState(false);
+  const [columnFiltersVisible, setColumnFiltersVisible] = useState<boolean | undefined>(undefined);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [detailDrawerRow, setDetailDrawerRow] = useState<{
     label: string;
     row: Record<string, string>;
@@ -828,9 +830,15 @@ function App() {
       onDownloadCsv: () => {
         void handleFlatCsvExport();
       },
+      onFocusSearch: () => {
+        searchInputRef.current?.focus();
+      },
       onOpenCommandPalette: () => setCommandPaletteOpen(true),
       onRedo: () => columnConfigStack.redo(),
       onShowShortcutsHelp: () => setShortcutsDialogOpen(true),
+      onToggleColumnFilters: () => {
+        setColumnFiltersVisible((prev) => !prev);
+      },
       onToggleSidebar: () => setSidebarOpen((prev) => !prev),
       onUndo: () => columnConfigStack.undo(),
     }),
@@ -872,6 +880,7 @@ function App() {
               ? `Data location ${conversionResult.config.rootPath || "$"} with ${conversionResult.config.flattenMode} nesting style. ${flatPreviewRowsTruncated ? "Preview is limited for performance." : "All preview rows are loaded."}`
               : "Fix the settings errors to generate a preview."
           }
+          columnFiltersVisible={columnFiltersVisible}
           description="Your converted data with filtering, sorting, and column controls."
           emptyMessage={
             isStreamingFlatPreview || conversionResult
@@ -937,6 +946,7 @@ function App() {
                 : "Download CSV"}
             </Button>
           }
+          onColumnFiltersVisibleChange={setColumnFiltersVisible}
           onColumnOrderChange={setColumnOrder}
           onInspectColumn={(header) => inspectColumn(header, "flat")}
           onInspectRow={(row, rowId) => inspectRow(row, rowId, "flat")}
@@ -950,11 +960,24 @@ function App() {
           }}
           onPinnedColumnChange={setPinnedColumnId}
           pinnedColumnId={pinnedColumnId}
+          searchInputRef={searchInputRef}
+          onCopySelectedToClipboard={(rows) => {
+            void copyRowsToClipboard(visibleHeaders, rows, "csv", {
+              delimiter: liveValues.delimiter,
+              quoteAll: liveValues.quoteAll,
+            });
+          }}
           onExportSelected={(rows) => {
             const artifact = buildSelectedRowsExportArtifact(visibleHeaders, rows, {
               delimiter: liveValues.delimiter,
               exportName: liveValues.exportName,
               quoteAll: liveValues.quoteAll,
+            });
+            downloadExportArtifact(artifact);
+          }}
+          onExportSelectedJson={(rows) => {
+            const artifact = buildSelectedRowsJsonExportArtifact(rows, {
+              exportName: liveValues.exportName,
             });
             downloadExportArtifact(artifact);
           }}

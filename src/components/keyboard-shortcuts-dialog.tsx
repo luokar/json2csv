@@ -10,6 +10,8 @@ const shortcutSections = [
     shortcuts: [
       { keys: "⌘K", description: "Open command palette" },
       { keys: "⌘B", description: "Toggle sidebar" },
+      { keys: "⌘F", description: "Focus search" },
+      { keys: "⌘⇧F", description: "Toggle column filters" },
       { keys: "?", description: "Show keyboard shortcuts" },
     ],
   },
@@ -19,6 +21,12 @@ const shortcutSections = [
       { keys: "⌘D", description: "Download CSV" },
       { keys: "⌘Z", description: "Undo column change" },
       { keys: "⌘⇧Z", description: "Redo column change" },
+    ],
+  },
+  {
+    title: "Row Detail",
+    shortcuts: [
+      { keys: "↑ / ↓", description: "Navigate rows (when drawer is open)" },
     ],
   },
 ];

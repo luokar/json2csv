@@ -2,9 +2,11 @@ import { useEffect } from "react";
 
 interface KeyboardShortcutHandlers {
   onDownloadCsv: () => void;
+  onFocusSearch: () => void;
   onOpenCommandPalette: () => void;
   onRedo: () => void;
   onShowShortcutsHelp: () => void;
+  onToggleColumnFilters: () => void;
   onToggleSidebar: () => void;
   onUndo: () => void;
 }
@@ -44,6 +46,18 @@ export function useKeyboardShortcuts(handlers: KeyboardShortcutHandlers) {
       if (isMetaOrCtrl && event.key === "d") {
         event.preventDefault();
         handlers.onDownloadCsv();
+        return;
+      }
+
+      if (isMetaOrCtrl && event.shiftKey && event.key === "f") {
+        event.preventDefault();
+        handlers.onToggleColumnFilters();
+        return;
+      }
+
+      if (isMetaOrCtrl && event.key === "f") {
+        event.preventDefault();
+        handlers.onFocusSearch();
         return;
       }
 

@@ -123,6 +123,7 @@ function sanitizeExportSegment(value: string, fallback: string) {
 
 export const outputExportMimeTypes = {
   csv: csvMimeType,
+  json: "application/json",
 } as const;
 
 export function buildSelectedRowsExportArtifact(
@@ -134,6 +135,28 @@ export function buildSelectedRowsExportArtifact(
   const csv = toCsv(headers, records, config);
   const exportBaseName = sanitizeExportSegment(options.exportName, defaultExportBaseName);
   return createTextArtifact(`${exportBaseName}-selected.csv`, csv, csvMimeType);
+}
+
+export function buildSelectedRowsJsonExportArtifact(
+  records: Array<Record<string, string>>,
+  options: { exportName: string },
+): OutputExportArtifact {
+  const json = JSON.stringify(records, null, 2);
+  const exportBaseName = sanitizeExportSegment(options.exportName, defaultExportBaseName);
+  return createTextArtifact(`${exportBaseName}-selected.json`, json, "application/json");
+}
+
+export function copyRowsToClipboard(
+  headers: string[],
+  records: Array<Record<string, string>>,
+  format: "csv" | "json",
+  config?: { delimiter?: string; quoteAll?: boolean },
+): Promise<void> {
+  const text =
+    format === "json"
+      ? JSON.stringify(records, null, 2)
+      : toCsv(headers, records, createMappingConfig({ delimiter: config?.delimiter, quoteAll: config?.quoteAll }));
+  return navigator.clipboard.writeText(text);
 }
 
 export function createOutputExportRequest(options: {

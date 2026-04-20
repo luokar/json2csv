@@ -2,6 +2,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Download, Moon, Search as SearchIcon, Sun, Monitor } from "lucide-react";
 import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
+import { toast, Toaster } from "sonner";
 import { z } from "zod";
 import { CommandPalette, createDefaultActions } from "@/components/command-palette";
 import { KeyboardShortcutsDialog } from "@/components/keyboard-shortcuts-dialog";
@@ -483,8 +484,9 @@ function App() {
       );
 
       downloadExportArtifact(artifact);
+      toast.success("CSV downloaded successfully.");
     } catch {
-      // Export errors are surfaced through the shared hook state.
+      toast.error("CSV export failed. Check the error details above.");
     }
   }
 
@@ -850,10 +852,10 @@ function App() {
     () =>
       createDefaultActions({
         onCopyJqSnippet: () => {
-          if (jqSnippet) void navigator.clipboard.writeText(jqSnippet);
+          if (jqSnippet) void navigator.clipboard.writeText(jqSnippet).then(() => toast.success("jq snippet copied to clipboard."));
         },
         onCopySqlSnippet: () => {
-          if (sqlSnippet) void navigator.clipboard.writeText(sqlSnippet);
+          if (sqlSnippet) void navigator.clipboard.writeText(sqlSnippet).then(() => toast.success("SQL snippet copied to clipboard."));
         },
         onDownloadCsv: () => {
           void handleFlatCsvExport();
@@ -965,7 +967,7 @@ function App() {
             void copyRowsToClipboard(visibleHeaders, rows, "csv", {
               delimiter: liveValues.delimiter,
               quoteAll: liveValues.quoteAll,
-            });
+            }).then(() => toast.success("Rows copied to clipboard."));
           }}
           onExportSelected={(rows) => {
             const artifact = buildSelectedRowsExportArtifact(visibleHeaders, rows, {
@@ -974,12 +976,14 @@ function App() {
               quoteAll: liveValues.quoteAll,
             });
             downloadExportArtifact(artifact);
+            toast.success("Selected rows exported as CSV.");
           }}
           onExportSelectedJson={(rows) => {
             const artifact = buildSelectedRowsJsonExportArtifact(rows, {
               exportName: liveValues.exportName,
             });
             downloadExportArtifact(artifact);
+            toast.success("Selected rows exported as JSON.");
           }}
         />
       );
@@ -1358,6 +1362,8 @@ function App() {
         row={detailDrawerRow?.row ?? null}
         rowLabel={detailDrawerRow?.label ?? "Row detail"}
       />
+
+      <Toaster position="bottom-right" richColors closeButton theme={resolvedTheme as "light" | "dark"} />
     </div>
   );
 }

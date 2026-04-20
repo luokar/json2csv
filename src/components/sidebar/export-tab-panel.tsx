@@ -1,5 +1,6 @@
 import type { ChangeEvent, ReactNode } from "react";
 import { useState } from "react";
+import { toast } from "sonner";
 
 import { Clipboard, Download, FileDown, FileUp } from "lucide-react";
 
@@ -142,6 +143,7 @@ export function ExportTabPanel({
     if (!activeSnippet) return;
     void navigator.clipboard.writeText(activeSnippet).then(() => {
       setCopied(true);
+      toast.success("Snippet copied to clipboard.");
       setTimeout(() => setCopied(false), 2000);
     });
   }

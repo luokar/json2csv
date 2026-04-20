@@ -1,6 +1,7 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { Braces, ChevronDown, ChevronUp, Copy, List, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -164,7 +165,7 @@ export function RowDetailDrawer({
                     size="icon"
                     className="size-8"
                     aria-label="Copy all as JSON"
-                    onClick={() => void navigator.clipboard.writeText(JSON.stringify(row, null, 2))}
+                    onClick={() => void navigator.clipboard.writeText(JSON.stringify(row, null, 2)).then(() => toast.success("Row copied as JSON."))}
                   >
                     <Copy className="size-4" />
                   </Button>
@@ -239,7 +240,7 @@ export function RowDetailDrawer({
                                     aria-label={`Copy ${header} value`}
                                     className="invisible rounded p-0.5 text-muted-foreground hover:text-foreground group-hover:visible"
                                     onClick={() =>
-                                      void navigator.clipboard.writeText(value)
+                                      void navigator.clipboard.writeText(value).then(() => toast.success(`Copied ${header} value.`))
                                     }
                                   >
                                     <Copy className="size-3" />

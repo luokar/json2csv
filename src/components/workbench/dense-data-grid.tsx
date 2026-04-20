@@ -30,8 +30,9 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ArrowDown, ArrowUp, ArrowUpDown, Clipboard, Columns3, Download, FileJson, Filter, FilterX, Search, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Clipboard, Columns3, Download, FileJson, Filter, FilterX, Pin, Search, X } from "lucide-react";
 import { type CSSProperties, memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -269,10 +270,12 @@ export const DenseDataGrid = memo(function DenseDataGrid({
       ...headers.map<ColumnDef<Record<string, string>>>((header) => ({
         accessorFn: (row) => row[header],
         id: header,
-        cell: ({ getValue, row }) => {
+        cell: ({ getValue, row, column: cellColumn }) => {
           const value = getValue<string | undefined>() ?? "";
           const isCompact = header.includes("id") || header.includes("path");
           const search = globalSearchRef.current;
+          const columnFilter = cellColumn.getFilterValue();
+          const filterTerm = typeof columnFilter === "string" ? columnFilter : "";
 
           return (
             <button
@@ -285,7 +288,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                 onInspectRow?.(row.original, row.id);
               }}
             >
-              {value ? <HighlightText highlight={search} text={value} /> : "\u00A0"}
+              {value ? <HighlightText highlight={filterTerm || search} text={value} /> : "\u00A0"}
             </button>
           );
         },
@@ -293,13 +296,14 @@ export const DenseDataGrid = memo(function DenseDataGrid({
         header: ({ column }) => {
           const filterValue = column.getFilterValue();
           const sorted = column.getIsSorted();
+          const isPinned = pinnedColumnId === header;
 
           return (
             <div className="space-y-1.5">
               <button
                 aria-label={header}
                 type="button"
-                className="flex min-h-[2.5rem] w-full items-center justify-between gap-2 text-left text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                className="group/header flex min-h-[2.5rem] w-full items-center justify-between gap-2 text-left text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
                 title={header}
                 onClick={() => {
                   if (!sorted) {
@@ -318,6 +322,30 @@ export const DenseDataGrid = memo(function DenseDataGrid({
               >
                 <span className="truncate">{header}</span>
                 <span className="flex shrink-0 items-center gap-0.5">
+                  <span
+                    role="button"
+                    tabIndex={-1}
+                    aria-label={isPinned ? `Unpin ${header}` : `Pin ${header}`}
+                    className={cn(
+                      "rounded p-0.5 transition-colors",
+                      isPinned
+                        ? "text-primary hover:text-primary/80"
+                        : "invisible text-muted-foreground/60 hover:text-foreground group-hover/header:visible",
+                    )}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onPinnedColumnChange?.(isPinned ? null : header);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        onPinnedColumnChange?.(isPinned ? null : header);
+                      }
+                    }}
+                  >
+                    <Pin className="size-3" />
+                  </span>
                   {!showColumnFiltersRef.current && typeof filterValue === "string" && filterValue ? (
                     <Filter aria-hidden className="size-3 text-primary" />
                   ) : null}
@@ -358,7 +386,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
         size: header.includes("id") ? 160 : 220,
       })),
     ],
-    [headers, onInspectColumn, onInspectRow, rowLabel],
+    [headers, onInspectColumn, onInspectRow, onPinnedColumnChange, pinnedColumnId, rowLabel],
   );
 
   const table = useReactTable({
@@ -405,6 +433,15 @@ export const DenseDataGrid = memo(function DenseDataGrid({
   const visibleRowCount = table.getFilteredRowModel().rows.length;
   const hiddenColumnCount = Math.max(0, headers.length - (visibleLeafColumns.length - 1));
   const defaultVisibleColumnCount = Math.max(0, headers.length - initialHiddenHeaders.length);
+
+  function handleHideAllColumns() {
+    const nextVisibility: VisibilityState = {};
+    for (const header of headers) {
+      if (header === pinnedDataColumnId) continue;
+      nextVisibility[header] = false;
+    }
+    setColumnVisibility(nextVisibility);
+  }
 
   function handleShowAllColumns() {
     setColumnVisibility({});
@@ -540,33 +577,52 @@ export const DenseDataGrid = memo(function DenseDataGrid({
         {showColumnControls ? (
           <div className="mt-3 flex flex-wrap gap-1.5 rounded-lg border border-border bg-muted/30 p-3">
             {initialHiddenHeaders.length > 0 ? (
-              <div className="flex w-full flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-background px-3 py-2 text-xs text-muted-foreground">
-                <p>
+              <div className="flex w-full items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-xs text-muted-foreground">
+                <p className="flex-1">
                   Showing {defaultVisibleColumnCount.toLocaleString()} columns by default. Use the
                   checkboxes below to show or hide additional columns.
                 </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {hiddenColumnCount > 0 ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={handleShowAllColumns}
-                    >
-                      Show all columns
-                    </Button>
-                  ) : null}
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    onClick={handleResetColumnPreview}
-                  >
-                    Reset to default columns
-                  </Button>
-                </div>
               </div>
             ) : null}
+
+            <div className="flex w-full flex-wrap items-center justify-end gap-1.5">
+              {hiddenColumnCount > 0 ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={handleShowAllColumns}
+                >
+                  Show all columns
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={handleHideAllColumns}
+              >
+                Hide all columns
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={handleResetColumnPreview}
+              >
+                Reset to default columns
+              </Button>
+              {onColumnOrderChange ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => onColumnOrderChange([])}
+                >
+                  Reset column order
+                </Button>
+              ) : null}
+            </div>
 
             {headers.map((header) => {
               const column = table.getColumn(header);
@@ -833,7 +889,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
           isPinned={pinnedDataColumnId === contextMenu.columnId}
           isSorted={table.getColumn(contextMenu.columnId)?.getIsSorted() ?? false}
           onClose={() => setContextMenu(null)}
-          onCopyName={() => void navigator.clipboard.writeText(contextMenu.columnId)}
+          onCopyName={() => void navigator.clipboard.writeText(contextMenu.columnId).then(() => toast.success("Column name copied."))}
           onHideColumn={() => table.getColumn(contextMenu.columnId)?.toggleVisibility(false)}
           onInspectColumn={() => onInspectColumn?.(contextMenu.columnId)}
           onSortAsc={() => table.getColumn(contextMenu.columnId)?.toggleSorting(false)}

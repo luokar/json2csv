@@ -48,6 +48,7 @@ import {
   typeMismatchStrategies,
 } from "@/lib/mapping-engine";
 import { computeColumnProfiles } from "@/lib/column-profiling";
+import type { FormatRule } from "@/lib/conditional-formatting";
 import { mappingSamples } from "@/lib/mapping-samples";
 import { buildSelectedRowsExportArtifact, buildSelectedRowsJsonExportArtifact, copyRowsToClipboard, createOutputExportRequest, downloadExportArtifact } from "@/lib/output-export";
 import {
@@ -245,8 +246,9 @@ function App() {
     row: Record<string, string>;
     rowIndex: number;
   } | null>(null);
-  const [pinnedColumnId, setPinnedColumnId] = useState<string | null>(null);
+  const [pinnedColumnIds, setPinnedColumnIds] = useState<string[]>([]);
   const [cellEdits, setCellEdits] = useState<Map<string, Map<string, string>>>(new Map());
+  const [formatRules, setFormatRules] = useState<FormatRule[]>([]);
   const { theme, setTheme, resolvedTheme } = useTheme();
   const isMobile = !useMediaQuery("(min-width: 1024px)");
   const inspectorMode: InspectorMode = selectedRow ? "row" : selectedColumn ? "column" : "mapping";
@@ -440,11 +442,11 @@ function App() {
         columnOrder,
         headerAliases,
         hiddenColumns: [...hiddenColumns],
-        pinnedColumnId,
+        pinnedColumnIds,
       });
     }, 500);
     return () => clearTimeout(saveTimerRef.current);
-  }, [columnOrder, headerAliases, hiddenColumns, pinnedColumnId, datasetKey, flatHeaders.length]);
+  }, [columnOrder, headerAliases, hiddenColumns, pinnedColumnIds, datasetKey, flatHeaders.length]);
 
   // Restore column preferences on dataset change
   useEffect(() => {
@@ -458,7 +460,7 @@ function App() {
       headerAliases: saved.headerAliases,
       hiddenColumns: new Set(saved.hiddenColumns),
     });
-    setPinnedColumnId(saved.pinnedColumnId);
+    setPinnedColumnIds(saved.pinnedColumnIds);
   }, [datasetKey, flatHeaders.length]);
 
   function clearWorkbenchSelection() {
@@ -952,6 +954,8 @@ function App() {
             </Button>
           }
           onColumnFiltersVisibleChange={setColumnFiltersVisible}
+          formatRules={formatRules}
+          onFormatRulesChange={setFormatRules}
           onCellEdit={(rowId, columnId, value) => {
             setCellEdits((prev) => {
               const next = new Map(prev);
@@ -972,8 +976,8 @@ function App() {
               rowIndex: rowIndex >= 0 ? rowIndex : 0,
             });
           }}
-          onPinnedColumnChange={setPinnedColumnId}
-          pinnedColumnId={pinnedColumnId}
+          onPinnedColumnsChange={setPinnedColumnIds}
+          pinnedColumnIds={pinnedColumnIds}
           searchInputRef={searchInputRef}
           onCopySelectedToClipboard={(rows) => {
             void copyRowsToClipboard(visibleHeaders, rows, "csv", {

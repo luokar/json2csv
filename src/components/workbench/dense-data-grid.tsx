@@ -30,8 +30,9 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronRight, Clipboard, Columns3, Download, FileJson, Filter, FilterX, Pin, Search, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronRight, Clipboard, Columns3, Download, FileJson, Filter, FilterX, GripVertical, Paintbrush, Pin, Search, X } from "lucide-react";
 import { type CSSProperties, memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -46,6 +47,8 @@ import {
 import { ColumnContextMenu } from "@/components/workbench/column-context-menu";
 import { ColumnStatsPopover } from "@/components/workbench/column-stats-popover";
 import { HighlightText } from "@/components/workbench/highlight-text";
+import { RowContextMenu } from "@/components/workbench/row-context-menu";
+import { CONDITION_LABELS, createRuleId, FORMAT_PRESETS, type FormatCondition, type FormatRule, getMatchingStyles } from "@/lib/conditional-formatting";
 import { cn } from "@/lib/utils";
 import type { ColumnProfile } from "@/lib/column-profiling";
 
@@ -102,6 +105,79 @@ function InlineEditInput({
   );
 }
 
+function CellDetailPopover({
+  anchorRect,
+  onClose,
+  value,
+}: {
+  anchorRect: { top: number; left: number; width: number; height: number };
+  onClose: () => void;
+  value: string;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState({ x: anchorRect.left, y: anchorRect.top + anchorRect.height + 4 });
+
+  useEffect(() => {
+    const el = panelRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    let { x, y } = position;
+    if (x + rect.width > window.innerWidth) x = window.innerWidth - rect.width - 8;
+    if (y + rect.height > window.innerHeight) y = anchorRect.top - rect.height - 4;
+    if (x < 0) x = 8;
+    if (x !== position.x || y !== position.y) setPosition({ x, y });
+  }, [anchorRect]);
+
+  useEffect(() => {
+    function handleMouseDown(e: MouseEvent) {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) onClose();
+    }
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("mousedown", handleMouseDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleMouseDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose]);
+
+  return createPortal(
+    <div
+      ref={panelRef}
+      className="fixed z-50 w-96 max-w-[90vw] rounded-xl border border-border bg-popover p-3 text-popover-foreground shadow-lg animate-in fade-in zoom-in-95 duration-100"
+      style={{ top: position.y, left: position.x }}
+    >
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="text-xs font-medium text-muted-foreground">Cell value</span>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            onClick={() => {
+              void navigator.clipboard.writeText(value).then(() => toast.success("Cell value copied."));
+            }}
+          >
+            <Clipboard className="size-3.5" />
+          </button>
+          <button
+            type="button"
+            className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            onClick={onClose}
+          >
+            <X className="size-3.5" />
+          </button>
+        </div>
+      </div>
+      <div className="max-h-[300px] overflow-y-auto rounded border border-border bg-muted/30 p-2">
+        <pre className="whitespace-pre-wrap break-all font-mono text-xs text-foreground">{value}</pre>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 function SortableHeaderCell({
   children,
   className,
@@ -136,7 +212,7 @@ function SortableHeaderCell({
         className,
         "cursor-grab",
         isDragging && "cursor-grabbing border-dashed border-primary",
-        isOver && !isDragging && "border-l-2 border-l-primary",
+        isOver && !isDragging && "border-l-2 border-l-primary bg-primary/5",
       )}
       style={combinedStyle}
       {...listeners}
@@ -154,6 +230,7 @@ interface DenseDataGridProps {
   description: string;
   emptyMessage: string;
   filterLabel: string;
+  formatRules?: FormatRule[];
   getRowId?: (row: Record<string, string>, index: number) => string;
   headers: string[];
   initialHiddenHeaders?: string[];
@@ -164,11 +241,12 @@ interface DenseDataGridProps {
   onCopySelectedToClipboard?: (rows: Array<Record<string, string>>) => void;
   onExportSelected?: (rows: Array<Record<string, string>>) => void;
   onExportSelectedJson?: (rows: Array<Record<string, string>>) => void;
+  onFormatRulesChange?: (rules: FormatRule[]) => void;
   onInspectColumn?: (header: string) => void;
   onInspectRow?: (row: Record<string, string>, rowId: string) => void;
   onOpenRowDetail?: (row: Record<string, string>, rowId: string) => void;
-  onPinnedColumnChange?: (columnId: string | null) => void;
-  pinnedColumnId?: string | null;
+  onPinnedColumnsChange?: (columnIds: string[]) => void;
+  pinnedColumnIds?: string[];
   rowCount: number;
   rowLabel: string;
   rows: Array<Record<string, string>>;
@@ -186,6 +264,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
   description,
   emptyMessage,
   filterLabel,
+  formatRules,
   getRowId,
   headers,
   initialHiddenHeaders = emptyHiddenHeaders,
@@ -196,11 +275,12 @@ export const DenseDataGrid = memo(function DenseDataGrid({
   onCopySelectedToClipboard,
   onExportSelected,
   onExportSelectedJson,
+  onFormatRulesChange,
   onInspectColumn,
   onInspectRow,
   onOpenRowDetail,
-  onPinnedColumnChange,
-  pinnedColumnId,
+  onPinnedColumnsChange,
+  pinnedColumnIds,
   rowCount,
   rowLabel,
   rows,
@@ -212,6 +292,8 @@ export const DenseDataGrid = memo(function DenseDataGrid({
   const [globalSearch, setGlobalSearch] = useState("");
   const globalSearchRef = useRef(globalSearch);
   globalSearchRef.current = globalSearch;
+  type QuickFilterPreset = "non-empty" | "unique" | "edited";
+  const [activeQuickFilters, setActiveQuickFilters] = useState<Set<QuickFilterPreset>>(new Set());
   const [density, setDensity] = useState<GridDensity>("default");
   const [showColumnControls, setShowColumnControls] = useState(false);
   const [showColumnFilters, setShowColumnFiltersInternal] = useState(true);
@@ -242,13 +324,31 @@ export const DenseDataGrid = memo(function DenseDataGrid({
     anchorPoint: { x: number; y: number };
     columnId: string;
   } | null>(null);
+  const [rowContextMenu, setRowContextMenu] = useState<{
+    anchorPoint: { x: number; y: number };
+    rowId: string;
+  } | null>(null);
   const [statsPopover, setStatsPopover] = useState<{
     anchorPoint: { x: number; y: number };
     columnId: string;
   } | null>(null);
   const [focusedCell, setFocusedCell] = useState<{ rowId: string; columnId: string } | null>(null);
   const [editingCell, setEditingCell] = useState<{ rowId: string; columnId: string } | null>(null);
+  const [cellDetailPopover, setCellDetailPopover] = useState<{
+    anchorRect: { top: number; left: number; width: number; height: number };
+    value: string;
+  } | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!cellDetailPopover) return;
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const handleScroll = () => setCellDetailPopover(null);
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    return () => container.removeEventListener("scroll", handleScroll);
+  }, [cellDetailPopover]);
+
   const initialHiddenHeaderSet = useMemo(
     () => new Set(initialHiddenHeaders),
     [initialHiddenHeaders],
@@ -274,6 +374,31 @@ export const DenseDataGrid = memo(function DenseDataGrid({
 
     return nextIds;
   }, [getRowId, rows]);
+  const quickFilteredRows = useMemo(() => {
+    if (activeQuickFilters.size === 0) return searchedRows;
+    let result = searchedRows;
+    if (activeQuickFilters.has("non-empty")) {
+      result = result.filter((row) =>
+        headers.some((h) => (row[h] ?? "").trim().length > 0),
+      );
+    }
+    if (activeQuickFilters.has("unique")) {
+      const seen = new Set<string>();
+      result = result.filter((row) => {
+        const key = headers.map((h) => row[h] ?? "").join("\0");
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    }
+    if (activeQuickFilters.has("edited")) {
+      result = result.filter((row) => {
+        const rowId = stableRowIds.get(row);
+        return rowId !== undefined && cellEdits?.has(rowId) === true;
+      });
+    }
+    return result;
+  }, [activeQuickFilters, searchedRows, headers, stableRowIds, cellEdits]);
 
   useEffect(() => {
     setColumnFilters((previous) => previous.filter((entry) => headers.includes(String(entry.id))));
@@ -299,6 +424,26 @@ export const DenseDataGrid = memo(function DenseDataGrid({
     });
     setRowSelection({});
   }, [headers, initialHiddenHeaders]);
+
+  const pinnedDataColumnIdSet = useMemo(
+    () => new Set((pinnedColumnIds ?? []).filter((id) => headers.includes(id))),
+    [pinnedColumnIds, headers],
+  );
+  const orderedPinnedDataColumnIds = useMemo(
+    () => headers.filter((h) => pinnedDataColumnIdSet.has(h)),
+    [pinnedDataColumnIdSet, headers],
+  );
+
+  const formatRuleIndex = useMemo(() => {
+    if (!formatRules?.length) return null;
+    const map = new Map<string | null, FormatRule[]>();
+    for (const rule of formatRules) {
+      const arr = map.get(rule.columnId) ?? [];
+      arr.push(rule);
+      map.set(rule.columnId, arr);
+    }
+    return map;
+  }, [formatRules]);
 
   const columns = useMemo<ColumnDef<Record<string, string>>[]>(
     () => [
@@ -360,6 +505,10 @@ export const DenseDataGrid = memo(function DenseDataGrid({
           const search = globalSearchRef.current;
           const columnFilter = cellColumn.getFilterValue();
           const filterTerm = typeof columnFilter === "string" ? columnFilter : "";
+          const cellFormatStyle = formatRuleIndex ? getMatchingStyles(
+            [...(formatRuleIndex.get(header) ?? []), ...(formatRuleIndex.get(null) ?? [])],
+            header, value,
+          ) : null;
 
           if (isEditing) {
             return (
@@ -385,8 +534,17 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                 isCompact && "font-mono text-[12px]",
                 editedValue !== undefined && "italic border-l-2 border-l-primary pl-1",
               )}
-              onClick={() => {
+              style={cellFormatStyle ?? undefined}
+              onClick={(e) => {
                 onInspectRow?.(row.original, row.id);
+                const target = e.currentTarget;
+                if (target.scrollWidth > target.clientWidth) {
+                  const rect = target.getBoundingClientRect();
+                  setCellDetailPopover({
+                    anchorRect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
+                    value,
+                  });
+                }
               }}
               onDoubleClick={(e) => {
                 e.stopPropagation();
@@ -402,7 +560,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
         header: ({ column, table: tbl }) => {
           const filterValue = column.getFilterValue();
           const sorted = column.getIsSorted();
-          const isPinned = pinnedColumnId === header;
+          const isPinned = pinnedDataColumnIdSet.has(header);
           const sortIndex = column.getSortIndex();
           const multiSortActive = tbl.getState().sorting.length > 1;
           const groupPrefix = header.includes(".") ? header.slice(0, header.indexOf(".")) : null;
@@ -451,13 +609,19 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                     )}
                     onClick={(e) => {
                       e.stopPropagation();
-                      onPinnedColumnChange?.(isPinned ? null : header);
+                      onPinnedColumnsChange?.(isPinned
+                        ? orderedPinnedDataColumnIds.filter((id) => id !== header)
+                        : [...orderedPinnedDataColumnIds, header],
+                      );
                     }}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
                         e.stopPropagation();
                         e.preventDefault();
-                        onPinnedColumnChange?.(isPinned ? null : header);
+                        onPinnedColumnsChange?.(isPinned
+                          ? orderedPinnedDataColumnIds.filter((id) => id !== header)
+                          : [...orderedPinnedDataColumnIds, header],
+                        );
                       }
                     }}
                   >
@@ -508,13 +672,13 @@ export const DenseDataGrid = memo(function DenseDataGrid({
         size: header.includes("id") ? 160 : 220,
       })),
     ],
-    [density, headers, onInspectColumn, onInspectRow, onPinnedColumnChange, pinnedColumnId, rowLabel],
+    [density, formatRuleIndex, headers, onInspectColumn, onInspectRow, onPinnedColumnsChange, pinnedDataColumnIdSet, orderedPinnedDataColumnIds, rowLabel],
   );
 
   const table = useReactTable({
     columnResizeMode: "onChange",
     columns,
-    data: searchedRows,
+    data: quickFilteredRows,
     enableColumnResizing: true,
     enableMultiSort: true,
     enableRowSelection: true,
@@ -567,21 +731,40 @@ export const DenseDataGrid = memo(function DenseDataGrid({
     return groups;
   }, [headers]);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-  const pinnedDataColumnId = (() => {
-    if (pinnedColumnId && visibleLeafColumns.some((c) => c.id === pinnedColumnId)) {
-      return pinnedColumnId;
+  const [columnControlsFilter, setColumnControlsFilter] = useState("");
+  const frozenColumnLeftOffsets = useMemo(() => {
+    const SELECTION_WIDTH = 40;
+    const ROWNUM_WIDTH = 48;
+    const offsets = new Map<string, number>();
+    let left = SELECTION_WIDTH + ROWNUM_WIDTH;
+    for (const colId of orderedPinnedDataColumnIds) {
+      const col = visibleLeafColumns.find((c) => c.id === colId);
+      offsets.set(colId, left);
+      left += col?.getSize() ?? 220;
     }
-    return visibleLeafColumns.find((column) => column.id !== selectionColumnId)?.id;
-  })();
+    return offsets;
+  }, [orderedPinnedDataColumnIds, visibleLeafColumns, columnSizing]);
   const selectedRows = table.getFilteredSelectedRowModel().rows;
   const visibleRowCount = table.getFilteredRowModel().rows.length;
   const hiddenColumnCount = Math.max(0, headers.length - (visibleLeafColumns.length - 2));
   const defaultVisibleColumnCount = Math.max(0, headers.length - initialHiddenHeaders.length);
+  const editCount = useMemo(() => {
+    if (!cellEdits) return 0;
+    let count = 0;
+    for (const rowEdits of cellEdits.values()) count += rowEdits.size;
+    return count;
+  }, [cellEdits]);
+
+  const [showFormatPanel, setShowFormatPanel] = useState(false);
+  const [newRuleColumn, setNewRuleColumn] = useState<string | null>(null);
+  const [newRuleConditionType, setNewRuleConditionType] = useState<FormatCondition["type"]>("contains");
+  const [newRuleConditionValue, setNewRuleConditionValue] = useState("");
+  const [newRulePreset, setNewRulePreset] = useState("redBg");
 
   function handleHideAllColumns() {
     const nextVisibility: VisibilityState = {};
     for (const header of headers) {
-      if (header === pinnedDataColumnId) continue;
+      if (pinnedDataColumnIdSet.has(header)) continue;
       nextVisibility[header] = false;
     }
     setColumnVisibility(nextVisibility);
@@ -777,11 +960,28 @@ export const DenseDataGrid = memo(function DenseDataGrid({
             <Button
               type="button"
               variant="ghost"
-              onClick={() => setShowColumnControls((current) => !current)}
+              onClick={() => {
+                setShowColumnControls((current) => !current);
+                setColumnControlsFilter("");
+              }}
             >
               <Columns3 className="size-4" />
               Columns
             </Button>
+
+            {onFormatRulesChange ? (
+              <Button
+                type="button"
+                variant={showFormatPanel ? "outline" : "ghost"}
+                onClick={() => setShowFormatPanel((current) => !current)}
+              >
+                <Paintbrush className="size-4" />
+                Format
+                {formatRules && formatRules.length > 0 ? (
+                  <Badge variant="secondary">{formatRules.length}</Badge>
+                ) : null}
+              </Button>
+            ) : null}
 
             <Button
               type="button"
@@ -814,11 +1014,43 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                 setGlobalSearch("");
                 setColumnFilters([]);
                 setRowSelection({});
+                setActiveQuickFilters(new Set());
               }}
             >
               <X className="size-4" />
               Clear
             </Button>
+
+            <div className="flex gap-0.5 rounded-lg border border-border bg-muted/40 p-0.5">
+              {(["non-empty", "unique", "edited"] as const).map((preset) => {
+                const isActive = activeQuickFilters.has(preset);
+                const label = preset === "non-empty" ? "Non-empty" : preset === "unique" ? "Unique" : "Edited";
+                return (
+                  <button
+                    key={preset}
+                    type="button"
+                    aria-pressed={isActive}
+                    disabled={preset === "edited" && (!cellEdits || cellEdits.size === 0)}
+                    className={cn(
+                      "rounded-md px-2 py-1 text-xs font-medium transition-colors",
+                      isActive
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                    onClick={() => {
+                      setActiveQuickFilters((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(preset)) next.delete(preset);
+                        else next.add(preset);
+                        return next;
+                      });
+                    }}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
 
             <div className="flex gap-0.5 rounded-lg border border-border bg-muted/40 p-0.5">
               {(["compact", "default", "comfortable"] as const).map((d) => (
@@ -838,10 +1070,6 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                 </button>
               ))}
             </div>
-
-            <span className="text-xs text-muted-foreground">
-              {visibleRowCount.toLocaleString()} shown
-            </span>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">{toolbarActions}</div>
@@ -897,6 +1125,15 @@ export const DenseDataGrid = memo(function DenseDataGrid({
               ) : null}
             </div>
 
+            <div className="w-full">
+              <Input
+                placeholder="Search columns..."
+                value={columnControlsFilter}
+                onChange={(e) => setColumnControlsFilter(e.target.value)}
+                className="h-8 text-xs"
+              />
+            </div>
+
             {columnGroups.size > 0 ? (
               <div className="flex w-full flex-wrap gap-1">
                 <span className="w-full text-xs text-muted-foreground">Column groups</span>
@@ -918,7 +1155,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
               </div>
             ) : null}
 
-            {headers.map((header) => {
+            {headers.filter((h) => !columnControlsFilter || h.toLowerCase().includes(columnControlsFilter.toLowerCase())).map((header) => {
               const column = table.getColumn(header);
 
               if (!column) {
@@ -941,6 +1178,127 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                 </label>
               );
             })}
+          </div>
+        ) : null}
+
+        {showFormatPanel && onFormatRulesChange ? (
+          <div className="mt-3 space-y-3 rounded-lg border border-border bg-muted/30 p-3">
+            {formatRules && formatRules.length > 0 ? (
+              <div className="space-y-1.5">
+                <span className="text-xs text-muted-foreground">Active rules</span>
+                {formatRules.map((rule) => (
+                  <div key={rule.id} className="flex items-center gap-2 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs">
+                    <span
+                      className="size-3 shrink-0 rounded-sm border border-border"
+                      style={{ backgroundColor: rule.style.bg ?? "transparent" }}
+                    />
+                    <span className="min-w-0 truncate">
+                      {rule.columnId ?? "All columns"}: {CONDITION_LABELS[rule.condition.type]}
+                      {"value" in rule.condition ? ` "${rule.condition.value}"` : ""}
+                    </span>
+                    <button
+                      type="button"
+                      className="ml-auto shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
+                      onClick={() => onFormatRulesChange(formatRules.filter((r) => r.id !== rule.id))}
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            <div className="space-y-2">
+              <span className="text-xs text-muted-foreground">Add rule</span>
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="space-y-1">
+                  <label className="text-[10px] text-muted-foreground">Column</label>
+                  <select
+                    className="h-8 rounded-md border border-border bg-background px-2 text-xs"
+                    value={newRuleColumn ?? ""}
+                    onChange={(e) => setNewRuleColumn(e.target.value || null)}
+                  >
+                    <option value="">All columns</option>
+                    {headers.map((h) => (
+                      <option key={h} value={h}>{h}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] text-muted-foreground">Condition</label>
+                  <select
+                    className="h-8 rounded-md border border-border bg-background px-2 text-xs"
+                    value={newRuleConditionType}
+                    onChange={(e) => setNewRuleConditionType(e.target.value as FormatCondition["type"])}
+                  >
+                    {Object.entries(CONDITION_LABELS).map(([key, label]) => (
+                      <option key={key} value={key}>{label}</option>
+                    ))}
+                  </select>
+                </div>
+                {newRuleConditionType !== "empty" && newRuleConditionType !== "not-empty" ? (
+                  <div className="space-y-1">
+                    <label className="text-[10px] text-muted-foreground">Value</label>
+                    <Input
+                      className="h-8 w-32 text-xs"
+                      placeholder="Value..."
+                      value={newRuleConditionValue}
+                      onChange={(e) => setNewRuleConditionValue(e.target.value)}
+                    />
+                  </div>
+                ) : null}
+                <div className="space-y-1">
+                  <label className="text-[10px] text-muted-foreground">Style</label>
+                  <div className="flex gap-1">
+                    {Object.entries(FORMAT_PRESETS).map(([key, preset]) => (
+                      <button
+                        key={key}
+                        type="button"
+                        className={cn(
+                          "size-8 rounded-md border text-[10px] font-medium transition-colors",
+                          newRulePreset === key ? "border-primary ring-1 ring-primary" : "border-border",
+                        )}
+                        style={{
+                          backgroundColor: preset.style.bg ?? "transparent",
+                          color: preset.style.text ?? "inherit",
+                          fontWeight: preset.style.bold ? "bold" : "normal",
+                        }}
+                        onClick={() => setNewRulePreset(key)}
+                      >
+                        {preset.style.bold ? "B" : "A"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    const condType = newRuleConditionType;
+                    let condition: FormatCondition;
+                    if (condType === "empty" || condType === "not-empty") {
+                      condition = { type: condType };
+                    } else if (condType === "gt" || condType === "lt") {
+                      const num = Number(newRuleConditionValue);
+                      if (Number.isNaN(num)) return;
+                      condition = { type: condType, value: num };
+                    } else {
+                      condition = { type: condType, value: newRuleConditionValue } as FormatCondition;
+                    }
+                    const preset = FORMAT_PRESETS[newRulePreset];
+                    if (!preset) return;
+                    onFormatRulesChange([
+                      ...(formatRules ?? []),
+                      { id: createRuleId(), columnId: newRuleColumn, condition, style: { ...preset.style } },
+                    ]);
+                    setNewRuleConditionValue("");
+                  }}
+                >
+                  Add
+                </Button>
+              </div>
+            </div>
           </div>
         ) : null}
 
@@ -1025,7 +1383,8 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                     {headerGroup.headers.map((header) => {
                       const isSelectionColumn = header.column.id === selectionColumnId;
                       const isRowNumberColumn = header.column.id === rowNumberColumnId;
-                      const isPinnedDataColumn = header.column.id === pinnedDataColumnId;
+                      const isFrozenDataColumn = pinnedDataColumnIdSet.has(header.column.id);
+                      const frozenLeft = frozenColumnLeftOffsets.get(header.column.id);
 
                       if (isSelectionColumn) {
                         return (
@@ -1059,9 +1418,9 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                           headerId={header.column.id}
                           className={cn(
                             "relative border-r border-border/30 bg-background align-top",
-                            isPinnedDataColumn && "sticky left-[5.5rem] z-20",
+                            isFrozenDataColumn && "sticky z-20",
                           )}
-                          style={{ width: header.getSize() }}
+                          style={{ width: header.getSize(), ...(isFrozenDataColumn && frozenLeft !== undefined ? { left: frozenLeft } : {}) }}
                         >
                           {header.isPlaceholder
                             ? null
@@ -1085,9 +1444,10 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                   </TableRow>
                 ))}
               </SortableContext>
-              <DragOverlay>
+              <DragOverlay dropAnimation={null}>
                 {activeDragId ? (
-                  <div className="rounded border border-primary bg-background px-3 py-2 text-xs font-medium text-foreground shadow-lg">
+                  <div className="flex items-center gap-2 rounded-lg border border-primary/50 bg-background px-3 py-2 text-xs font-medium text-foreground shadow-xl ring-1 ring-primary/20">
+                    <GripVertical className="size-3 text-muted-foreground" />
                     {activeDragId}
                   </div>
                 ) : null}
@@ -1116,11 +1476,16 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                         data-index={virtualRow.index}
                         ref={rowVirtualizer.measureElement}
                         onDoubleClick={() => onOpenRowDetail?.(row.original, row.id)}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setRowContextMenu({ anchorPoint: { x: e.clientX, y: e.clientY }, rowId: row.id });
+                        }}
                       >
                         {row.getVisibleCells().map((cell) => {
                           const isSelectionColumn = cell.column.id === selectionColumnId;
                           const isRowNumberColumn = cell.column.id === rowNumberColumnId;
-                          const isPinnedDataColumn = cell.column.id === pinnedDataColumnId;
+                          const isFrozenDataColumn = pinnedDataColumnIdSet.has(cell.column.id);
+                          const frozenLeft = frozenColumnLeftOffsets.get(cell.column.id);
                           const cellBg = isOddRow ? "bg-muted/20" : "bg-background";
                           const isDataColumn = !isSelectionColumn && !isRowNumberColumn;
                           const isFocusedCell = isDataColumn && focusedCell?.rowId === row.id && focusedCell?.columnId === cell.column.id;
@@ -1134,10 +1499,14 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                                 densityConfig[density].cellClass,
                                 isSelectionColumn && "sticky left-0 z-10 w-10 min-w-10 max-w-10 px-2",
                                 isRowNumberColumn && "sticky left-10 z-10 w-12 min-w-12 max-w-12 px-2",
-                                isPinnedDataColumn && "sticky left-[5.5rem] z-10",
+                                isFrozenDataColumn && "sticky z-10",
                                 isFocusedCell && "ring-2 ring-inset ring-primary",
                               )}
-                              style={isSelectionColumn || isRowNumberColumn ? undefined : { width: cell.column.getSize() }}
+                              style={
+                                isSelectionColumn || isRowNumberColumn
+                                  ? undefined
+                                  : { width: cell.column.getSize(), ...(isFrozenDataColumn && frozenLeft !== undefined ? { left: frozenLeft } : {}) }
+                              }
                               onClick={isDataColumn ? () => setFocusedCell({ rowId: row.id, columnId: cell.column.id }) : undefined}
                             >
                               {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -1164,11 +1533,16 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                   <TableRow
                     key={row.id}
                     onDoubleClick={() => onOpenRowDetail?.(row.original, row.id)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setRowContextMenu({ anchorPoint: { x: e.clientX, y: e.clientY }, rowId: row.id });
+                    }}
                   >
                     {row.getVisibleCells().map((cell) => {
                       const isSelectionColumn = cell.column.id === selectionColumnId;
                       const isRowNumberColumn = cell.column.id === rowNumberColumnId;
-                      const isPinnedDataColumn = cell.column.id === pinnedDataColumnId;
+                      const isFrozenDataColumn = pinnedDataColumnIdSet.has(cell.column.id);
+                      const frozenLeft = frozenColumnLeftOffsets.get(cell.column.id);
                       const cellBg = rowIndex % 2 === 1 ? "bg-muted/20" : "bg-background";
                       const isDataColumn = !isSelectionColumn && !isRowNumberColumn;
                       const isFocusedCell = isDataColumn && focusedCell?.rowId === row.id && focusedCell?.columnId === cell.column.id;
@@ -1182,10 +1556,14 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                             densityConfig[density].cellClass,
                             isSelectionColumn && "sticky left-0 z-10 w-10 min-w-10 max-w-10 px-2",
                             isRowNumberColumn && "sticky left-10 z-10 w-12 min-w-12 max-w-12 px-2",
-                            isPinnedDataColumn && "sticky left-[5.5rem] z-10",
+                            isFrozenDataColumn && "sticky z-10",
                             isFocusedCell && "ring-2 ring-inset ring-primary",
                           )}
-                          style={isSelectionColumn || isRowNumberColumn ? undefined : { width: cell.column.getSize() }}
+                          style={
+                            isSelectionColumn || isRowNumberColumn
+                              ? undefined
+                              : { width: cell.column.getSize(), ...(isFrozenDataColumn && frozenLeft !== undefined ? { left: frozenLeft } : {}) }
+                          }
                           onClick={isDataColumn ? () => setFocusedCell({ rowId: row.id, columnId: cell.column.id }) : undefined}
                         >
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -1209,11 +1587,18 @@ export const DenseDataGrid = memo(function DenseDataGrid({
         </table>
       </div>
 
+      <div className="flex shrink-0 items-center gap-4 border-t border-border bg-background px-4 py-1.5 text-xs text-muted-foreground">
+        <span>{rowCount.toLocaleString()} total {rowLabel}s</span>
+        {visibleRowCount !== rowCount ? <span>{visibleRowCount.toLocaleString()} shown</span> : null}
+        {selectedRows.length > 0 ? <span className="text-primary">{selectedRows.length.toLocaleString()} selected</span> : null}
+        {editCount > 0 ? <span className="text-primary">{editCount.toLocaleString()} edit{editCount !== 1 ? "s" : ""}</span> : null}
+      </div>
+
       {contextMenu ? (
         <ColumnContextMenu
           anchorPoint={contextMenu.anchorPoint}
           columnId={contextMenu.columnId}
-          isPinned={pinnedDataColumnId === contextMenu.columnId}
+          isPinned={pinnedDataColumnIdSet.has(contextMenu.columnId)}
           isSorted={table.getColumn(contextMenu.columnId)?.getIsSorted() ?? false}
           multiSortCount={sorting.length}
           onClearAllSorts={() => setSorting([])}
@@ -1225,9 +1610,11 @@ export const DenseDataGrid = memo(function DenseDataGrid({
           onSortDesc={() => table.getColumn(contextMenu.columnId)?.toggleSorting(true)}
           onClearSort={() => table.getColumn(contextMenu.columnId)?.clearSorting()}
           onTogglePin={() => {
-            onPinnedColumnChange?.(
-              pinnedDataColumnId === contextMenu.columnId ? null : contextMenu.columnId,
-            );
+            const current = pinnedColumnIds ?? [];
+            const updated = current.includes(contextMenu.columnId)
+              ? current.filter((id) => id !== contextMenu.columnId)
+              : [...current, contextMenu.columnId];
+            onPinnedColumnsChange?.(updated);
           }}
           onViewStatistics={
             columnProfiles?.find((p) => p.header === contextMenu.columnId)
@@ -1245,6 +1632,38 @@ export const DenseDataGrid = memo(function DenseDataGrid({
             anchorPoint={statsPopover.anchorPoint}
             onClose={() => setStatsPopover(null)}
             profile={profile}
+          />
+        );
+      })() : null}
+
+      {cellDetailPopover ? (
+        <CellDetailPopover
+          anchorRect={cellDetailPopover.anchorRect}
+          onClose={() => setCellDetailPopover(null)}
+          value={cellDetailPopover.value}
+        />
+      ) : null}
+
+      {rowContextMenu ? (() => {
+        const row = tableRows.find((r) => r.id === rowContextMenu.rowId);
+        if (!row) return null;
+        return (
+          <RowContextMenu
+            anchorPoint={rowContextMenu.anchorPoint}
+            isSelected={row.getIsSelected()}
+            onClose={() => setRowContextMenu(null)}
+            onInspectRow={onInspectRow ? () => onInspectRow(row.original, row.id) : undefined}
+            onOpenDetail={onOpenRowDetail ? () => onOpenRowDetail(row.original, row.id) : undefined}
+            onCopyJson={() => {
+              const data = applyRowEdits(row.original, cellEdits?.get(row.id));
+              void navigator.clipboard.writeText(JSON.stringify(data, null, 2)).then(() => toast.success("Row copied as JSON."));
+            }}
+            onCopyRow={() => {
+              const data = applyRowEdits(row.original, cellEdits?.get(row.id));
+              const values = headers.map((h) => data[h] ?? "").join("\t");
+              void navigator.clipboard.writeText(values).then(() => toast.success("Row copied."));
+            }}
+            onToggleSelect={() => row.toggleSelected()}
           />
         );
       })() : null}

@@ -205,7 +205,7 @@ export function ColumnProfileCard({
   );
 }
 
-function formatNum(n: number): string {
+export function formatNum(n: number): string {
   if (Number.isInteger(n)) return n.toLocaleString();
   return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }

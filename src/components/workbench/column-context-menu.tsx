@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Copy, EyeOff, Pin, PinOff, Search, X } from "lucide-react";
+import { ArrowDown, ArrowUp, BarChart3, Copy, EyeOff, Pin, PinOff, Search, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -7,6 +7,8 @@ interface ColumnContextMenuProps {
   columnId: string;
   isPinned: boolean;
   isSorted: false | "asc" | "desc";
+  multiSortCount?: number;
+  onClearAllSorts?: () => void;
   onClearSort: () => void;
   onClose: () => void;
   onCopyName: () => void;
@@ -15,12 +17,15 @@ interface ColumnContextMenuProps {
   onSortAsc: () => void;
   onSortDesc: () => void;
   onTogglePin: () => void;
+  onViewStatistics?: () => void;
 }
 
 export function ColumnContextMenu({
   anchorPoint,
   isPinned,
   isSorted,
+  multiSortCount = 0,
+  onClearAllSorts,
   onClearSort,
   onClose,
   onCopyName,
@@ -29,6 +34,7 @@ export function ColumnContextMenu({
   onSortAsc,
   onSortDesc,
   onTogglePin,
+  onViewStatistics,
 }: ColumnContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState(anchorPoint);
@@ -98,6 +104,12 @@ export function ColumnContextMenu({
           Clear sort
         </button>
       ) : null}
+      {multiSortCount > 1 && onClearAllSorts ? (
+        <button type="button" className={itemClass} onClick={() => handleAction(onClearAllSorts)}>
+          <X className="size-4" />
+          Clear all sorts ({multiSortCount})
+        </button>
+      ) : null}
       <div className="my-1 h-px bg-border" />
       <button type="button" className={itemClass} onClick={() => handleAction(onHideColumn)}>
         <EyeOff className="size-4" />
@@ -111,6 +123,12 @@ export function ColumnContextMenu({
         <Search className="size-4" />
         Inspect column
       </button>
+      {onViewStatistics ? (
+        <button type="button" className={itemClass} onClick={() => handleAction(onViewStatistics)}>
+          <BarChart3 className="size-4" />
+          View statistics
+        </button>
+      ) : null}
       <button type="button" className={itemClass} onClick={() => handleAction(onCopyName)}>
         <Copy className="size-4" />
         Copy column name

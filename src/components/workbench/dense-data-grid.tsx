@@ -30,7 +30,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ArrowDown, ArrowUp, ArrowUpDown, Clipboard, Columns3, Download, FileJson, Filter, FilterX, Pin, Search, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronRight, Clipboard, Columns3, Download, FileJson, Filter, FilterX, Pin, Search, X } from "lucide-react";
 import { type CSSProperties, memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -44,11 +44,63 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ColumnContextMenu } from "@/components/workbench/column-context-menu";
+import { ColumnStatsPopover } from "@/components/workbench/column-stats-popover";
 import { HighlightText } from "@/components/workbench/highlight-text";
 import { cn } from "@/lib/utils";
+import type { ColumnProfile } from "@/lib/column-profiling";
 
 const selectionColumnId = "__select__";
+const rowNumberColumnId = "__rownum__";
 const emptyHiddenHeaders: string[] = [];
+
+function applyRowEdits(
+  row: Record<string, string>,
+  edits: Map<string, string> | undefined,
+): Record<string, string> {
+  if (!edits || edits.size === 0) return row;
+  return { ...row, ...Object.fromEntries(edits) };
+}
+
+type GridDensity = "compact" | "default" | "comfortable";
+const densityConfig = {
+  compact:     { estimateSize: 32, cellClass: "px-2 py-1.5",   textClass: "text-xs", headerHeight: "min-h-[2rem]" },
+  default:     { estimateSize: 40, cellClass: "px-3 py-2.5",   textClass: "text-sm", headerHeight: "min-h-[2.5rem]" },
+  comfortable: { estimateSize: 48, cellClass: "px-3.5 py-3.5", textClass: "text-sm", headerHeight: "min-h-[3rem]" },
+};
+
+function InlineEditInput({
+  defaultValue,
+  onCancel,
+  onCommit,
+}: {
+  defaultValue: string;
+  onCancel: () => void;
+  onCommit: (value: string) => void;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    ref.current?.select();
+  }, []);
+  return (
+    <input
+      ref={ref}
+      type="text"
+      defaultValue={defaultValue}
+      className="w-full bg-transparent text-sm text-foreground outline-none ring-1 ring-primary rounded px-1"
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          onCommit(ref.current!.value);
+          e.stopPropagation();
+        }
+        if (e.key === "Escape") {
+          onCancel();
+          e.stopPropagation();
+        }
+      }}
+      onBlur={() => onCommit(ref.current!.value)}
+    />
+  );
+}
 
 function SortableHeaderCell({
   children,
@@ -96,7 +148,9 @@ function SortableHeaderCell({
 
 interface DenseDataGridProps {
   caption: string;
+  cellEdits?: Map<string, Map<string, string>>;
   columnFiltersVisible?: boolean;
+  columnProfiles?: ColumnProfile[];
   description: string;
   emptyMessage: string;
   filterLabel: string;
@@ -104,6 +158,7 @@ interface DenseDataGridProps {
   headers: string[];
   initialHiddenHeaders?: string[];
   notices?: ReactNode;
+  onCellEdit?: (rowId: string, columnId: string, value: string) => void;
   onColumnFiltersVisibleChange?: (visible: boolean) => void;
   onColumnOrderChange?: (newOrder: string[]) => void;
   onCopySelectedToClipboard?: (rows: Array<Record<string, string>>) => void;
@@ -125,7 +180,9 @@ interface DenseDataGridProps {
 
 export const DenseDataGrid = memo(function DenseDataGrid({
   caption,
+  cellEdits,
   columnFiltersVisible,
+  columnProfiles,
   description,
   emptyMessage,
   filterLabel,
@@ -133,6 +190,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
   headers,
   initialHiddenHeaders = emptyHiddenHeaders,
   notices,
+  onCellEdit,
   onColumnFiltersVisibleChange,
   onColumnOrderChange,
   onCopySelectedToClipboard,
@@ -154,6 +212,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
   const [globalSearch, setGlobalSearch] = useState("");
   const globalSearchRef = useRef(globalSearch);
   globalSearchRef.current = globalSearch;
+  const [density, setDensity] = useState<GridDensity>("default");
   const [showColumnControls, setShowColumnControls] = useState(false);
   const [showColumnFilters, setShowColumnFiltersInternal] = useState(true);
   const setShowColumnFilters = useCallback(
@@ -183,6 +242,12 @@ export const DenseDataGrid = memo(function DenseDataGrid({
     anchorPoint: { x: number; y: number };
     columnId: string;
   } | null>(null);
+  const [statsPopover, setStatsPopover] = useState<{
+    anchorPoint: { x: number; y: number };
+    columnId: string;
+  } | null>(null);
+  const [focusedCell, setFocusedCell] = useState<{ rowId: string; columnId: string } | null>(null);
+  const [editingCell, setEditingCell] = useState<{ rowId: string; columnId: string } | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const initialHiddenHeaderSet = useMemo(
     () => new Set(initialHiddenHeaders),
@@ -267,25 +332,66 @@ export const DenseDataGrid = memo(function DenseDataGrid({
         id: selectionColumnId,
         size: 40,
       },
+      {
+        cell: ({ row }) => (
+          <span className={cn("block text-center tabular-nums text-muted-foreground", densityConfig[density].textClass)}>
+            {row.index + 1}
+          </span>
+        ),
+        enableColumnFilter: false,
+        enableHiding: false,
+        enableResizing: false,
+        enableSorting: false,
+        header: () => (
+          <span className="block text-center text-xs font-medium text-muted-foreground">#</span>
+        ),
+        id: rowNumberColumnId,
+        size: 48,
+      },
       ...headers.map<ColumnDef<Record<string, string>>>((header) => ({
         accessorFn: (row) => row[header],
         id: header,
         cell: ({ getValue, row, column: cellColumn }) => {
-          const value = getValue<string | undefined>() ?? "";
+          const rawValue = getValue<string | undefined>() ?? "";
+          const editedValue = cellEdits?.get(row.id)?.get(header);
+          const value = editedValue ?? rawValue;
+          const isEditing = editingCell?.rowId === row.id && editingCell?.columnId === header;
           const isCompact = header.includes("id") || header.includes("path");
           const search = globalSearchRef.current;
           const columnFilter = cellColumn.getFilterValue();
           const filterTerm = typeof columnFilter === "string" ? columnFilter : "";
 
+          if (isEditing) {
+            return (
+              <InlineEditInput
+                defaultValue={value}
+                onCancel={() => setEditingCell(null)}
+                onCommit={(newValue) => {
+                  setEditingCell(null);
+                  if (newValue !== rawValue) {
+                    onCellEdit?.(row.id, header, newValue);
+                  }
+                }}
+              />
+            );
+          }
+
           return (
             <button
               type="button"
               className={cn(
-                "block w-full truncate text-left text-sm text-foreground",
+                "block w-full truncate text-left text-foreground",
+                densityConfig[density].textClass,
                 isCompact && "font-mono text-[12px]",
+                editedValue !== undefined && "italic border-l-2 border-l-primary pl-1",
               )}
               onClick={() => {
                 onInspectRow?.(row.original, row.id);
+              }}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                setEditingCell({ rowId: row.id, columnId: header });
+                setFocusedCell({ rowId: row.id, columnId: header });
               }}
             >
               {value ? <HighlightText highlight={filterTerm || search} text={value} /> : "\u00A0"}
@@ -293,23 +399,27 @@ export const DenseDataGrid = memo(function DenseDataGrid({
           );
         },
         filterFn: "includesString",
-        header: ({ column }) => {
+        header: ({ column, table: tbl }) => {
           const filterValue = column.getFilterValue();
           const sorted = column.getIsSorted();
           const isPinned = pinnedColumnId === header;
+          const sortIndex = column.getSortIndex();
+          const multiSortActive = tbl.getState().sorting.length > 1;
+          const groupPrefix = header.includes(".") ? header.slice(0, header.indexOf(".")) : null;
+          const belongsToGroup = groupPrefix !== null && columnGroups.has(groupPrefix);
 
           return (
             <div className="space-y-1.5">
               <button
                 aria-label={header}
                 type="button"
-                className="group/header flex min-h-[2.5rem] w-full items-center justify-between gap-2 text-left text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                className={cn("group/header flex w-full items-center justify-between gap-2 text-left text-xs font-medium text-muted-foreground transition-colors hover:text-foreground", densityConfig[density].headerHeight)}
                 title={header}
-                onClick={() => {
+                onClick={(e) => {
                   if (!sorted) {
-                    column.toggleSorting(false);
+                    column.toggleSorting(false, e.shiftKey);
                   } else if (sorted === "asc") {
-                    column.toggleSorting(true);
+                    column.toggleSorting(true, e.shiftKey);
                   } else {
                     column.clearSorting();
                   }
@@ -320,7 +430,14 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                   setContextMenu({ anchorPoint: { x: e.clientX, y: e.clientY }, columnId: header });
                 }}
               >
-                <span className="truncate">{header}</span>
+                <span className="flex min-w-0 items-center gap-1">
+                  {belongsToGroup ? (
+                    <span className="shrink-0 rounded-sm bg-primary/10 px-1 py-px text-[9px] font-medium text-primary">
+                      {groupPrefix}
+                    </span>
+                  ) : null}
+                  <span className="truncate">{header}</span>
+                </span>
                 <span className="flex shrink-0 items-center gap-0.5">
                   <span
                     role="button"
@@ -356,6 +473,11 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                   ) : (
                     <ArrowUpDown aria-hidden className="size-3 text-muted-foreground/60" />
                   )}
+                  {multiSortActive && sortIndex >= 0 ? (
+                    <span className="flex size-3.5 items-center justify-center rounded-full bg-primary text-[9px] font-bold text-primary-foreground">
+                      {sortIndex + 1}
+                    </span>
+                  ) : null}
                 </span>
               </button>
               {showColumnFiltersRef.current ? (
@@ -386,7 +508,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
         size: header.includes("id") ? 160 : 220,
       })),
     ],
-    [headers, onInspectColumn, onInspectRow, onPinnedColumnChange, pinnedColumnId, rowLabel],
+    [density, headers, onInspectColumn, onInspectRow, onPinnedColumnChange, pinnedColumnId, rowLabel],
   );
 
   const table = useReactTable({
@@ -394,6 +516,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
     columns,
     data: searchedRows,
     enableColumnResizing: true,
+    enableMultiSort: true,
     enableRowSelection: true,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -416,13 +539,34 @@ export const DenseDataGrid = memo(function DenseDataGrid({
   const tableRows = table.getRowModel().rows;
   const rowVirtualizer = useVirtualizer({
     count: tableRows.length,
-    estimateSize: () => 40,
+    estimateSize: () => densityConfig[density].estimateSize,
     getScrollElement: () => scrollContainerRef.current,
     overscan: 15,
   });
   const virtualItems = rowVirtualizer.getVirtualItems();
 
   const visibleLeafColumns = table.getVisibleLeafColumns();
+  const dataColumnIds = useMemo(
+    () => visibleLeafColumns.filter((c) => c.id !== selectionColumnId && c.id !== rowNumberColumnId).map((c) => c.id),
+    [visibleLeafColumns],
+  );
+  const columnGroups = useMemo(() => {
+    const groups = new Map<string, string[]>();
+    for (const header of headers) {
+      const dotIndex = header.indexOf(".");
+      if (dotIndex > 0) {
+        const prefix = header.slice(0, dotIndex);
+        const existing = groups.get(prefix) ?? [];
+        existing.push(header);
+        groups.set(prefix, existing);
+      }
+    }
+    for (const [prefix, cols] of groups) {
+      if (cols.length < 2) groups.delete(prefix);
+    }
+    return groups;
+  }, [headers]);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const pinnedDataColumnId = (() => {
     if (pinnedColumnId && visibleLeafColumns.some((c) => c.id === pinnedColumnId)) {
       return pinnedColumnId;
@@ -431,7 +575,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
   })();
   const selectedRows = table.getFilteredSelectedRowModel().rows;
   const visibleRowCount = table.getFilteredRowModel().rows.length;
-  const hiddenColumnCount = Math.max(0, headers.length - (visibleLeafColumns.length - 1));
+  const hiddenColumnCount = Math.max(0, headers.length - (visibleLeafColumns.length - 2));
   const defaultVisibleColumnCount = Math.max(0, headers.length - initialHiddenHeaders.length);
 
   function handleHideAllColumns() {
@@ -487,6 +631,116 @@ export const DenseDataGrid = memo(function DenseDataGrid({
     [headers, onColumnOrderChange],
   );
 
+  function toggleGroupCollapse(prefix: string) {
+    const cols = columnGroups.get(prefix);
+    if (!cols) return;
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(prefix)) {
+        next.delete(prefix);
+        setColumnVisibility((v) => {
+          const nextV = { ...v };
+          for (const col of cols) delete nextV[col];
+          return nextV;
+        });
+      } else {
+        next.add(prefix);
+        setColumnVisibility((v) => {
+          const nextV = { ...v };
+          for (const col of cols) nextV[col] = false;
+          return nextV;
+        });
+      }
+      return next;
+    });
+  }
+
+  function handleGridKeyDown(e: React.KeyboardEvent) {
+    const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+    if (tag === "input" || tag === "textarea") return;
+
+    if (!focusedCell) {
+      if (e.key === "ArrowDown" || e.key === "ArrowRight") {
+        e.preventDefault();
+        if (tableRows.length > 0 && dataColumnIds.length > 0) {
+          setFocusedCell({ rowId: tableRows[0]!.id, columnId: dataColumnIds[0]! });
+        }
+      }
+      return;
+    }
+
+    const currentRowIdx = tableRows.findIndex((r) => r.id === focusedCell.rowId);
+    const currentColIdx = dataColumnIds.indexOf(focusedCell.columnId);
+    if (currentRowIdx === -1 || currentColIdx === -1) {
+      setFocusedCell(null);
+      return;
+    }
+
+    switch (e.key) {
+      case "ArrowUp": {
+        e.preventDefault();
+        const nextRow = Math.max(0, currentRowIdx - 1);
+        setFocusedCell({ rowId: tableRows[nextRow]!.id, columnId: focusedCell.columnId });
+        rowVirtualizer.scrollToIndex(nextRow);
+        break;
+      }
+      case "ArrowDown": {
+        e.preventDefault();
+        const nextRow = Math.min(tableRows.length - 1, currentRowIdx + 1);
+        setFocusedCell({ rowId: tableRows[nextRow]!.id, columnId: focusedCell.columnId });
+        rowVirtualizer.scrollToIndex(nextRow);
+        break;
+      }
+      case "ArrowLeft": {
+        e.preventDefault();
+        const nextCol = Math.max(0, currentColIdx - 1);
+        setFocusedCell({ rowId: focusedCell.rowId, columnId: dataColumnIds[nextCol]! });
+        break;
+      }
+      case "ArrowRight": {
+        e.preventDefault();
+        const nextCol = Math.min(dataColumnIds.length - 1, currentColIdx + 1);
+        setFocusedCell({ rowId: focusedCell.rowId, columnId: dataColumnIds[nextCol]! });
+        break;
+      }
+      case "Enter": {
+        e.preventDefault();
+        const row = tableRows[currentRowIdx];
+        if (row) onOpenRowDetail?.(row.original, row.id);
+        break;
+      }
+      case "Escape": {
+        e.preventDefault();
+        setFocusedCell(null);
+        break;
+      }
+      case "Tab": {
+        e.preventDefault();
+        if (e.shiftKey) {
+          if (currentColIdx > 0) {
+            setFocusedCell({ rowId: focusedCell.rowId, columnId: dataColumnIds[currentColIdx - 1]! });
+          } else if (currentRowIdx > 0) {
+            setFocusedCell({ rowId: tableRows[currentRowIdx - 1]!.id, columnId: dataColumnIds[dataColumnIds.length - 1]! });
+            rowVirtualizer.scrollToIndex(currentRowIdx - 1);
+          }
+        } else {
+          if (currentColIdx < dataColumnIds.length - 1) {
+            setFocusedCell({ rowId: focusedCell.rowId, columnId: dataColumnIds[currentColIdx + 1]! });
+          } else if (currentRowIdx < tableRows.length - 1) {
+            setFocusedCell({ rowId: tableRows[currentRowIdx + 1]!.id, columnId: dataColumnIds[0]! });
+            rowVirtualizer.scrollToIndex(currentRowIdx + 1);
+          }
+        }
+        break;
+      }
+      case "F2": {
+        e.preventDefault();
+        setEditingCell({ rowId: focusedCell.rowId, columnId: focusedCell.columnId });
+        break;
+      }
+    }
+  }
+
   return (
     <section className="flex min-h-[calc(100vh-10rem)] flex-col overflow-hidden rounded-xl border border-border bg-background shadow-sm">
       <div className="border-b border-border px-5 py-4">
@@ -495,7 +749,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-base font-semibold text-foreground">{title}</h2>
               <Badge variant="outline">{rowCount.toLocaleString()} rows</Badge>
-              <Badge variant="secondary">{visibleLeafColumns.length - 1} columns shown</Badge>
+              <Badge variant="secondary">{visibleLeafColumns.length - 2} columns shown</Badge>
               {hiddenColumnCount > 0 ? (
                 <Badge variant="outline">{hiddenColumnCount} hidden</Badge>
               ) : null}
@@ -566,6 +820,25 @@ export const DenseDataGrid = memo(function DenseDataGrid({
               Clear
             </Button>
 
+            <div className="flex gap-0.5 rounded-lg border border-border bg-muted/40 p-0.5">
+              {(["compact", "default", "comfortable"] as const).map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  aria-pressed={density === d}
+                  className={cn(
+                    "rounded-md px-2 py-1 text-xs font-medium transition-colors",
+                    density === d
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                  onClick={() => setDensity(d)}
+                >
+                  {d === "compact" ? "S" : d === "default" ? "M" : "L"}
+                </button>
+              ))}
+            </div>
+
             <span className="text-xs text-muted-foreground">
               {visibleRowCount.toLocaleString()} shown
             </span>
@@ -624,6 +897,27 @@ export const DenseDataGrid = memo(function DenseDataGrid({
               ) : null}
             </div>
 
+            {columnGroups.size > 0 ? (
+              <div className="flex w-full flex-wrap gap-1">
+                <span className="w-full text-xs text-muted-foreground">Column groups</span>
+                {[...columnGroups.entries()].map(([prefix, cols]) => (
+                  <button
+                    key={prefix}
+                    type="button"
+                    onClick={() => toggleGroupCollapse(prefix)}
+                    className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-xs transition-colors hover:bg-muted/50"
+                  >
+                    {collapsedGroups.has(prefix) ? (
+                      <ChevronRight className="size-3" />
+                    ) : (
+                      <ChevronDown className="size-3" />
+                    )}
+                    {prefix} ({cols.length})
+                  </button>
+                ))}
+              </div>
+            ) : null}
+
             {headers.map((header) => {
               const column = table.getColumn(header);
 
@@ -677,7 +971,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                   type="button"
                   size="sm"
                   variant="outline"
-                  onClick={() => onExportSelected(selectedRows.map((r) => r.original))}
+                  onClick={() => onExportSelected(selectedRows.map((r) => applyRowEdits(r.original, cellEdits?.get(r.id))))}
                 >
                   <Download className="size-4" />
                   Export CSV
@@ -688,7 +982,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                   type="button"
                   size="sm"
                   variant="outline"
-                  onClick={() => onExportSelectedJson(selectedRows.map((r) => r.original))}
+                  onClick={() => onExportSelectedJson(selectedRows.map((r) => applyRowEdits(r.original, cellEdits?.get(r.id))))}
                 >
                   <FileJson className="size-4" />
                   Export JSON
@@ -699,7 +993,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                   type="button"
                   size="sm"
                   variant="outline"
-                  onClick={() => onCopySelectedToClipboard(selectedRows.map((r) => r.original))}
+                  onClick={() => onCopySelectedToClipboard(selectedRows.map((r) => applyRowEdits(r.original, cellEdits?.get(r.id))))}
                 >
                   <Clipboard className="size-4" />
                   Copy
@@ -715,7 +1009,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
         {notices ? <div className="mt-3 space-y-1.5">{notices}</div> : null}
       </div>
 
-      <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-auto">
+      <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-auto outline-none" tabIndex={0} onKeyDown={handleGridKeyDown}>
         <table
           className="caption-bottom text-sm table-fixed"
           style={{ width: table.getTotalSize() }}
@@ -730,6 +1024,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                   <TableRow key={headerGroup.id} className="bg-background hover:bg-background border-b border-border">
                     {headerGroup.headers.map((header) => {
                       const isSelectionColumn = header.column.id === selectionColumnId;
+                      const isRowNumberColumn = header.column.id === rowNumberColumnId;
                       const isPinnedDataColumn = header.column.id === pinnedDataColumnId;
 
                       if (isSelectionColumn) {
@@ -745,13 +1040,26 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                         );
                       }
 
+                      if (isRowNumberColumn) {
+                        return (
+                          <TableHead
+                            key={header.id}
+                            className="relative sticky left-10 z-30 w-12 min-w-12 max-w-12 border-r border-border/30 bg-background px-2 align-top"
+                          >
+                            {header.isPlaceholder
+                              ? null
+                              : flexRender(header.column.columnDef.header, header.getContext())}
+                          </TableHead>
+                        );
+                      }
+
                       return (
                         <SortableHeaderCell
                           key={header.id}
                           headerId={header.column.id}
                           className={cn(
                             "relative border-r border-border/30 bg-background align-top",
-                            isPinnedDataColumn && "sticky left-10 z-20",
+                            isPinnedDataColumn && "sticky left-[5.5rem] z-20",
                           )}
                           style={{ width: header.getSize() }}
                         >
@@ -800,6 +1108,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                   ) : null}
                   {virtualItems.map((virtualRow) => {
                     const row = tableRows[virtualRow.index];
+                    const isOddRow = virtualRow.index % 2 === 1;
 
                     return (
                       <TableRow
@@ -810,17 +1119,26 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                       >
                         {row.getVisibleCells().map((cell) => {
                           const isSelectionColumn = cell.column.id === selectionColumnId;
+                          const isRowNumberColumn = cell.column.id === rowNumberColumnId;
                           const isPinnedDataColumn = cell.column.id === pinnedDataColumnId;
+                          const cellBg = isOddRow ? "bg-muted/20" : "bg-background";
+                          const isDataColumn = !isSelectionColumn && !isRowNumberColumn;
+                          const isFocusedCell = isDataColumn && focusedCell?.rowId === row.id && focusedCell?.columnId === cell.column.id;
 
                           return (
                             <TableCell
                               key={cell.id}
                               className={cn(
-                                "border-r border-border/20 bg-background",
+                                "border-r border-border/20",
+                                cellBg,
+                                densityConfig[density].cellClass,
                                 isSelectionColumn && "sticky left-0 z-10 w-10 min-w-10 max-w-10 px-2",
-                                isPinnedDataColumn && "sticky left-10 z-10",
+                                isRowNumberColumn && "sticky left-10 z-10 w-12 min-w-12 max-w-12 px-2",
+                                isPinnedDataColumn && "sticky left-[5.5rem] z-10",
+                                isFocusedCell && "ring-2 ring-inset ring-primary",
                               )}
-                              style={isSelectionColumn ? undefined : { width: cell.column.getSize() }}
+                              style={isSelectionColumn || isRowNumberColumn ? undefined : { width: cell.column.getSize() }}
+                              onClick={isDataColumn ? () => setFocusedCell({ rowId: row.id, columnId: cell.column.id }) : undefined}
                             >
                               {flexRender(cell.column.columnDef.cell, cell.getContext())}
                             </TableCell>
@@ -842,24 +1160,33 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                   ) : null}
                 </>
               ) : (
-                tableRows.map((row) => (
+                tableRows.map((row, rowIndex) => (
                   <TableRow
                     key={row.id}
                     onDoubleClick={() => onOpenRowDetail?.(row.original, row.id)}
                   >
                     {row.getVisibleCells().map((cell) => {
                       const isSelectionColumn = cell.column.id === selectionColumnId;
+                      const isRowNumberColumn = cell.column.id === rowNumberColumnId;
                       const isPinnedDataColumn = cell.column.id === pinnedDataColumnId;
+                      const cellBg = rowIndex % 2 === 1 ? "bg-muted/20" : "bg-background";
+                      const isDataColumn = !isSelectionColumn && !isRowNumberColumn;
+                      const isFocusedCell = isDataColumn && focusedCell?.rowId === row.id && focusedCell?.columnId === cell.column.id;
 
                       return (
                         <TableCell
                           key={cell.id}
                           className={cn(
-                            "border-r border-border/20 bg-background",
+                            "border-r border-border/20",
+                            cellBg,
+                            densityConfig[density].cellClass,
                             isSelectionColumn && "sticky left-0 z-10 w-10 min-w-10 max-w-10 px-2",
-                            isPinnedDataColumn && "sticky left-10 z-10",
+                            isRowNumberColumn && "sticky left-10 z-10 w-12 min-w-12 max-w-12 px-2",
+                            isPinnedDataColumn && "sticky left-[5.5rem] z-10",
+                            isFocusedCell && "ring-2 ring-inset ring-primary",
                           )}
-                          style={isSelectionColumn ? undefined : { width: cell.column.getSize() }}
+                          style={isSelectionColumn || isRowNumberColumn ? undefined : { width: cell.column.getSize() }}
+                          onClick={isDataColumn ? () => setFocusedCell({ rowId: row.id, columnId: cell.column.id }) : undefined}
                         >
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </TableCell>
@@ -888,6 +1215,8 @@ export const DenseDataGrid = memo(function DenseDataGrid({
           columnId={contextMenu.columnId}
           isPinned={pinnedDataColumnId === contextMenu.columnId}
           isSorted={table.getColumn(contextMenu.columnId)?.getIsSorted() ?? false}
+          multiSortCount={sorting.length}
+          onClearAllSorts={() => setSorting([])}
           onClose={() => setContextMenu(null)}
           onCopyName={() => void navigator.clipboard.writeText(contextMenu.columnId).then(() => toast.success("Column name copied."))}
           onHideColumn={() => table.getColumn(contextMenu.columnId)?.toggleVisibility(false)}
@@ -900,8 +1229,25 @@ export const DenseDataGrid = memo(function DenseDataGrid({
               pinnedDataColumnId === contextMenu.columnId ? null : contextMenu.columnId,
             );
           }}
+          onViewStatistics={
+            columnProfiles?.find((p) => p.header === contextMenu.columnId)
+              ? () => setStatsPopover({ anchorPoint: contextMenu.anchorPoint, columnId: contextMenu.columnId })
+              : undefined
+          }
         />
       ) : null}
+
+      {statsPopover ? (() => {
+        const profile = columnProfiles?.find((p) => p.header === statsPopover.columnId);
+        if (!profile) return null;
+        return (
+          <ColumnStatsPopover
+            anchorPoint={statsPopover.anchorPoint}
+            onClose={() => setStatsPopover(null)}
+            profile={profile}
+          />
+        );
+      })() : null}
     </section>
   );
 });

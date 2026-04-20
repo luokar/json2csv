@@ -246,6 +246,7 @@ function App() {
     rowIndex: number;
   } | null>(null);
   const [pinnedColumnId, setPinnedColumnId] = useState<string | null>(null);
+  const [cellEdits, setCellEdits] = useState<Map<string, Map<string, string>>>(new Map());
   const { theme, setTheme, resolvedTheme } = useTheme();
   const isMobile = !useMediaQuery("(min-width: 1024px)");
   const inspectorMode: InspectorMode = selectedRow ? "row" : selectedColumn ? "column" : "mapping";
@@ -883,6 +884,8 @@ function App() {
               : "Fix the settings errors to generate a preview."
           }
           columnFiltersVisible={columnFiltersVisible}
+          cellEdits={cellEdits}
+          columnProfiles={columnProfiles}
           description="Your converted data with filtering, sorting, and column controls."
           emptyMessage={
             isStreamingFlatPreview || conversionResult
@@ -949,6 +952,15 @@ function App() {
             </Button>
           }
           onColumnFiltersVisibleChange={setColumnFiltersVisible}
+          onCellEdit={(rowId, columnId, value) => {
+            setCellEdits((prev) => {
+              const next = new Map(prev);
+              const rowEdits = new Map(next.get(rowId));
+              rowEdits.set(columnId, value);
+              next.set(rowId, rowEdits);
+              return next;
+            });
+          }}
           onColumnOrderChange={setColumnOrder}
           onInspectColumn={(header) => inspectColumn(header, "flat")}
           onInspectRow={(row, rowId) => inspectRow(row, rowId, "flat")}

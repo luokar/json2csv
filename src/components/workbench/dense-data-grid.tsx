@@ -35,7 +35,6 @@ import { type CSSProperties, memo, type ReactNode, useCallback, useEffect, useMe
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
   TableCell,
@@ -47,6 +46,7 @@ import { ColumnContextMenu } from "@/components/workbench/column-context-menu";
 import { ColumnControlsPanel } from "@/components/workbench/column-controls-panel";
 import { ColumnStatsPopover } from "@/components/workbench/column-stats-popover";
 import { FormatRulesPanel } from "@/components/workbench/format-rules-panel";
+import { GridHeaderSummary } from "@/components/workbench/grid-header-summary";
 import { GridStatusBar } from "@/components/workbench/grid-status-bar";
 import { GridToolbar } from "@/components/workbench/grid-toolbar";
 import { HighlightText } from "@/components/workbench/highlight-text";
@@ -964,21 +964,14 @@ export const DenseDataGrid = memo(function DenseDataGrid({
   return (
     <section className="flex min-h-[calc(100vh-10rem)] flex-col overflow-hidden rounded-xl border border-border bg-background shadow-sm">
       <div className="border-b border-border px-5 py-4">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-          <div className="space-y-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-base font-semibold text-foreground">{title}</h2>
-              <Badge variant="outline">{rowCount.toLocaleString()} rows</Badge>
-              <Badge variant="secondary">{visibleLeafColumns.length - 2} columns shown</Badge>
-              {hiddenColumnCount > 0 ? (
-                <Badge variant="outline">{hiddenColumnCount} hidden</Badge>
-              ) : null}
-            </div>
-            <p className="text-sm text-muted-foreground">{description}</p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-1.5">{summaryBadges}</div>
-        </div>
+        <GridHeaderSummary
+          title={title}
+          description={description}
+          rowCount={rowCount}
+          visibleColumnCount={visibleLeafColumns.length - 2}
+          hiddenColumnCount={hiddenColumnCount}
+          summaryBadges={summaryBadges}
+        />
 
         <GridToolbar
           searchInputRef={searchInputRef}

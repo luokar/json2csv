@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Download, Moon, Search as SearchIcon, Sun, Monitor } from "lucide-react";
-import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, useCallback, useMemo, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { toast, Toaster } from "sonner";
 import { z } from "zod";
@@ -32,20 +32,21 @@ import {
   complexRootPathThreshold,
   exportNameMaxLength,
   exportNameMinLength,
-  largeObjectRootPreviewSuspendCharacterThreshold,
   sampleSourcePreviewCharacterLimit,
   schemaColumnPreviewLimit,
   schemaTypeReportPreviewLimit,
   tableColumnPreviewLimit,
 } from "@/lib/workbench-constants";
+import { useCellEditHistory } from "@/hooks/use-cell-edit-history";
+import { useColumnConfigState, useColumnConfigSync } from "@/hooks/use-column-config-persistence";
+import { useFormatRulesPersistence } from "@/hooks/use-format-rules-persistence";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useOutputExport } from "@/hooks/use-output-export";
-import { buildDatasetKey, loadColumnPreferences, saveColumnPreferences } from "@/hooks/use-column-preferences";
-import { loadFormatRules, saveFormatRules } from "@/hooks/use-format-rules-storage";
+import { buildDatasetKey } from "@/hooks/use-column-preferences";
 import { useProjectionPreview } from "@/hooks/use-projection-preview";
+import { useStatsPanel } from "@/hooks/use-stats-panel";
 import { useTheme } from "@/hooks/use-theme";
-import { useUndoStack } from "@/hooks/use-undo-stack";
 import { parseJsonInput, stringifyJsonInput } from "@/lib/json-input";
 import { resolveStreamableJsonPath } from "@/lib/json-root-stream";
 import {
@@ -63,8 +64,6 @@ import {
   typeMismatchStrategies,
 } from "@/lib/mapping-engine";
 import { computeColumnProfiles } from "@/lib/column-profiling";
-import type { FormatRule } from "@/lib/conditional-formatting";
-import { mappingSamples } from "@/lib/mapping-samples";
 import { buildSelectedRowsExportArtifact, buildSelectedRowsJsonExportArtifact, copyRowsToClipboard, createOutputExportRequest, downloadExportArtifact } from "@/lib/output-export";
 import {
   buildPipelineConfig,
@@ -75,9 +74,22 @@ import {
   parsePipelineConfig,
 } from "@/lib/pipeline-export";
 import { createRowPreview, createTextPreview } from "@/lib/preview";
-import type { ProjectionFlatStreamPreview, ProjectionProgress } from "@/lib/projection";
 import { projectionFlatRowPreviewLimit, projectionSmallInputRootThreshold } from "@/lib/projection";
 import { detectSmartConfigSuggestion, type SmartConfigSuggestion } from "@/lib/smart-config";
+import {
+  createGridRowId,
+  createWorkbenchRowLabel,
+  describeActiveSource,
+  describeConfig,
+  describeLargeObjectRootPreviewSuspension,
+  describePreviewLimitNotice,
+  describeStreamingPreviewCaption,
+  formatProjectionProgressDetail,
+  getSampleById,
+  normalizeExportName,
+  stripFileExtension,
+  toTitleCase,
+} from "@/lib/workbench-helpers";
 
 const delimiterOptions = [
   { value: ",", label: "Comma (,)" },
@@ -218,29 +230,18 @@ function App() {
   const [selectedColumn, setSelectedColumn] = useState<SelectedWorkbenchColumn | null>(null);
   const [selectedRow, setSelectedRow] = useState<SelectedWorkbenchRow | null>(null);
   const [entryKeyAlias, setEntryKeyAlias] = useState<string | null>(null);
-  const columnConfigStack = useUndoStack<ColumnConfig>(initialColumnConfig);
-  const { columnOrder, headerAliases, hiddenColumns } = columnConfigStack.state;
-  const setHeaderAliases = useCallback(
-    (updater: (prev: Record<string, string>) => Record<string, string>) => {
-      columnConfigStack.set({
-        ...columnConfigStack.state,
-        headerAliases: updater(columnConfigStack.state.headerAliases),
-      });
-    },
-    [columnConfigStack],
-  );
-  const setColumnOrder = useCallback(
-    (next: string[]) => {
-      columnConfigStack.set({ ...columnConfigStack.state, columnOrder: next });
-    },
-    [columnConfigStack],
-  );
-  const setHiddenColumns = useCallback(
-    (next: Set<string>) => {
-      columnConfigStack.set({ ...columnConfigStack.state, hiddenColumns: next });
-    },
-    [columnConfigStack],
-  );
+  const columnConfig = useColumnConfigState();
+  const {
+    columnConfigStack,
+    columnOrder,
+    headerAliases,
+    hiddenColumns,
+    setColumnOrder,
+    setHeaderAliases,
+    setHiddenColumns,
+    pinnedColumnIds,
+    setPinnedColumnIds,
+  } = columnConfig;
   const [smartDetectFeedback, setSmartDetectFeedback] = useState<SmartDetectFeedback | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -252,13 +253,14 @@ function App() {
     row: Record<string, string>;
     rowIndex: number;
   } | null>(null);
-  const [pinnedColumnIds, setPinnedColumnIds] = useState<string[]>([]);
-  const cellEditsStack = useUndoStack<Map<string, Map<string, string>>>(new Map());
-  const cellEdits = cellEditsStack.state;
-  const [formatRules, setFormatRules] = useState<FormatRule[]>([]);
-  const [statsPanelOpen, setStatsPanelOpen] = useState(false);
-  const [statsPanelInitialColumn, setStatsPanelInitialColumn] = useState<string | undefined>(undefined);
-  const [pendingColumnFilter, setPendingColumnFilter] = useState<{ columnId: string; value: string; key: number } | null>(null);
+  const {
+    statsPanelOpen,
+    statsPanelInitialColumn,
+    openStatsPanel,
+    closeStatsPanel,
+    pendingColumnFilter,
+    applyColumnFilter,
+  } = useStatsPanel();
   const { theme, setTheme, resolvedTheme } = useTheme();
   const isMobile = !useMediaQuery("(min-width: 1024px)");
   const inspectorMode: InspectorMode = selectedRow ? "row" : selectedColumn ? "column" : "mapping";
@@ -440,61 +442,11 @@ function App() {
     () => buildDatasetKey(sourceMode, sampleId, flatHeaders, flatRowCount),
     [sourceMode, sampleId, flatHeaders, flatRowCount],
   );
-  const prevDatasetKeyRef = useRef(datasetKey);
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const formatRulesSaveTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const formatRulesHydratedKeyRef = useRef<string | null>(null);
-
-  // Save column preferences on change (debounced)
-  useEffect(() => {
-    if (flatHeaders.length === 0) return;
-    clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => {
-      saveColumnPreferences(datasetKey, {
-        columnOrder,
-        headerAliases,
-        hiddenColumns: [...hiddenColumns],
-        pinnedColumnIds,
-      });
-    }, 500);
-    return () => clearTimeout(saveTimerRef.current);
-  }, [columnOrder, headerAliases, hiddenColumns, pinnedColumnIds, datasetKey, flatHeaders.length]);
-
-  // Restore column preferences on dataset change
-  useEffect(() => {
-    if (prevDatasetKeyRef.current === datasetKey) return;
-    prevDatasetKeyRef.current = datasetKey;
-    cellEditsStack.reset(new Map());
-    if (flatHeaders.length === 0) return;
-    const saved = loadColumnPreferences(datasetKey);
-    if (!saved) return;
-    columnConfigStack.reset({
-      columnOrder: saved.columnOrder,
-      headerAliases: saved.headerAliases,
-      hiddenColumns: new Set(saved.hiddenColumns),
-    });
-    setPinnedColumnIds(saved.pinnedColumnIds);
-  }, [datasetKey, flatHeaders.length]);
-
-  // Restore format rules on dataset change
-  useEffect(() => {
-    if (flatHeaders.length === 0) return;
-    if (formatRulesHydratedKeyRef.current === datasetKey) return;
-    formatRulesHydratedKeyRef.current = datasetKey;
-    const saved = loadFormatRules(datasetKey);
-    setFormatRules(saved ?? []);
-  }, [datasetKey, flatHeaders.length]);
-
-  // Save format rules on change (debounced) — only after hydration completes for this dataset
-  useEffect(() => {
-    if (flatHeaders.length === 0) return;
-    if (formatRulesHydratedKeyRef.current !== datasetKey) return;
-    clearTimeout(formatRulesSaveTimerRef.current);
-    formatRulesSaveTimerRef.current = setTimeout(() => {
-      saveFormatRules(datasetKey, formatRules);
-    }, 500);
-    return () => clearTimeout(formatRulesSaveTimerRef.current);
-  }, [formatRules, datasetKey, flatHeaders.length]);
+  const hasHeaders = flatHeaders.length > 0;
+  useColumnConfigSync({ state: columnConfig, datasetKey, hasHeaders });
+  const cellEditsStack = useCellEditHistory(datasetKey);
+  const cellEdits = cellEditsStack.cellEdits;
+  const { formatRules, setFormatRules } = useFormatRulesPersistence(datasetKey, hasHeaders);
 
   function clearWorkbenchSelection() {
     setSelectedColumn(null);
@@ -991,24 +943,14 @@ function App() {
           onColumnFiltersVisibleChange={setColumnFiltersVisible}
           formatRules={formatRules}
           onFormatRulesChange={setFormatRules}
-          onCellEdit={(rowId, columnId, value) => {
-            const prev = cellEditsStack.state;
-            const next = new Map(prev);
-            const rowEdits = new Map(next.get(rowId));
-            rowEdits.set(columnId, value);
-            next.set(rowId, rowEdits);
-            cellEditsStack.set(next);
-          }}
+          onCellEdit={cellEditsStack.applyEdit}
           canCellUndo={cellEditsStack.canUndo}
           canCellRedo={cellEditsStack.canRedo}
           onCellUndo={() => cellEditsStack.undo()}
           onCellRedo={() => cellEditsStack.redo()}
           onOpenStatsPanel={
             columnProfiles && columnProfiles.length > 0
-              ? () => {
-                  setStatsPanelInitialColumn(undefined);
-                  setStatsPanelOpen(true);
-                }
+              ? () => openStatsPanel()
               : undefined
           }
           onColumnOrderChange={setColumnOrder}
@@ -1432,10 +1374,8 @@ function App() {
         <ColumnStatsPanel
           profiles={columnProfiles ?? []}
           initialColumnId={statsPanelInitialColumn}
-          onApplyColumnFilter={(columnId, value) => {
-            setPendingColumnFilter({ columnId, value, key: Date.now() });
-          }}
-          onClose={() => setStatsPanelOpen(false)}
+          onApplyColumnFilter={applyColumnFilter}
+          onClose={closeStatsPanel}
         />
       ) : null}
     </div>
@@ -1475,107 +1415,5 @@ function toMappingConfig(
   });
 }
 
-function getSampleById(sampleId: string) {
-  return mappingSamples.find((sample) => sample.id === sampleId) ?? mappingSamples[0];
-}
-
-function describeActiveSource(sourceMode: SourceMode, sampleTitle: string) {
-  return sourceMode === "custom" ? "Your JSON" : sampleTitle;
-}
-
-function stripFileExtension(fileName: string) {
-  return fileName.replace(/\.[^.]+$/, "") || "Imported JSON";
-}
-
-function normalizeExportName(value: string) {
-  return value.trim().slice(0, exportNameMaxLength);
-}
-
-function describeConfig(config: MappingConfig) {
-  return `${toTitleCase(config.flattenMode)} / ${config.headerPolicy.replaceAll("_", " ")} / ${config.delimiter === "\t" ? "tab" : config.delimiter}`;
-}
-
-function describeStreamingPreviewCaption(preview: ProjectionFlatStreamPreview) {
-  return preview.totalRoots === null
-    ? `Loading preview from ${preview.processedRoots} items. Still building the final result in the background.`
-    : `Loading preview from ${preview.processedRoots}/${preview.totalRoots} items. Still building the final result in the background.`;
-}
-
-function describePreviewLimitNotice(rootLimit: number) {
-  return `Large-input safety mode is active. The preview is limited to the first ${rootLimit.toLocaleString()} items to save memory. The full CSV download still uses all your data.`;
-}
-
-function describeLargeObjectRootPreviewSuspension(
-  sourceMode: SourceMode,
-  rootPath: string,
-  customJson: string,
-) {
-  if (sourceMode !== "custom" || rootPath.trim() !== "$") {
-    return null;
-  }
-
-  if (customJson.length < largeObjectRootPreviewSuspendCharacterThreshold) {
-    return null;
-  }
-
-  if (!customJson.trimStart().startsWith("{")) {
-    return null;
-  }
-
-  return `Preview is paused for large object-root JSON above ${largeObjectRootPreviewSuspendCharacterThreshold.toLocaleString()} characters. Choose a narrower data location to resume the preview.`;
-}
-
-function formatProjectionProgressDetail(progress: ProjectionProgress) {
-  if (progress.phase === "parse" && progress.phaseTotal > 1) {
-    return `${progress.phaseCompleted.toLocaleString()}/${progress.phaseTotal.toLocaleString()} chars · ${progress.percent}%`;
-  }
-
-  if (progress.phaseTotal > 1) {
-    return `${progress.phaseCompleted}/${progress.phaseTotal} items · ${progress.percent}%`;
-  }
-
-  return `${progress.percent}%`;
-}
-
-function toTitleCase(value: string) {
-  return value
-    .replaceAll("_", " ")
-    .split(" ")
-    .map((word) => word.slice(0, 1).toUpperCase() + word.slice(1))
-    .join(" ");
-}
-
-function createGridRowId(
-  row: Record<string, string>,
-  index: number,
-  headers: string[],
-  preferredHeader?: string,
-) {
-  const candidates = [preferredHeader, ...headers].filter(Boolean) as string[];
-
-  for (const candidate of candidates) {
-    const value = row[candidate];
-
-    if (value) {
-      return `${candidate}:${value}:${index}`;
-    }
-  }
-
-  return `row:${index}`;
-}
-
-function createWorkbenchRowLabel(row: Record<string, string>, fallback: string) {
-  const candidateHeaders = ["root_id", "id", "name", "type", ...Object.keys(row)];
-
-  for (const header of candidateHeaders) {
-    const value = row[header];
-
-    if (value) {
-      return value;
-    }
-  }
-
-  return fallback;
-}
 
 export default App;

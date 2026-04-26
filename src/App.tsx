@@ -6,7 +6,6 @@ import { toast, Toaster } from "sonner";
 import { z } from "zod";
 import { CommandPalette, createDefaultActions } from "@/components/command-palette";
 import { KeyboardShortcutsDialog } from "@/components/keyboard-shortcuts-dialog";
-import { RowDetailDrawer } from "@/components/workbench/row-detail-drawer";
 import type { SidebarTab } from "@/components/inspector/inspector-types";
 import { CollapsibleSidebar, SidebarToggleButton } from "@/components/layout/sidebar";
 import { DataTabPanel } from "@/components/sidebar/data-tab-panel";
@@ -19,12 +18,26 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { Notice } from "@/components/ui/notice";
-import { CsvWorkbenchPanel } from "@/components/workbench/csv-workbench-panel";
-import { DenseDataGrid } from "@/components/workbench/dense-data-grid";
-import { ColumnStatsPanel } from "@/components/workbench/column-stats-panel";
-import { SchemaWorkbenchPanel } from "@/components/workbench/schema-workbench-panel";
-import { WorkbenchMetric } from "@/components/workbench/workbench-metric";
-import { WorkbenchNavButton } from "@/components/workbench/workbench-nav-button";
+import {
+  ColumnStatsPanel,
+  CsvWorkbenchPanel,
+  DenseDataGrid,
+  RowDetailDrawer,
+  SchemaWorkbenchPanel,
+  WorkbenchMetric,
+  WorkbenchNavButton,
+} from "@/components/workbench";
+import {
+  complexRootColumnThreshold,
+  complexRootPathThreshold,
+  exportNameMaxLength,
+  exportNameMinLength,
+  largeObjectRootPreviewSuspendCharacterThreshold,
+  sampleSourcePreviewCharacterLimit,
+  schemaColumnPreviewLimit,
+  schemaTypeReportPreviewLimit,
+  tableColumnPreviewLimit,
+} from "@/lib/workbench-constants";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useOutputExport } from "@/hooks/use-output-export";
@@ -99,15 +112,6 @@ const defaultRootPaths: Record<string, string> = {
   heterogeneous: "$.records[*]",
 };
 
-const exportNameMinLength = 3;
-const exportNameMaxLength = 80;
-const complexRootPathThreshold = 2_500;
-const complexRootColumnThreshold = 400;
-const largeObjectRootPreviewSuspendCharacterThreshold = 500_000;
-const sampleSourcePreviewCharacterLimit = 12_000;
-const schemaColumnPreviewLimit = 120;
-const schemaTypeReportPreviewLimit = 40;
-const tableColumnPreviewLimit = 80;
 const emptyPreviewHeaders: string[] = [];
 const emptyPreviewRecords: Array<Record<string, string>> = [];
 

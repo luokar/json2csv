@@ -30,7 +30,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronRight, Clipboard, Columns3, Download, FileJson, Filter, FilterX, GripVertical, Paintbrush, Pin, Search, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, BarChart3, ChevronDown, ChevronRight, ChevronUp, Clipboard, Columns3, Copy, Download, FileJson, Filter, FilterX, GripVertical, Paintbrush, Pencil, Pin, Search, X } from "lucide-react";
 import { type CSSProperties, memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
@@ -62,6 +62,20 @@ function applyRowEdits(
 ): Record<string, string> {
   if (!edits || edits.size === 0) return row;
   return { ...row, ...Object.fromEntries(edits) };
+}
+
+function findPresetKeyForStyle(style: FormatRule["style"]): string | null {
+  for (const [key, preset] of Object.entries(FORMAT_PRESETS)) {
+    const p = preset.style;
+    if (
+      (p.bg ?? null) === (style.bg ?? null) &&
+      (p.text ?? null) === (style.text ?? null) &&
+      Boolean(p.bold) === Boolean(style.bold)
+    ) {
+      return key;
+    }
+  }
+  return null;
 }
 
 type GridDensity = "compact" | "default" | "comfortable";
@@ -223,6 +237,8 @@ function SortableHeaderCell({
 }
 
 interface DenseDataGridProps {
+  canCellRedo?: boolean;
+  canCellUndo?: boolean;
   caption: string;
   cellEdits?: Map<string, Map<string, string>>;
   columnFiltersVisible?: boolean;
@@ -236,6 +252,8 @@ interface DenseDataGridProps {
   initialHiddenHeaders?: string[];
   notices?: ReactNode;
   onCellEdit?: (rowId: string, columnId: string, value: string) => void;
+  onCellRedo?: () => void;
+  onCellUndo?: () => void;
   onColumnFiltersVisibleChange?: (visible: boolean) => void;
   onColumnOrderChange?: (newOrder: string[]) => void;
   onCopySelectedToClipboard?: (rows: Array<Record<string, string>>) => void;
@@ -245,7 +263,9 @@ interface DenseDataGridProps {
   onInspectColumn?: (header: string) => void;
   onInspectRow?: (row: Record<string, string>, rowId: string) => void;
   onOpenRowDetail?: (row: Record<string, string>, rowId: string) => void;
+  onOpenStatsPanel?: () => void;
   onPinnedColumnsChange?: (columnIds: string[]) => void;
+  pendingColumnFilter?: { columnId: string; value: string; key: number } | null;
   pinnedColumnIds?: string[];
   rowCount: number;
   rowLabel: string;
@@ -257,6 +277,8 @@ interface DenseDataGridProps {
 }
 
 export const DenseDataGrid = memo(function DenseDataGrid({
+  canCellRedo,
+  canCellUndo,
   caption,
   cellEdits,
   columnFiltersVisible,
@@ -270,6 +292,8 @@ export const DenseDataGrid = memo(function DenseDataGrid({
   initialHiddenHeaders = emptyHiddenHeaders,
   notices,
   onCellEdit,
+  onCellRedo,
+  onCellUndo,
   onColumnFiltersVisibleChange,
   onColumnOrderChange,
   onCopySelectedToClipboard,
@@ -279,7 +303,9 @@ export const DenseDataGrid = memo(function DenseDataGrid({
   onInspectColumn,
   onInspectRow,
   onOpenRowDetail,
+  onOpenStatsPanel,
   onPinnedColumnsChange,
+  pendingColumnFilter,
   pinnedColumnIds,
   rowCount,
   rowLabel,
@@ -402,7 +428,6 @@ export const DenseDataGrid = memo(function DenseDataGrid({
 
   useEffect(() => {
     setColumnFilters((previous) => previous.filter((entry) => headers.includes(String(entry.id))));
-
     setColumnVisibility((previous) => {
       const nextVisibility: VisibilityState = {};
 
@@ -424,6 +449,16 @@ export const DenseDataGrid = memo(function DenseDataGrid({
     });
     setRowSelection({});
   }, [headers, initialHiddenHeaders]);
+
+  useEffect(() => {
+    if (!pendingColumnFilter) return;
+    if (!headers.includes(pendingColumnFilter.columnId)) return;
+    setColumnFilters((prev) => {
+      const filtered = prev.filter((f) => f.id !== pendingColumnFilter.columnId);
+      return [...filtered, { id: pendingColumnFilter.columnId, value: pendingColumnFilter.value }];
+    });
+    setShowColumnFilters(true);
+  }, [pendingColumnFilter, headers, setShowColumnFilters]);
 
   const pinnedDataColumnIdSet = useMemo(
     () => new Set((pinnedColumnIds ?? []).filter((id) => headers.includes(id))),
@@ -535,6 +570,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                 editedValue !== undefined && "italic border-l-2 border-l-primary pl-1",
               )}
               style={cellFormatStyle ?? undefined}
+              title={editedValue !== undefined ? `Edited (was: ${rawValue || "(empty)"})` : undefined}
               onClick={(e) => {
                 onInspectRow?.(row.original, row.id);
                 const target = e.currentTarget;
@@ -595,6 +631,21 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                     </span>
                   ) : null}
                   <span className="truncate">{header}</span>
+                  {(() => {
+                    const matchingRules = [
+                      ...(formatRuleIndex?.get(header) ?? []),
+                      ...(formatRuleIndex?.get(null) ?? []),
+                    ];
+                    if (matchingRules.length === 0) return null;
+                    const swatch = matchingRules[0]?.style.bg ?? "var(--primary)";
+                    return (
+                      <span
+                        className="ml-1 size-1.5 shrink-0 rounded-full border border-border"
+                        style={{ backgroundColor: swatch }}
+                        title={`${matchingRules.length} format rule${matchingRules.length === 1 ? "" : "s"} applied`}
+                      />
+                    );
+                  })()}
                 </span>
                 <span className="flex shrink-0 items-center gap-0.5">
                   <span
@@ -760,6 +811,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
   const [newRuleConditionType, setNewRuleConditionType] = useState<FormatCondition["type"]>("contains");
   const [newRuleConditionValue, setNewRuleConditionValue] = useState("");
   const [newRulePreset, setNewRulePreset] = useState("redBg");
+  const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
 
   function handleHideAllColumns() {
     const nextVisibility: VisibilityState = {};
@@ -983,6 +1035,13 @@ export const DenseDataGrid = memo(function DenseDataGrid({
               </Button>
             ) : null}
 
+            {onOpenStatsPanel ? (
+              <Button type="button" variant="ghost" onClick={onOpenStatsPanel} title="Column statistics">
+                <BarChart3 className="size-4" />
+                Stats
+              </Button>
+            ) : null}
+
             <Button
               type="button"
               variant={showColumnFilters ? "outline" : "ghost"}
@@ -1186,7 +1245,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
             {formatRules && formatRules.length > 0 ? (
               <div className="space-y-1.5">
                 <span className="text-xs text-muted-foreground">Active rules</span>
-                {formatRules.map((rule) => (
+                {formatRules.map((rule, ruleIndex) => (
                   <div key={rule.id} className="flex items-center gap-2 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs">
                     <span
                       className="size-3 shrink-0 rounded-sm border border-border"
@@ -1198,8 +1257,76 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                     </span>
                     <button
                       type="button"
-                      className="ml-auto shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
-                      onClick={() => onFormatRulesChange(formatRules.filter((r) => r.id !== rule.id))}
+                      className="ml-auto shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30"
+                      title="Move up"
+                      disabled={ruleIndex === 0}
+                      onClick={() => {
+                        const next = [...formatRules];
+                        [next[ruleIndex - 1]!, next[ruleIndex]!] = [next[ruleIndex]!, next[ruleIndex - 1]!];
+                        onFormatRulesChange(next);
+                      }}
+                    >
+                      <ChevronUp className="size-3" />
+                    </button>
+                    <button
+                      type="button"
+                      className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30"
+                      title="Move down"
+                      disabled={ruleIndex === formatRules.length - 1}
+                      onClick={() => {
+                        const next = [...formatRules];
+                        [next[ruleIndex]!, next[ruleIndex + 1]!] = [next[ruleIndex + 1]!, next[ruleIndex]!];
+                        onFormatRulesChange(next);
+                      }}
+                    >
+                      <ChevronDown className="size-3" />
+                    </button>
+                    <button
+                      type="button"
+                      className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
+                      title="Duplicate rule"
+                      onClick={() => {
+                        const clone: FormatRule = {
+                          ...rule,
+                          id: createRuleId(),
+                          condition: { ...rule.condition },
+                          style: { ...rule.style },
+                        };
+                        const next = [...formatRules];
+                        next.splice(ruleIndex + 1, 0, clone);
+                        onFormatRulesChange(next);
+                      }}
+                    >
+                      <Copy className="size-3" />
+                    </button>
+                    <button
+                      type="button"
+                      className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
+                      title="Edit rule"
+                      onClick={() => {
+                        setEditingRuleId(rule.id);
+                        setNewRuleColumn(rule.columnId);
+                        setNewRuleConditionType(rule.condition.type);
+                        setNewRuleConditionValue(
+                          "value" in rule.condition ? String(rule.condition.value) : "",
+                        );
+                        const presetKey = findPresetKeyForStyle(rule.style) ?? "redBg";
+                        setNewRulePreset(presetKey);
+                      }}
+                    >
+                      <Pencil className="size-3" />
+                    </button>
+                    <button
+                      type="button"
+                      className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
+                      title="Remove rule"
+                      onClick={() => {
+                        if (editingRuleId === rule.id) {
+                          setEditingRuleId(null);
+                          setNewRuleConditionValue("");
+                        }
+                        onFormatRulesChange(formatRules.filter((r) => r.id !== rule.id));
+                      }}
                     >
                       <X className="size-3" />
                     </button>
@@ -1209,7 +1336,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
             ) : null}
 
             <div className="space-y-2">
-              <span className="text-xs text-muted-foreground">Add rule</span>
+              <span className="text-xs text-muted-foreground">{editingRuleId ? "Edit rule" : "Add rule"}</span>
               <div className="flex flex-wrap items-end gap-2">
                 <div className="space-y-1">
                   <label className="text-[10px] text-muted-foreground">Column</label>
@@ -1288,15 +1415,39 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                     }
                     const preset = FORMAT_PRESETS[newRulePreset];
                     if (!preset) return;
-                    onFormatRulesChange([
-                      ...(formatRules ?? []),
-                      { id: createRuleId(), columnId: newRuleColumn, condition, style: { ...preset.style } },
-                    ]);
+                    if (editingRuleId) {
+                      onFormatRulesChange(
+                        (formatRules ?? []).map((r) =>
+                          r.id === editingRuleId
+                            ? { id: r.id, columnId: newRuleColumn, condition, style: { ...preset.style } }
+                            : r,
+                        ),
+                      );
+                      setEditingRuleId(null);
+                    } else {
+                      onFormatRulesChange([
+                        ...(formatRules ?? []),
+                        { id: createRuleId(), columnId: newRuleColumn, condition, style: { ...preset.style } },
+                      ]);
+                    }
                     setNewRuleConditionValue("");
                   }}
                 >
-                  Add
+                  {editingRuleId ? "Save" : "Add"}
                 </Button>
+                {editingRuleId ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setEditingRuleId(null);
+                      setNewRuleConditionValue("");
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                ) : null}
               </div>
             </div>
           </div>
@@ -1592,6 +1743,28 @@ export const DenseDataGrid = memo(function DenseDataGrid({
         {visibleRowCount !== rowCount ? <span>{visibleRowCount.toLocaleString()} shown</span> : null}
         {selectedRows.length > 0 ? <span className="text-primary">{selectedRows.length.toLocaleString()} selected</span> : null}
         {editCount > 0 ? <span className="text-primary">{editCount.toLocaleString()} edit{editCount !== 1 ? "s" : ""}</span> : null}
+        {onCellUndo || onCellRedo ? (
+          <span className="ml-auto flex items-center gap-1">
+            <button
+              type="button"
+              className="rounded px-1.5 py-0.5 text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+              disabled={!canCellUndo}
+              onClick={() => onCellUndo?.()}
+              title="Undo cell edit (⌘/Ctrl+Alt+Z)"
+            >
+              ↶
+            </button>
+            <button
+              type="button"
+              className="rounded px-1.5 py-0.5 text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+              disabled={!canCellRedo}
+              onClick={() => onCellRedo?.()}
+              title="Redo cell edit (⌘/Ctrl+Alt+Shift+Z)"
+            >
+              ↷
+            </button>
+          </span>
+        ) : null}
       </div>
 
       {contextMenu ? (

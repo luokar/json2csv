@@ -21,6 +21,7 @@ import { Kbd } from "@/components/ui/kbd";
 import { Notice } from "@/components/ui/notice";
 import { CsvWorkbenchPanel } from "@/components/workbench/csv-workbench-panel";
 import { DenseDataGrid } from "@/components/workbench/dense-data-grid";
+import { ColumnStatsPanel } from "@/components/workbench/column-stats-panel";
 import { SchemaWorkbenchPanel } from "@/components/workbench/schema-workbench-panel";
 import { WorkbenchMetric } from "@/components/workbench/workbench-metric";
 import { WorkbenchNavButton } from "@/components/workbench/workbench-nav-button";
@@ -28,6 +29,7 @@ import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useOutputExport } from "@/hooks/use-output-export";
 import { buildDatasetKey, loadColumnPreferences, saveColumnPreferences } from "@/hooks/use-column-preferences";
+import { loadFormatRules, saveFormatRules } from "@/hooks/use-format-rules-storage";
 import { useProjectionPreview } from "@/hooks/use-projection-preview";
 import { useTheme } from "@/hooks/use-theme";
 import { useUndoStack } from "@/hooks/use-undo-stack";
@@ -247,8 +249,12 @@ function App() {
     rowIndex: number;
   } | null>(null);
   const [pinnedColumnIds, setPinnedColumnIds] = useState<string[]>([]);
-  const [cellEdits, setCellEdits] = useState<Map<string, Map<string, string>>>(new Map());
+  const cellEditsStack = useUndoStack<Map<string, Map<string, string>>>(new Map());
+  const cellEdits = cellEditsStack.state;
   const [formatRules, setFormatRules] = useState<FormatRule[]>([]);
+  const [statsPanelOpen, setStatsPanelOpen] = useState(false);
+  const [statsPanelInitialColumn, setStatsPanelInitialColumn] = useState<string | undefined>(undefined);
+  const [pendingColumnFilter, setPendingColumnFilter] = useState<{ columnId: string; value: string; key: number } | null>(null);
   const { theme, setTheme, resolvedTheme } = useTheme();
   const isMobile = !useMediaQuery("(min-width: 1024px)");
   const inspectorMode: InspectorMode = selectedRow ? "row" : selectedColumn ? "column" : "mapping";
@@ -432,6 +438,8 @@ function App() {
   );
   const prevDatasetKeyRef = useRef(datasetKey);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const formatRulesSaveTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const formatRulesHydratedKeyRef = useRef<string | null>(null);
 
   // Save column preferences on change (debounced)
   useEffect(() => {
@@ -452,6 +460,7 @@ function App() {
   useEffect(() => {
     if (prevDatasetKeyRef.current === datasetKey) return;
     prevDatasetKeyRef.current = datasetKey;
+    cellEditsStack.reset(new Map());
     if (flatHeaders.length === 0) return;
     const saved = loadColumnPreferences(datasetKey);
     if (!saved) return;
@@ -462,6 +471,26 @@ function App() {
     });
     setPinnedColumnIds(saved.pinnedColumnIds);
   }, [datasetKey, flatHeaders.length]);
+
+  // Restore format rules on dataset change
+  useEffect(() => {
+    if (flatHeaders.length === 0) return;
+    if (formatRulesHydratedKeyRef.current === datasetKey) return;
+    formatRulesHydratedKeyRef.current = datasetKey;
+    const saved = loadFormatRules(datasetKey);
+    setFormatRules(saved ?? []);
+  }, [datasetKey, flatHeaders.length]);
+
+  // Save format rules on change (debounced) — only after hydration completes for this dataset
+  useEffect(() => {
+    if (flatHeaders.length === 0) return;
+    if (formatRulesHydratedKeyRef.current !== datasetKey) return;
+    clearTimeout(formatRulesSaveTimerRef.current);
+    formatRulesSaveTimerRef.current = setTimeout(() => {
+      saveFormatRules(datasetKey, formatRules);
+    }, 500);
+    return () => clearTimeout(formatRulesSaveTimerRef.current);
+  }, [formatRules, datasetKey, flatHeaders.length]);
 
   function clearWorkbenchSelection() {
     setSelectedColumn(null);
@@ -832,6 +861,8 @@ function App() {
 
   const keyboardShortcutHandlers = useMemo(
     () => ({
+      onCellRedo: () => cellEditsStack.redo(),
+      onCellUndo: () => cellEditsStack.undo(),
       onDownloadCsv: () => {
         void handleFlatCsvExport();
       },
@@ -847,7 +878,7 @@ function App() {
       onToggleSidebar: () => setSidebarOpen((prev) => !prev),
       onUndo: () => columnConfigStack.undo(),
     }),
-    [canExportOutputs, columnConfigStack],
+    [canExportOutputs, columnConfigStack, cellEditsStack],
   );
   useKeyboardShortcuts(keyboardShortcutHandlers);
 
@@ -957,14 +988,25 @@ function App() {
           formatRules={formatRules}
           onFormatRulesChange={setFormatRules}
           onCellEdit={(rowId, columnId, value) => {
-            setCellEdits((prev) => {
-              const next = new Map(prev);
-              const rowEdits = new Map(next.get(rowId));
-              rowEdits.set(columnId, value);
-              next.set(rowId, rowEdits);
-              return next;
-            });
+            const prev = cellEditsStack.state;
+            const next = new Map(prev);
+            const rowEdits = new Map(next.get(rowId));
+            rowEdits.set(columnId, value);
+            next.set(rowId, rowEdits);
+            cellEditsStack.set(next);
           }}
+          canCellUndo={cellEditsStack.canUndo}
+          canCellRedo={cellEditsStack.canRedo}
+          onCellUndo={() => cellEditsStack.undo()}
+          onCellRedo={() => cellEditsStack.redo()}
+          onOpenStatsPanel={
+            columnProfiles && columnProfiles.length > 0
+              ? () => {
+                  setStatsPanelInitialColumn(undefined);
+                  setStatsPanelOpen(true);
+                }
+              : undefined
+          }
           onColumnOrderChange={setColumnOrder}
           onInspectColumn={(header) => inspectColumn(header, "flat")}
           onInspectRow={(row, rowId) => inspectRow(row, rowId, "flat")}
@@ -977,6 +1019,7 @@ function App() {
             });
           }}
           onPinnedColumnsChange={setPinnedColumnIds}
+          pendingColumnFilter={pendingColumnFilter}
           pinnedColumnIds={pinnedColumnIds}
           searchInputRef={searchInputRef}
           onCopySelectedToClipboard={(rows) => {
@@ -1380,6 +1423,17 @@ function App() {
       />
 
       <Toaster position="bottom-right" richColors closeButton theme={resolvedTheme as "light" | "dark"} />
+
+      {statsPanelOpen ? (
+        <ColumnStatsPanel
+          profiles={columnProfiles ?? []}
+          initialColumnId={statsPanelInitialColumn}
+          onApplyColumnFilter={(columnId, value) => {
+            setPendingColumnFilter({ columnId, value, key: Date.now() });
+          }}
+          onClose={() => setStatsPanelOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }

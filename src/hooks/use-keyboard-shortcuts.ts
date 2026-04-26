@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 
 interface KeyboardShortcutHandlers {
+  onCellRedo?: () => void;
+  onCellUndo?: () => void;
   onDownloadCsv: () => void;
   onFocusSearch: () => void;
   onOpenCommandPalette: () => void;
@@ -58,6 +60,18 @@ export function useKeyboardShortcuts(handlers: KeyboardShortcutHandlers) {
       if (isMetaOrCtrl && event.key === "f") {
         event.preventDefault();
         handlers.onFocusSearch();
+        return;
+      }
+
+      if (isMetaOrCtrl && event.altKey && event.shiftKey && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        handlers.onCellRedo?.();
+        return;
+      }
+
+      if (isMetaOrCtrl && event.altKey && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        handlers.onCellUndo?.();
         return;
       }
 

@@ -30,7 +30,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ArrowDown, ArrowUp, ArrowUpDown, BarChart3, ChevronDown, ChevronRight, Clipboard, Columns3, Download, FileJson, Filter, FilterX, GripVertical, Paintbrush, Pin, Search, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronRight, Clipboard, Download, FileJson, Filter, GripVertical, Pin, X } from "lucide-react";
 import { type CSSProperties, memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
@@ -48,6 +48,7 @@ import { ColumnContextMenu } from "@/components/workbench/column-context-menu";
 import { ColumnStatsPopover } from "@/components/workbench/column-stats-popover";
 import { FormatRulesPanel } from "@/components/workbench/format-rules-panel";
 import { GridStatusBar } from "@/components/workbench/grid-status-bar";
+import { GridToolbar } from "@/components/workbench/grid-toolbar";
 import { HighlightText } from "@/components/workbench/highlight-text";
 import { RowContextMenu } from "@/components/workbench/row-context-menu";
 import { getMatchingStyles, type FormatRule } from "@/lib/conditional-formatting";
@@ -978,144 +979,30 @@ export const DenseDataGrid = memo(function DenseDataGrid({
           <div className="flex flex-wrap items-center gap-1.5">{summaryBadges}</div>
         </div>
 
-        <div className="mt-3 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="flex flex-1 flex-wrap items-center gap-2">
-            <div className="relative min-w-[16rem] flex-1 xl:max-w-sm">
-              <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                ref={searchInputRef}
-                aria-label={filterLabel}
-                className="pl-9"
-                placeholder="Search rows..."
-                value={globalSearch}
-                onChange={(event) => setGlobalSearch(event.target.value)}
-              />
-            </div>
-
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => {
-                setShowColumnControls((current) => !current);
-                setColumnControlsFilter("");
-              }}
-            >
-              <Columns3 className="size-4" />
-              Columns
-            </Button>
-
-            {onFormatRulesChange ? (
-              <Button
-                type="button"
-                variant={showFormatPanel ? "outline" : "ghost"}
-                onClick={() => setShowFormatPanel((current) => !current)}
-              >
-                <Paintbrush className="size-4" />
-                Format
-                {formatRules && formatRules.length > 0 ? (
-                  <Badge variant="secondary">{formatRules.length}</Badge>
-                ) : null}
-              </Button>
-            ) : null}
-
-            {onOpenStatsPanel ? (
-              <Button type="button" variant="ghost" onClick={onOpenStatsPanel} title="Column statistics">
-                <BarChart3 className="size-4" />
-                Stats
-              </Button>
-            ) : null}
-
-            <Button
-              type="button"
-              variant={showColumnFilters ? "outline" : "ghost"}
-              onClick={() => setShowColumnFilters((current) => !current)}
-            >
-              <Filter className="size-4" />
-              Filters
-              {!showColumnFilters && columnFilters.length > 0 ? (
-                <Badge variant="secondary">{columnFilters.length}</Badge>
-              ) : null}
-            </Button>
-
-            {columnFilters.length > 0 ? (
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => setColumnFilters([])}
-              >
-                <FilterX className="size-4" />
-                Clear filters
-                <Badge variant="outline">{columnFilters.length}</Badge>
-              </Button>
-            ) : null}
-
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => {
-                setGlobalSearch("");
-                setColumnFilters([]);
-                setRowSelection({});
-                setActiveQuickFilters(new Set());
-              }}
-            >
-              <X className="size-4" />
-              Clear
-            </Button>
-
-            <div className="flex gap-0.5 rounded-lg border border-border bg-muted/40 p-0.5">
-              {(["non-empty", "unique", "edited"] as const).map((preset) => {
-                const isActive = activeQuickFilters.has(preset);
-                const label = preset === "non-empty" ? "Non-empty" : preset === "unique" ? "Unique" : "Edited";
-                return (
-                  <button
-                    key={preset}
-                    type="button"
-                    aria-pressed={isActive}
-                    disabled={preset === "edited" && (!cellEdits || cellEdits.size === 0)}
-                    className={cn(
-                      "rounded-md px-2 py-1 text-xs font-medium transition-colors",
-                      isActive
-                        ? "bg-background text-foreground shadow-sm"
-                        : "text-muted-foreground hover:text-foreground",
-                    )}
-                    onClick={() => {
-                      setActiveQuickFilters((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(preset)) next.delete(preset);
-                        else next.add(preset);
-                        return next;
-                      });
-                    }}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="flex gap-0.5 rounded-lg border border-border bg-muted/40 p-0.5">
-              {(["compact", "default", "comfortable"] as const).map((d) => (
-                <button
-                  key={d}
-                  type="button"
-                  aria-pressed={density === d}
-                  className={cn(
-                    "rounded-md px-2 py-1 text-xs font-medium transition-colors",
-                    density === d
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                  onClick={() => setDensity(d)}
-                >
-                  {d === "compact" ? "S" : d === "default" ? "M" : "L"}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">{toolbarActions}</div>
-        </div>
+        <GridToolbar
+          searchInputRef={searchInputRef}
+          filterLabel={filterLabel}
+          globalSearch={globalSearch}
+          setGlobalSearch={setGlobalSearch}
+          setShowColumnControls={setShowColumnControls}
+          setColumnControlsFilter={setColumnControlsFilter}
+          showFormatPanel={showFormatPanel}
+          setShowFormatPanel={setShowFormatPanel}
+          formatRules={formatRules}
+          onFormatRulesChange={onFormatRulesChange}
+          onOpenStatsPanel={onOpenStatsPanel}
+          showColumnFilters={showColumnFilters}
+          setShowColumnFilters={setShowColumnFilters}
+          columnFilters={columnFilters}
+          setColumnFilters={setColumnFilters}
+          setRowSelection={setRowSelection}
+          activeQuickFilters={activeQuickFilters}
+          setActiveQuickFilters={setActiveQuickFilters}
+          hasCellEdits={Boolean(cellEdits && cellEdits.size > 0)}
+          density={density}
+          setDensity={setDensity}
+          toolbarActions={toolbarActions}
+        />
 
         {showColumnControls ? (
           <div className="mt-3 flex flex-wrap gap-1.5 rounded-lg border border-border bg-muted/30 p-3">

@@ -30,13 +30,12 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ArrowDown, ArrowUp, ArrowUpDown, Clipboard, Download, FileJson, Filter, GripVertical, Pin, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Clipboard, Filter, GripVertical, Pin, X } from "lucide-react";
 import { type CSSProperties, memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   TableCell,
@@ -52,6 +51,7 @@ import { GridStatusBar } from "@/components/workbench/grid-status-bar";
 import { GridToolbar } from "@/components/workbench/grid-toolbar";
 import { HighlightText } from "@/components/workbench/highlight-text";
 import { RowContextMenu } from "@/components/workbench/row-context-menu";
+import { SelectionActionsBar } from "@/components/workbench/selection-actions-bar";
 import { getMatchingStyles, type FormatRule } from "@/lib/conditional-formatting";
 import { cn } from "@/lib/utils";
 import type { ColumnProfile } from "@/lib/column-profiling";
@@ -1038,65 +1038,19 @@ export const DenseDataGrid = memo(function DenseDataGrid({
         ) : null}
 
         {selectedRows.length > 0 ? (
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border-l-2 border-l-primary bg-accent px-3 py-2 text-sm">
-            <div className="flex flex-wrap items-center gap-2 text-foreground">
-              <Badge>{selectedRows.length} selected</Badge>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  const firstSelected = selectedRows[0];
-
-                  if (!firstSelected) {
-                    return;
-                  }
-
-                  onOpenRowDetail?.(firstSelected.original, firstSelected.id);
-                }}
-              >
-                View details
-              </Button>
-              {onExportSelected ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => onExportSelected(selectedRows.map((r) => applyRowEdits(r.original, cellEdits?.get(r.id))))}
-                >
-                  <Download className="size-4" />
-                  Export CSV
-                </Button>
-              ) : null}
-              {onExportSelectedJson ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => onExportSelectedJson(selectedRows.map((r) => applyRowEdits(r.original, cellEdits?.get(r.id))))}
-                >
-                  <FileJson className="size-4" />
-                  Export JSON
-                </Button>
-              ) : null}
-              {onCopySelectedToClipboard ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => onCopySelectedToClipboard(selectedRows.map((r) => applyRowEdits(r.original, cellEdits?.get(r.id))))}
-                >
-                  <Clipboard className="size-4" />
-                  Copy
-                </Button>
-              ) : null}
-              <Button type="button" size="sm" variant="ghost" onClick={() => setRowSelection({})}>
-                Clear selection
-              </Button>
-            </div>
-          </div>
+          <SelectionActionsBar
+            selectedCount={selectedRows.length}
+            selectedRows={selectedRows.map((r) => applyRowEdits(r.original, cellEdits?.get(r.id)))}
+            onViewDetails={() => {
+              const firstSelected = selectedRows[0];
+              if (!firstSelected) return;
+              onOpenRowDetail?.(firstSelected.original, firstSelected.id);
+            }}
+            onExportSelected={onExportSelected}
+            onExportSelectedJson={onExportSelectedJson}
+            onCopySelectedToClipboard={onCopySelectedToClipboard}
+            onClearSelection={() => setRowSelection({})}
+          />
         ) : null}
 
         {notices ? <div className="mt-3 space-y-1.5">{notices}</div> : null}

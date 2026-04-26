@@ -30,7 +30,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronRight, Clipboard, Download, FileJson, Filter, GripVertical, Pin, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Clipboard, Download, FileJson, Filter, GripVertical, Pin, X } from "lucide-react";
 import { type CSSProperties, memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
@@ -45,6 +45,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ColumnContextMenu } from "@/components/workbench/column-context-menu";
+import { ColumnControlsPanel } from "@/components/workbench/column-controls-panel";
 import { ColumnStatsPopover } from "@/components/workbench/column-stats-popover";
 import { FormatRulesPanel } from "@/components/workbench/format-rules-panel";
 import { GridStatusBar } from "@/components/workbench/grid-status-bar";
@@ -1005,109 +1006,27 @@ export const DenseDataGrid = memo(function DenseDataGrid({
         />
 
         {showColumnControls ? (
-          <div className="mt-3 flex flex-wrap gap-1.5 rounded-lg border border-border bg-muted/30 p-3">
-            {initialHiddenHeaders.length > 0 ? (
-              <div className="flex w-full items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-xs text-muted-foreground">
-                <p className="flex-1">
-                  Showing {defaultVisibleColumnCount.toLocaleString()} columns by default. Use the
-                  checkboxes below to show or hide additional columns.
-                </p>
-              </div>
-            ) : null}
-
-            <div className="flex w-full flex-wrap items-center justify-end gap-1.5">
-              {hiddenColumnCount > 0 ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={handleShowAllColumns}
-                >
-                  Show all columns
-                </Button>
-              ) : null}
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={handleHideAllColumns}
-              >
-                Hide all columns
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={handleResetColumnPreview}
-              >
-                Reset to default columns
-              </Button>
-              {onColumnOrderChange ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => onColumnOrderChange([])}
-                >
-                  Reset column order
-                </Button>
-              ) : null}
-            </div>
-
-            <div className="w-full">
-              <Input
-                placeholder="Search columns..."
-                value={columnControlsFilter}
-                onChange={(e) => setColumnControlsFilter(e.target.value)}
-                className="h-8 text-xs"
-              />
-            </div>
-
-            {columnGroups.size > 0 ? (
-              <div className="flex w-full flex-wrap gap-1">
-                <span className="w-full text-xs text-muted-foreground">Column groups</span>
-                {[...columnGroups.entries()].map(([prefix, cols]) => (
-                  <button
-                    key={prefix}
-                    type="button"
-                    onClick={() => toggleGroupCollapse(prefix)}
-                    className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-xs transition-colors hover:bg-muted/50"
-                  >
-                    {collapsedGroups.has(prefix) ? (
-                      <ChevronRight className="size-3" />
-                    ) : (
-                      <ChevronDown className="size-3" />
-                    )}
-                    {prefix} ({cols.length})
-                  </button>
-                ))}
-              </div>
-            ) : null}
-
-            {headers.filter((h) => !columnControlsFilter || h.toLowerCase().includes(columnControlsFilter.toLowerCase())).map((header) => {
-              const column = table.getColumn(header);
-
-              if (!column) {
-                return null;
-              }
-
-              return (
-                <label
-                  key={header}
-                  className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-foreground transition-colors hover:bg-muted/50 cursor-default"
-                >
-                  <input
-                    aria-label={`${header} column visibility`}
-                    checked={column.getIsVisible()}
-                    className="size-4 rounded border-border accent-primary"
-                    type="checkbox"
-                    onChange={column.getToggleVisibilityHandler()}
-                  />
-                  <span className="max-w-[12rem] truncate">{header}</span>
-                </label>
-              );
-            })}
-          </div>
+          <ColumnControlsPanel
+            headers={headers}
+            initialHiddenHeaders={initialHiddenHeaders}
+            defaultVisibleColumnCount={defaultVisibleColumnCount}
+            hiddenColumnCount={hiddenColumnCount}
+            columnControlsFilter={columnControlsFilter}
+            setColumnControlsFilter={setColumnControlsFilter}
+            columnVisibility={Object.fromEntries(
+              headers.map((h) => [h, table.getColumn(h)?.getIsVisible() ?? true]),
+            )}
+            onToggleColumnVisibility={(header) =>
+              table.getColumn(header)?.toggleVisibility()
+            }
+            columnGroups={columnGroups}
+            collapsedGroups={collapsedGroups}
+            toggleGroupCollapse={toggleGroupCollapse}
+            onShowAllColumns={handleShowAllColumns}
+            onHideAllColumns={handleHideAllColumns}
+            onResetColumnPreview={handleResetColumnPreview}
+            onResetColumnOrder={onColumnOrderChange ? () => onColumnOrderChange([]) : undefined}
+          />
         ) : null}
 
         {showFormatPanel && onFormatRulesChange ? (

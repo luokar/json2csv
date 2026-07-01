@@ -88,7 +88,7 @@ export function GridToolbar({
             setColumnControlsFilter("");
           }}
         >
-          <Columns3 className="size-4" />
+          <Columns3 data-icon="inline-start" />
           Columns
         </Button>
 
@@ -98,7 +98,7 @@ export function GridToolbar({
             variant={showFormatPanel ? "outline" : "ghost"}
             onClick={() => setShowFormatPanel((current) => !current)}
           >
-            <Paintbrush className="size-4" />
+            <Paintbrush data-icon="inline-start" />
             Format
             {formatRules && formatRules.length > 0 ? (
               <Badge variant="secondary">{formatRules.length}</Badge>
@@ -108,7 +108,7 @@ export function GridToolbar({
 
         {onOpenStatsPanel ? (
           <Button type="button" variant="ghost" onClick={onOpenStatsPanel} title="Column statistics">
-            <BarChart3 className="size-4" />
+            <BarChart3 data-icon="inline-start" />
             Stats
           </Button>
         ) : null}
@@ -118,7 +118,7 @@ export function GridToolbar({
           variant={showColumnFilters ? "outline" : "ghost"}
           onClick={() => setShowColumnFilters((current) => !current)}
         >
-          <Filter className="size-4" />
+          <Filter data-icon="inline-start" />
           Filters
           {!showColumnFilters && columnFilters.length > 0 ? (
             <Badge variant="secondary">{columnFilters.length}</Badge>
@@ -131,7 +131,7 @@ export function GridToolbar({
             variant="ghost"
             onClick={() => setColumnFilters([])}
           >
-            <FilterX className="size-4" />
+            <FilterX data-icon="inline-start" />
             Clear filters
             <Badge variant="outline">{columnFilters.length}</Badge>
           </Button>
@@ -147,11 +147,11 @@ export function GridToolbar({
             setActiveQuickFilters(new Set());
           }}
         >
-          <X className="size-4" />
+          <X data-icon="inline-start" />
           Clear
         </Button>
 
-        <div className="flex gap-0.5 rounded-lg border border-border bg-muted/40 p-0.5">
+        <div className="flex gap-0.5 rounded-md border border-border bg-muted p-0.5">
           {(["non-empty", "unique", "edited"] as const).map((preset) => {
             const isActive = activeQuickFilters.has(preset);
             const label = preset === "non-empty" ? "Non-empty" : preset === "unique" ? "Unique" : "Edited";
@@ -162,7 +162,7 @@ export function GridToolbar({
                 aria-pressed={isActive}
                 disabled={preset === "edited" && !hasCellEdits}
                 className={cn(
-                  "rounded-md px-2 py-1 text-xs font-medium transition-colors",
+                  "rounded-[4px] px-2 py-1 font-mono text-xs font-normal transition-colors",
                   isActive
                     ? "bg-background text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground",
@@ -182,14 +182,14 @@ export function GridToolbar({
           })}
         </div>
 
-        <div className="flex gap-0.5 rounded-lg border border-border bg-muted/40 p-0.5">
+        <div className="flex gap-0.5 rounded-md border border-border bg-muted p-0.5">
           {(["compact", "default", "comfortable"] as const).map((d) => (
             <button
               key={d}
               type="button"
               aria-pressed={density === d}
               className={cn(
-                "rounded-md px-2 py-1 text-xs font-medium transition-colors",
+                "rounded-[4px] px-2 py-1 font-mono text-xs font-normal transition-colors",
                 density === d
                   ? "bg-background text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground",

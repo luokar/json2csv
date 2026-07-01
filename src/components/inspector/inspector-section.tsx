@@ -10,12 +10,12 @@ export function InspectorSection({
   title: string;
 }) {
   return (
-    <section className="rounded-xl border border-border bg-card">
-      <div className="px-4 py-3">
-        <p className="text-sm font-semibold text-foreground">{title}</p>
-        <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
+    <section className="border-b border-border bg-background last:border-b-0">
+      <div className="px-5 py-4">
+        <h2 className="font-mono text-sm font-medium text-foreground">{title}</h2>
+        <p className="mt-1 text-sm leading-5 text-muted-foreground">{description}</p>
       </div>
-      <div className="space-y-3 border-t border-border px-4 py-3">{children}</div>
+      <div className="flex flex-col gap-4 px-5 pb-5">{children}</div>
     </section>
   );
 }

@@ -809,8 +809,8 @@ export const DenseDataGrid = memo(function DenseDataGrid({
   }
 
   return (
-    <section className="flex min-h-[calc(100vh-10rem)] flex-col overflow-hidden rounded-xl border border-border bg-background shadow-sm">
-      <div className="border-b border-border px-5 py-4">
+    <section className="flex min-h-[calc(100vh-10.75rem)] flex-col overflow-hidden rounded-lg border border-border bg-background shadow-geist">
+      <div className="border-b border-border px-4 py-4 sm:px-5">
         <GridHeaderSummary
           title={title}
           description={description}
@@ -897,18 +897,23 @@ export const DenseDataGrid = memo(function DenseDataGrid({
       </div>
 
       <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-auto outline-none" tabIndex={0} onKeyDown={handleGridKeyDown}>
-        <table
-          className="caption-bottom text-sm table-fixed"
-          style={{ width: table.getTotalSize() }}
+        <DndContext
+          sensors={dndSensors}
+          collisionDetection={closestCenter}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
         >
+          <table
+            className="caption-bottom text-sm table-fixed"
+            style={{ width: table.getTotalSize() }}
+          >
           <caption className="mt-4 px-5 pb-4 text-left text-sm text-muted-foreground">
             {caption}
           </caption>
-          <TableHeader className="sticky top-0 z-20">
-            <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-              <SortableContext items={headers} strategy={horizontalListSortingStrategy}>
+          <TableHeader className="sticky top-0 z-20 bg-muted/80 backdrop-blur-sm">
+            <SortableContext items={headers} strategy={horizontalListSortingStrategy}>
                 {table.getHeaderGroups().map((headerGroup) => (
-                  <TableRow key={headerGroup.id} className="bg-background hover:bg-background border-b border-border">
+                  <TableRow key={headerGroup.id} className="border-b border-border bg-muted/80 hover:bg-muted/80">
                     {headerGroup.headers.map((header) => {
                       const isSelectionColumn = header.column.id === selectionColumnId;
                       const isRowNumberColumn = header.column.id === rowNumberColumnId;
@@ -972,16 +977,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                     })}
                   </TableRow>
                 ))}
-              </SortableContext>
-              <DragOverlay dropAnimation={null}>
-                {activeDragId ? (
-                  <div className="flex items-center gap-2 rounded-lg border border-primary/50 bg-background px-3 py-2 text-xs font-medium text-foreground shadow-xl ring-1 ring-primary/20">
-                    <GripVertical className="size-3 text-muted-foreground" />
-                    {activeDragId}
-                  </div>
-                ) : null}
-              </DragOverlay>
-            </DndContext>
+            </SortableContext>
           </TableHeader>
           <tbody className="[&_tr:last-child]:border-0 [&_tr]:border-b [&_tr]:border-border/50">
             {tableRows.length > 0 ? (
@@ -1113,7 +1109,16 @@ export const DenseDataGrid = memo(function DenseDataGrid({
               </tr>
             )}
           </tbody>
-        </table>
+          </table>
+          <DragOverlay dropAnimation={null}>
+            {activeDragId ? (
+              <div className="flex items-center gap-2 rounded-lg border border-primary/50 bg-background px-3 py-2 text-xs font-medium text-foreground shadow-geist-float ring-1 ring-primary/20">
+                <GripVertical className="size-3 text-muted-foreground" />
+                {activeDragId}
+              </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
       </div>
 
       <GridStatusBar

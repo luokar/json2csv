@@ -13,7 +13,7 @@ export function Table({ className, ...props }: React.ComponentProps<"table">) {
 export function TableHeader({ className, ...props }: React.ComponentProps<"thead">) {
   return (
     <thead
-      className={cn("bg-background [&_tr]:border-b [&_tr]:border-border", className)}
+      className={cn("bg-muted/60 [&_tr]:border-b [&_tr]:border-border", className)}
       {...props}
     />
   );
@@ -41,7 +41,7 @@ export function TableHead({ className, ...props }: React.ComponentProps<"th">) {
   return (
     <th
       className={cn(
-        "h-10 px-3 text-left align-middle text-xs font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0",
+        "h-10 px-3 text-left align-middle font-mono text-xs font-medium text-foreground [&:has([role=checkbox])]:pr-0",
         className,
       )}
       {...props}
@@ -50,7 +50,7 @@ export function TableHead({ className, ...props }: React.ComponentProps<"th">) {
 }
 
 export function TableCell({ className, ...props }: React.ComponentProps<"td">) {
-  return <td className={cn("px-3 py-2.5 align-middle", className)} {...props} />;
+  return <td className={cn("px-3 py-2.5 align-middle font-mono text-[13px]", className)} {...props} />;
 }
 
 export function TableCaption({ className, ...props }: React.ComponentProps<"caption">) {

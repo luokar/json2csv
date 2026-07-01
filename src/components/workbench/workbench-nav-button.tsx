@@ -17,16 +17,16 @@ export function WorkbenchNavButton({
     <button
       type="button"
       className={cn(
-        "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-all duration-150 disabled:pointer-events-none disabled:opacity-50",
+        "inline-flex h-9 items-center gap-2 rounded-[5px] border border-transparent px-4 text-sm transition-colors duration-150 disabled:pointer-events-none disabled:opacity-50",
         active
-          ? "border-primary/20 bg-accent text-foreground font-medium"
-          : "border-transparent text-muted-foreground hover:bg-muted hover:text-foreground",
+          ? "bg-background text-foreground font-medium shadow-geist"
+          : "text-muted-foreground hover:text-foreground",
       )}
       disabled={disabled}
       onClick={onClick}
     >
       <span>{label}</span>
-      <span className="text-xs text-muted-foreground">{meta}</span>
+      <span className="hidden font-mono text-[11px] text-muted-foreground sm:inline">{meta}</span>
     </button>
   );
 }

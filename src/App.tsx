@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Download, Moon, Search as SearchIcon, Sun, Monitor } from "lucide-react";
-import { type ChangeEvent, useCallback, useMemo, useRef, useState } from "react";
+import { Code2, Download, Monitor, Moon, Search as SearchIcon, Sun } from "lucide-react";
+import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { toast, Toaster } from "sonner";
 import { z } from "zod";
@@ -263,6 +263,12 @@ function App() {
   } = useStatsPanel();
   const { theme, setTheme, resolvedTheme } = useTheme();
   const isMobile = !useMediaQuery("(min-width: 1024px)");
+
+  useEffect(() => {
+    if (isMobile && typeof window.matchMedia === "function") {
+      setSidebarOpen(false);
+    }
+  }, [isMobile]);
   const inspectorMode: InspectorMode = selectedRow ? "row" : selectedColumn ? "column" : "mapping";
 
   const form = useForm<ConverterFormValues>({
@@ -1027,18 +1033,22 @@ function App() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-muted/30">
+    <div className="flex min-h-screen flex-col bg-background">
       {/* Top bar */}
-      <header className="border-b border-border bg-background">
-        <div className="mx-auto flex max-w-[1920px] items-center gap-4 px-5 py-3">
-          <div className="flex items-center gap-3">
-            <h1 className="text-base font-semibold text-foreground">JSON to Spreadsheet</h1>
+      <header className="relative border-b border-border bg-background">
+        <div aria-hidden className="pointer-events-none absolute inset-y-0 left-0 w-64 bg-[radial-gradient(circle_at_0%_20%,rgba(0,223,216,0.18),transparent_48%),radial-gradient(circle_at_20%_100%,rgba(121,40,202,0.12),transparent_52%)]" />
+        <div className="relative mx-auto flex h-16 max-w-[1920px] items-center gap-4 px-4 sm:px-6">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <Code2 aria-hidden className="size-5 shrink-0" strokeWidth={1.7} />
+            <h1 className="truncate font-mono text-base font-medium tracking-[-0.04em] text-foreground">
+              json2csv<span className="sr-only"> — JSON to Spreadsheet</span>
+            </h1>
             {isStreamingFlatPreview ? (
               <Badge variant="accent">Loading...</Badge>
             ) : null}
           </div>
 
-          <div className="hidden flex-1 items-center justify-center gap-2 lg:flex">
+          <div className="hidden flex-1 items-center justify-center lg:flex">
             <WorkbenchMetric
               label="Data"
               value={describeActiveSource(liveValues.sourceMode, activeSample.title)}
@@ -1064,14 +1074,14 @@ function App() {
               size="sm"
               onClick={() => setCommandPaletteOpen(true)}
             >
-              <SearchIcon className="size-4" />
+              <SearchIcon data-icon="inline-start" />
               <span className="hidden sm:inline">Commands</span>
               <Kbd className="hidden sm:inline-flex">⌘K</Kbd>
             </Button>
 
             <Button
               type="button"
-              variant="outline"
+              variant="default"
               size="sm"
               title={outputExportBlockedReason ?? "Download the CSV file."}
               disabled={!canExportOutputs || isOutputExporting}
@@ -1079,7 +1089,7 @@ function App() {
                 void handleFlatCsvExport();
               }}
             >
-              <Download className="size-4" />
+              <Download data-icon="inline-start" />
               <span className="hidden sm:inline">
                 {isOutputExporting
                   ? outputExportProgress
@@ -1105,11 +1115,11 @@ function App() {
               }
             >
               {theme === "system" ? (
-                <Monitor className="size-4" />
+                <Monitor />
               ) : resolvedTheme === "dark" ? (
-                <Moon className="size-4" />
+                <Moon />
               ) : (
-                <Sun className="size-4" />
+                <Sun />
               )}
             </Button>
 
@@ -1126,8 +1136,8 @@ function App() {
         {/* Main workspace */}
         <main className="flex min-w-0 flex-1 flex-col">
           {/* View tabs */}
-          <div className="border-b border-border bg-background px-5 py-2">
-            <div className="flex items-center gap-1">
+          <div className="border-b border-border bg-background px-4 py-3 sm:px-6">
+            <div className="flex w-fit items-center rounded-md border border-border bg-muted p-0.5 shadow-geist">
               <WorkbenchNavButton
                 active={activeView === "flat"}
                 label="Table"
@@ -1142,15 +1152,15 @@ function App() {
               />
               <WorkbenchNavButton
                 active={activeView === "schema"}
-                label="Column details"
-                meta={`${conversionResult?.schema.columns.length ?? 0} cols`}
+                label="Schema"
+                meta={`Column details · ${conversionResult?.schema.columns.length ?? 0} cols`}
                 onClick={() => setActiveView("schema")}
               />
             </div>
           </div>
 
           {/* Workbench content */}
-          <div className="min-h-0 flex-1 overflow-auto p-4">
+          <div className="min-h-0 flex-1 overflow-auto p-3 sm:p-5">
             {renderWorkbenchCenterPanel()}
           </div>
         </main>
@@ -1168,8 +1178,8 @@ function App() {
             />
           }
         >
-          <div className="min-h-0 flex-1 overflow-y-auto p-3">
-            <div className={activeSidebarTab === "data" ? "space-y-3" : "hidden"}>
+          <div className="min-h-0 flex-1 overflow-y-auto bg-background">
+            <div className={activeSidebarTab === "data" ? undefined : "hidden"}>
               <DataTabPanel
                 activeSample={activeSample}
                 broadRootColumnCount={broadRootColumnCount}

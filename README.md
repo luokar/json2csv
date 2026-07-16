@@ -7,6 +7,7 @@
 - sample or custom JSON input
 - root-path selection
 - flat mapping controls
+- optional nesting-style changes from a chosen depth
 - bounded flat-row preview
 - bounded CSV preview and full CSV download
 - memory-safe live preview that caps very large inputs to a fixed root budget

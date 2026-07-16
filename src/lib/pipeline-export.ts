@@ -42,6 +42,8 @@ export function buildPipelineConfig(options: {
       emptyArrayBehavior: mappingConfig.emptyArrayBehavior,
       flattenMode: mappingConfig.flattenMode,
       maxDepth: mappingConfig.maxDepth,
+      nestedFlattenDepth: mappingConfig.nestedFlattenDepth,
+      nestedFlattenMode: mappingConfig.nestedFlattenMode,
       onMissingKey: mappingConfig.onMissingKey,
       onTypeMismatch: mappingConfig.onTypeMismatch,
       pathSeparator: mappingConfig.pathSeparator,

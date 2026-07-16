@@ -118,6 +118,14 @@ const sourceModeOptions: Array<{ label: string; value: SourceMode }> = [
   { value: "custom", label: "Your own JSON" },
 ];
 
+const nestedFlattenModeOptions = [
+  { label: "Same as nesting style", value: "inherit" },
+  ...flattenModes.map((value) => ({
+    label: toTitleCase(value),
+    value,
+  })),
+];
+
 const defaultRootPaths: Record<string, string> = {
   collisions: "$.rows[*]",
   donuts: "$.items.item[*]",
@@ -138,6 +146,8 @@ const converterFormSchema = z.object({
   customJson: z.string(),
   rootPath: z.string().trim().min(1, "Data location is required."),
   flattenMode: z.enum(flattenModes),
+  nestedFlattenMode: z.enum(["inherit", ...flattenModes]),
+  nestedFlattenDepth: z.number().int().min(1).max(32),
   pathSeparator: z
     .string()
     .trim()
@@ -185,6 +195,8 @@ const defaultFormValues: ConverterFormValues = {
   customJson: "",
   rootPath: defaultRootPaths.donuts,
   flattenMode: defaultMappingConfig.flattenMode,
+  nestedFlattenMode: "inherit",
+  nestedFlattenDepth: defaultMappingConfig.nestedFlattenDepth,
   pathSeparator: defaultMappingConfig.pathSeparator,
   arrayIndexSuffix: defaultMappingConfig.arrayIndexSuffix,
   placeholderStrategy: defaultMappingConfig.placeholderStrategy,
@@ -208,6 +220,8 @@ const watchedFieldNames = [
   "customJson",
   "rootPath",
   "flattenMode",
+  "nestedFlattenMode",
+  "nestedFlattenDepth",
   "pathSeparator",
   "arrayIndexSuffix",
   "placeholderStrategy",
@@ -294,6 +308,8 @@ function App() {
     customJson = defaultFormValues.customJson,
     rootPath = defaultFormValues.rootPath,
     flattenMode = defaultFormValues.flattenMode,
+    nestedFlattenMode = defaultFormValues.nestedFlattenMode,
+    nestedFlattenDepth = defaultFormValues.nestedFlattenDepth,
     pathSeparator = defaultFormValues.pathSeparator,
     arrayIndexSuffix = defaultFormValues.arrayIndexSuffix,
     placeholderStrategy = defaultFormValues.placeholderStrategy,
@@ -319,6 +335,8 @@ function App() {
     delimiter,
     emptyArrayBehavior,
     flattenMode,
+    nestedFlattenMode,
+    nestedFlattenDepth,
     exportName,
     maxDepth,
     onMissingKey,
@@ -585,6 +603,14 @@ function App() {
     }
     if (result.mappingConfig.flattenMode) {
       form.setValue("flattenMode", result.mappingConfig.flattenMode, { shouldValidate: true });
+    }
+    form.setValue("nestedFlattenMode", result.mappingConfig.nestedFlattenMode ?? "inherit", {
+      shouldValidate: true,
+    });
+    if (typeof result.mappingConfig.nestedFlattenDepth === "number") {
+      form.setValue("nestedFlattenDepth", result.mappingConfig.nestedFlattenDepth, {
+        shouldValidate: true,
+      });
     }
     if (result.mappingConfig.delimiter) {
       form.setValue("delimiter", result.mappingConfig.delimiter as ConverterFormValues["delimiter"], { shouldValidate: true });
@@ -1244,6 +1270,12 @@ function App() {
                   value,
                 }))}
                 flattenModeRegister={form.register("flattenMode")}
+                nestedFlattenModeOptions={nestedFlattenModeOptions}
+                nestedFlattenModeRegister={form.register("nestedFlattenMode")}
+                nestedFlattenDepthRegister={form.register("nestedFlattenDepth", {
+                  valueAsNumber: true,
+                })}
+                nestedFlattenModeActive={liveValues.nestedFlattenMode !== "inherit"}
                 maxDepthRegister={form.register("maxDepth", { valueAsNumber: true })}
                 missingKeyOptions={missingKeyStrategies.map((value) => ({
                   label: toTitleCase(value),
@@ -1405,6 +1437,9 @@ function toMappingConfig(
   return createMappingConfig({
     rootPath: values.rootPath,
     flattenMode: values.flattenMode,
+    nestedFlattenMode:
+      values.nestedFlattenMode === "inherit" ? undefined : values.nestedFlattenMode,
+    nestedFlattenDepth: values.nestedFlattenDepth,
     pathSeparator: values.pathSeparator,
     arrayIndexSuffix: values.arrayIndexSuffix,
     placeholderStrategy: values.placeholderStrategy,

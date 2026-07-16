@@ -41,6 +41,74 @@ const groupRootInput = {
 };
 
 describe("mapping engine deep matrix", () => {
+  it("switches nested containers to stringify while the selected root stays parallel", () => {
+    const result = convertJsonToCsvTable(
+      {
+        models: [
+          {
+            creator: { id: "openai", name: "OpenAI" },
+            id: "model-1",
+            scores: [91, 92],
+          },
+          {
+            creator: { id: "anthropic", name: "Anthropic" },
+            id: "model-2",
+            scores: [93],
+          },
+        ],
+      },
+      {
+        flattenMode: "parallel",
+        headerPolicy: "full_scan",
+        nestedFlattenDepth: 1,
+        nestedFlattenMode: "stringify",
+        rootPath: "$.models",
+      },
+    );
+
+    expect(result.rowCount).toBe(2);
+    expect(result.headers).toEqual(["creator", "id", "scores"]);
+    expect(result.headers).not.toContain("creator.name");
+    expect(result.records[0]).toMatchObject({
+      creator: '{"id":"openai","name":"OpenAI"}',
+      id: "model-1",
+      scores: "[91,92]",
+    });
+    expect(result.records[1]).toMatchObject({
+      creator: '{"id":"anthropic","name":"Anthropic"}',
+      id: "model-2",
+      scores: "[93]",
+    });
+  });
+
+  it("keeps flattening until the configured nested level", () => {
+    const result = convertJsonToCsvTable(
+      {
+        models: [
+          {
+            id: "model-1",
+            profile: {
+              metrics: { quality: 92, speed: 88 },
+              name: "Model One",
+            },
+          },
+        ],
+      },
+      {
+        flattenMode: "parallel",
+        headerPolicy: "full_scan",
+        nestedFlattenDepth: 2,
+        nestedFlattenMode: "stringify",
+        rootPath: "$.models",
+      },
+    );
+
+    expect(result.rowCount).toBe(1);
+    expect(result.headers).toEqual(["id", "profile.metrics", "profile.name"]);
+    expect(result.records[0]["profile.metrics"]).toBe('{"quality":92,"speed":88}');
+    expect(result.records[0]["profile.name"]).toBe("Model One");
+  });
+
   it("keeps deep arrays in-row by default in strict-leaf mode", () => {
     const result = convertJsonToCsvTable(deepProjectInput, {
       rootPath: "$.projects[*]",

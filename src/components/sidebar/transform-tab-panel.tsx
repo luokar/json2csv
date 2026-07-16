@@ -43,6 +43,10 @@ export function TransformTabPanel({
   emptyArrayBehaviorRegister,
   flattenModeOptions,
   flattenModeRegister,
+  nestedFlattenDepthRegister,
+  nestedFlattenModeActive,
+  nestedFlattenModeOptions,
+  nestedFlattenModeRegister,
   headerAliases,
   headers,
   hiddenColumns,
@@ -76,6 +80,10 @@ export function TransformTabPanel({
   emptyArrayBehaviorRegister: UseFormRegisterReturn;
   flattenModeOptions: SelectOption[];
   flattenModeRegister: UseFormRegisterReturn;
+  nestedFlattenDepthRegister: UseFormRegisterReturn;
+  nestedFlattenModeActive: boolean;
+  nestedFlattenModeOptions: SelectOption[];
+  nestedFlattenModeRegister: UseFormRegisterReturn;
   headerAliases: Record<string, string>;
   headers: string[];
   hiddenColumns: Set<string>;
@@ -219,6 +227,28 @@ export function TransformTabPanel({
             registration={flattenModeRegister}
             options={flattenModeOptions}
           />
+          <SelectField
+            id="nested-flatten-mode"
+            label="Deeper nesting style"
+            hint="Optionally switch styles for containers nested inside each selected row."
+            registration={nestedFlattenModeRegister}
+            options={nestedFlattenModeOptions}
+          />
+          <div className="space-y-1.5">
+            <Label htmlFor="nested-flatten-depth">Deeper style starts at level</Label>
+            <Input
+              id="nested-flatten-depth"
+              type="number"
+              min={1}
+              max={32}
+              disabled={!nestedFlattenModeActive}
+              aria-describedby="nested-flatten-depth-hint"
+              {...nestedFlattenDepthRegister}
+            />
+            <p id="nested-flatten-depth-hint" className="text-xs text-muted-foreground">
+              Level 1 targets containers directly inside each selected row.
+            </p>
+          </div>
           <SelectField
             id="placeholder-strategy"
             label="Fill empty cells"

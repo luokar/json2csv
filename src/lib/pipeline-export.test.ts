@@ -12,6 +12,8 @@ import {
 describe("pipeline-export", () => {
   const config = createMappingConfig({
     flattenMode: "parallel",
+    nestedFlattenDepth: 1,
+    nestedFlattenMode: "stringify",
     rootPath: "$.records[*]",
   });
 
@@ -38,6 +40,8 @@ describe("pipeline-export", () => {
       expect(parsed.rootPath).toBe("$.records[*]");
       expect(parsed.headerAliases).toEqual({ email: "Email Address" });
       expect(parsed.columnOrder).toEqual(["id", "email"]);
+      expect(parsed.mappingConfig.nestedFlattenMode).toBe("stringify");
+      expect(parsed.mappingConfig.nestedFlattenDepth).toBe(1);
     }
   });
 

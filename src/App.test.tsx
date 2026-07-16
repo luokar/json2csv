@@ -63,6 +63,21 @@ const wideFlatPreviewJson = JSON.stringify([
   ),
 ]);
 
+const nestedModelsJson = JSON.stringify({
+  models: [
+    {
+      creator: { id: "openai", name: "OpenAI" },
+      id: "model-1",
+      scores: [91, 92],
+    },
+    {
+      creator: { id: "anthropic", name: "Anthropic" },
+      id: "model-2",
+      scores: [93],
+    },
+  ],
+});
+
 const largeObjectRootJson = `{"blob":"${"x".repeat(600_000)}"}`;
 
 async function switchToCustomMode(
@@ -393,6 +408,39 @@ describe("App", () => {
       expect(buttonLabels).toContain("tags[0]");
       expect(buttonLabels).toContain("tags[1]");
       expect(buttonLabels).not.toContain("tags");
+    });
+  });
+
+  it("switches to stringify at a chosen nested level", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await switchToCustomMode(user, { waitForWorkbench: false });
+
+    fireEvent.change(screen.getByLabelText(/your json/i), {
+      target: { value: nestedModelsJson },
+    });
+    fireEvent.change(screen.getByLabelText(/data location/i), {
+      target: { value: "$.models" },
+    });
+
+    await user.click(screen.getByRole("button", { name: /transform/i }));
+    expect(screen.getByLabelText(/deeper style starts at level/i)).toBeDisabled();
+
+    await user.selectOptions(screen.getByLabelText(/deeper nesting style/i), "stringify");
+
+    expect(screen.getByLabelText(/deeper style starts at level/i)).toBeEnabled();
+    expect(screen.getByLabelText(/deeper style starts at level/i)).toHaveValue(1);
+
+    await waitFor(() => {
+      const buttonLabels = getFlatPreviewButtonLabels();
+
+      expect(buttonLabels).toContain("creator");
+      expect(buttonLabels).toContain("id");
+      expect(buttonLabels).toContain("scores");
+      expect(buttonLabels).not.toContain("creator.name");
+      expect(screen.getByRole("button", { name: /2 rows/i })).toBeInTheDocument();
     });
   });
 

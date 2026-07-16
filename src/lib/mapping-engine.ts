@@ -34,6 +34,8 @@ export type ValueKind = "array" | "boolean" | "date" | "null" | "number" | "obje
 export interface MappingConfig {
   rootPath?: string;
   flattenMode: FlattenMode;
+  nestedFlattenMode?: FlattenMode;
+  nestedFlattenDepth: number;
   pathModes?: Record<string, FlattenMode>;
   pathSeparator: string;
   arrayIndexSuffix: boolean;
@@ -265,6 +267,8 @@ export const objectMapEntryKeyField = "__entryKey";
 export const defaultMappingConfig: MappingConfig = {
   rootPath: "$.items.item[*]",
   flattenMode: "parallel",
+  nestedFlattenMode: undefined,
+  nestedFlattenDepth: 1,
   pathModes: {},
   pathSeparator: ".",
   arrayIndexSuffix: false,
@@ -851,7 +855,7 @@ function appendNodeToRows(
   }
 
   if (isPlainObject(value)) {
-    if (shouldStringifyPath(normalizedPath, context.config)) {
+    if (shouldStringifyObject(normalizedPath, context.config)) {
       return appendScalarToRows(rows, pathSegments, JSON.stringify(value), context, traversalState);
     }
 
@@ -892,7 +896,7 @@ function appendArrayToRows(
     return appendScalarToRows(rows, pathSegments, JSON.stringify(values), context, traversalState);
   }
 
-  const mode = resolveModeForPath(normalizedPath, context.config);
+  const mode = pickModeForPath(normalizedPath, context.config);
 
   if (mode === "stringify") {
     return context.config.arrayIndexSuffix
@@ -1602,7 +1606,7 @@ function resolveHeader(pathSegments: string[], context: EngineContext) {
   return nextHeader;
 }
 
-function resolveModeForPath(path: string, config: MappingConfig) {
+function pickModeForPath(path: string, config: MappingConfig) {
   if (shouldStringifyPath(path, config)) {
     return "stringify";
   }
@@ -1629,7 +1633,30 @@ function resolveModeForPath(path: string, config: MappingConfig) {
     return pathMatch.mode;
   }
 
+  const nestedMode = config.nestedFlattenMode;
+
+  if (nestedMode && usesNestedFlattenMode(path, config)) {
+    return nestedMode === "strict_leaf" ? "stringify" : nestedMode;
+  }
+
   return config.flattenMode === "strict_leaf" ? "stringify" : config.flattenMode;
+}
+
+function shouldStringifyObject(path: string, config: MappingConfig) {
+  if (shouldStringifyPath(path, config)) {
+    return true;
+  }
+
+  return usesNestedFlattenMode(path, config) && config.nestedFlattenMode === "stringify";
+}
+
+function usesNestedFlattenMode(path: string, config: MappingConfig) {
+  if (!config.nestedFlattenMode) {
+    return false;
+  }
+
+  const depth = path.length === 0 ? 0 : path.split(".").length;
+  return depth >= config.nestedFlattenDepth;
 }
 
 function shouldStringifyPath(path: string, config: MappingConfig) {

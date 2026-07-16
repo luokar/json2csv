@@ -430,7 +430,7 @@ describe("App", () => {
     const creatorRule = await screen.findByLabelText(/nesting rule for creator/i);
     expect(creatorRule).toHaveValue("inherit");
 
-    await user.selectOptions(screen.getByLabelText(/deeper nesting style/i), "stringify");
+    await user.selectOptions(screen.getByLabelText(/depth override style/i), "stringify");
 
     expect(screen.getByLabelText(/deeper style starts at level/i)).toBeEnabled();
     expect(screen.getByLabelText(/deeper style starts at level/i)).toHaveValue(1);

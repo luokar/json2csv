@@ -26,7 +26,7 @@ export function GridStatusBar({
   onCellRedo,
 }: GridStatusBarProps) {
   return (
-    <div className="flex shrink-0 items-center gap-4 border-t border-border bg-background px-4 py-1.5 text-xs text-muted-foreground">
+    <div className="flex shrink-0 items-center gap-4 border-t border-border bg-muted/45 px-4 py-1.5 text-xs text-muted-foreground">
       <span>
         {rowCount.toLocaleString()} total {rowLabel}s
       </span>

@@ -1,7 +1,8 @@
 import { useState } from "react";
 
-import { Badge } from "@/components/ui/badge";
 import { InspectorSection } from "@/components/inspector/inspector-section";
+import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Notice } from "@/components/ui/notice";
@@ -83,12 +84,11 @@ export function ProfileTabPanel({
         />
       </div>
 
-      <label className="flex items-center gap-2 text-xs text-muted-foreground">
-        <input
-          type="checkbox"
+      <label htmlFor="profile-issues-only" className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Checkbox
+          id="profile-issues-only"
           checked={issuesOnly}
           onChange={(e) => setIssuesOnly(e.target.checked)}
-          className="rounded border-border"
         />
         Show only columns with issues
       </label>

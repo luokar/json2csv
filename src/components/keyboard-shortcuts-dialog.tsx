@@ -42,7 +42,7 @@ export function KeyboardShortcutsDialog({
     <Dialog.Root open={isOpen} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/20 animate-in fade-in duration-150" />
-        <Dialog.Content className="fixed top-1/2 left-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-background p-5 shadow-xl animate-in fade-in zoom-in-95 duration-150">
+        <Dialog.Content className="fixed top-1/2 left-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-card p-5 shadow-geist-float animate-in fade-in zoom-in-95 duration-150">
           <div className="flex items-center justify-between">
             <Dialog.Title className="text-base font-semibold text-foreground">
               Keyboard shortcuts

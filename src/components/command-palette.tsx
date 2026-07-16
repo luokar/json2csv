@@ -134,7 +134,7 @@ export function CommandPalette({
           className="fixed top-[20%] left-1/2 z-50 w-full max-w-lg -translate-x-1/2 animate-in fade-in zoom-in-95 duration-150"
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
-          <div className="overflow-hidden rounded-xl border border-border bg-background shadow-xl">
+          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-geist-float">
             <div className="flex items-center gap-2 border-b border-border px-4 py-3">
               <Search className="size-4 text-muted-foreground" />
               <input

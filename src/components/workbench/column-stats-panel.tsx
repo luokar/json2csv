@@ -78,7 +78,7 @@ export function ColumnStatsPanel({ profiles, onClose, initialColumnId, onApplyCo
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Search columns"
-                  className="h-8 w-full rounded-md border border-border bg-background pl-7 pr-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                  className="h-8 w-full rounded-md border border-input bg-card pr-2 pl-7 text-xs shadow-geist focus:border-primary/60 focus:outline-none focus:ring-2 focus:ring-ring/15"
                 />
               </div>
             </div>

@@ -19,7 +19,7 @@ export function WorkbenchNavButton({
       className={cn(
         "inline-flex h-9 items-center gap-2 rounded-[5px] border border-transparent px-4 text-sm transition-colors duration-150 disabled:pointer-events-none disabled:opacity-50",
         active
-          ? "bg-background text-foreground font-medium shadow-geist"
+          ? "bg-card text-primary font-medium shadow-geist"
           : "text-muted-foreground hover:text-foreground",
       )}
       disabled={disabled}

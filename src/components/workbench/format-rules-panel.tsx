@@ -57,7 +57,7 @@ export function FormatRulesPanel({
           {formatRules.map((rule, ruleIndex) => (
             <div
               key={rule.id}
-              className="flex items-center gap-2 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs"
+              className="flex items-center gap-2 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs"
             >
               <span
                 className="size-3 shrink-0 rounded-sm border border-border"
@@ -155,7 +155,7 @@ export function FormatRulesPanel({
           <div className="space-y-1">
             <label className="text-[10px] text-muted-foreground">Column</label>
             <select
-              className="h-8 rounded-md border border-border bg-background px-2 text-xs"
+              className="h-8 rounded-md border border-input bg-card px-2 text-xs"
               value={newRuleColumn ?? ""}
               onChange={(e) => setNewRuleColumn(e.target.value || null)}
             >
@@ -170,7 +170,7 @@ export function FormatRulesPanel({
           <div className="space-y-1">
             <label className="text-[10px] text-muted-foreground">Condition</label>
             <select
-              className="h-8 rounded-md border border-border bg-background px-2 text-xs"
+              className="h-8 rounded-md border border-input bg-card px-2 text-xs"
               value={newRuleConditionType}
               onChange={(e) =>
                 setNewRuleConditionType(e.target.value as FormatCondition["type"])

@@ -32,6 +32,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown, Filter, GripVertical, Pin, X } from "l
 import { memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
   TableCell,
@@ -322,11 +323,9 @@ export const DenseDataGrid = memo(function DenseDataGrid({
       {
         cell: ({ row }) => (
           <div className="flex items-center justify-center">
-            <input
+            <Checkbox
               aria-label={`Select ${rowLabel} ${row.id}`}
               checked={row.getIsSelected()}
-              className="size-4 rounded border-border accent-primary"
-              type="checkbox"
               onChange={row.getToggleSelectedHandler()}
             />
           </div>
@@ -337,11 +336,9 @@ export const DenseDataGrid = memo(function DenseDataGrid({
         enableSorting: false,
         header: ({ table }) => (
           <div className="flex items-center justify-center">
-            <input
+            <Checkbox
               aria-label={`Select all visible ${rowLabel} rows`}
               checked={table.getIsAllPageRowsSelected()}
-              className="size-4 rounded border-border accent-primary"
-              type="checkbox"
               onChange={table.getToggleAllPageRowsSelectedHandler()}
             />
           </div>
@@ -536,7 +533,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                 <div className="relative">
                   <Input
                     aria-label={`Filter ${header}`}
-                    className="h-7 rounded-md bg-background px-2 pr-7 text-xs"
+                    className="h-7 rounded-md bg-card px-2 pr-7 text-xs"
                     placeholder="Filter..."
                     value={typeof filterValue === "string" ? filterValue : ""}
                     onChange={(event) => column.setFilterValue(event.target.value)}
@@ -809,7 +806,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
   }
 
   return (
-    <section className="flex min-h-[calc(100vh-10.75rem)] flex-col overflow-hidden rounded-lg border border-border bg-background shadow-geist">
+    <section className="flex min-h-[calc(100vh-10.75rem)] flex-col overflow-hidden rounded-lg border border-border bg-card shadow-geist">
       <div className="border-b border-border px-4 py-4 sm:px-5">
         <GridHeaderSummary
           title={title}
@@ -910,10 +907,10 @@ export const DenseDataGrid = memo(function DenseDataGrid({
           <caption className="mt-4 px-5 pb-4 text-left text-sm text-muted-foreground">
             {caption}
           </caption>
-          <TableHeader className="sticky top-0 z-20 bg-muted/80 backdrop-blur-sm">
+          <TableHeader className="sticky top-0 z-20 bg-muted/90 backdrop-blur-sm">
             <SortableContext items={headers} strategy={horizontalListSortingStrategy}>
                 {table.getHeaderGroups().map((headerGroup) => (
-                  <TableRow key={headerGroup.id} className="border-b border-border bg-muted/80 hover:bg-muted/80">
+                  <TableRow key={headerGroup.id} className="border-b border-border bg-muted/90 hover:bg-muted/90">
                     {headerGroup.headers.map((header) => {
                       const isSelectionColumn = header.column.id === selectionColumnId;
                       const isRowNumberColumn = header.column.id === rowNumberColumnId;
@@ -924,7 +921,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                         return (
                           <TableHead
                             key={header.id}
-                            className="relative sticky left-0 z-30 w-10 min-w-10 max-w-10 border-r border-border/30 bg-background px-2 align-top"
+                            className="relative sticky left-0 z-30 w-10 min-w-10 max-w-10 border-r border-border/60 bg-muted/90 px-2 align-middle"
                           >
                             {header.isPlaceholder
                               ? null
@@ -937,7 +934,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                         return (
                           <TableHead
                             key={header.id}
-                            className="relative sticky left-10 z-30 w-12 min-w-12 max-w-12 border-r border-border/30 bg-background px-2 align-top"
+                            className="relative sticky left-10 z-30 w-12 min-w-12 max-w-12 border-r border-border/60 bg-muted/90 px-2 align-middle"
                           >
                             {header.isPlaceholder
                               ? null
@@ -951,7 +948,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                           key={header.id}
                           headerId={header.column.id}
                           className={cn(
-                            "relative border-r border-border/30 bg-background align-top",
+                            "relative border-r border-border/60 bg-muted/90 align-top",
                             isFrozenDataColumn && "sticky z-20",
                           )}
                           style={{ width: header.getSize(), ...(isFrozenDataColumn && frozenLeft !== undefined ? { left: frozenLeft } : {}) }}
@@ -1011,7 +1008,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                           const isRowNumberColumn = cell.column.id === rowNumberColumnId;
                           const isFrozenDataColumn = pinnedDataColumnIdSet.has(cell.column.id);
                           const frozenLeft = frozenColumnLeftOffsets.get(cell.column.id);
-                          const cellBg = isOddRow ? "bg-muted/20" : "bg-background";
+                          const cellBg = isOddRow ? "bg-muted/45" : "bg-card";
                           const isDataColumn = !isSelectionColumn && !isRowNumberColumn;
                           const isFocusedCell = isDataColumn && focusedCell?.rowId === row.id && focusedCell?.columnId === cell.column.id;
 
@@ -1068,7 +1065,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
                       const isRowNumberColumn = cell.column.id === rowNumberColumnId;
                       const isFrozenDataColumn = pinnedDataColumnIdSet.has(cell.column.id);
                       const frozenLeft = frozenColumnLeftOffsets.get(cell.column.id);
-                      const cellBg = rowIndex % 2 === 1 ? "bg-muted/20" : "bg-background";
+                      const cellBg = rowIndex % 2 === 1 ? "bg-muted/45" : "bg-card";
                       const isDataColumn = !isSelectionColumn && !isRowNumberColumn;
                       const isFocusedCell = isDataColumn && focusedCell?.rowId === row.id && focusedCell?.columnId === cell.column.id;
 
@@ -1112,7 +1109,7 @@ export const DenseDataGrid = memo(function DenseDataGrid({
           </table>
           <DragOverlay dropAnimation={null}>
             {activeDragId ? (
-              <div className="flex items-center gap-2 rounded-lg border border-primary/50 bg-background px-3 py-2 text-xs font-medium text-foreground shadow-geist-float ring-1 ring-primary/20">
+              <div className="flex items-center gap-2 rounded-lg border border-primary/50 bg-card px-3 py-2 text-xs font-medium text-foreground shadow-geist-float ring-1 ring-primary/20">
                 <GripVertical className="size-3 text-muted-foreground" />
                 {activeDragId}
               </div>

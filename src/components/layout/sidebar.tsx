@@ -28,7 +28,7 @@ export function CollapsibleSidebar({
           className="fixed inset-0 z-40 bg-black/20 animate-in fade-in duration-150"
           onClick={onToggle}
         />
-        <aside className="fixed inset-y-0 right-0 z-50 flex w-[min(480px,100vw)] flex-col border-l border-border bg-background shadow-geist-float animate-in slide-in-from-right duration-200">
+        <aside className="fixed inset-y-0 right-0 z-50 flex w-[min(480px,100vw)] flex-col border-l border-border bg-card shadow-geist-float animate-in slide-in-from-right duration-200">
           <Button
             type="button"
             variant="ghost"
@@ -53,7 +53,7 @@ export function CollapsibleSidebar({
   return (
     <aside
       className={cn(
-        "relative flex flex-col overflow-hidden border-l border-border bg-background transition-all duration-200 ease-in-out",
+        "relative flex flex-col overflow-hidden border-l border-border bg-card transition-all duration-200 ease-in-out",
         isOpen ? "w-[480px] min-w-[480px] opacity-100" : "w-0 min-w-0 opacity-0",
       )}
     >

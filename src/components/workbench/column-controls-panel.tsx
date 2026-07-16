@@ -1,6 +1,7 @@
 import { ChevronDown, ChevronRight } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 
 interface ColumnControlsPanelProps {
@@ -51,7 +52,7 @@ export function ColumnControlsPanel({
   return (
     <div className="mt-3 flex flex-wrap gap-1.5 rounded-lg border border-border bg-muted/30 p-3">
       {initialHiddenHeaders.length > 0 ? (
-        <div className="flex w-full items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-xs text-muted-foreground">
+        <div className="flex w-full items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs text-muted-foreground">
           <p className="flex-1">
             Showing {defaultVisibleColumnCount.toLocaleString()} columns by default. Use the
             checkboxes below to show or hide additional columns.
@@ -95,7 +96,7 @@ export function ColumnControlsPanel({
               key={prefix}
               type="button"
               onClick={() => toggleGroupCollapse(prefix)}
-              className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-xs transition-colors hover:bg-muted/50"
+              className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-xs transition-colors hover:bg-muted/50"
             >
               {collapsedGroups.has(prefix) ? (
                 <ChevronRight className="size-3" />
@@ -113,13 +114,13 @@ export function ColumnControlsPanel({
         return (
           <label
             key={header}
-            className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-foreground transition-colors hover:bg-muted/50 cursor-default"
+            htmlFor={`column-visibility-${header}`}
+            className="inline-flex cursor-default items-center gap-2 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs text-foreground transition-colors hover:border-input hover:bg-muted/50"
           >
-            <input
+            <Checkbox
+              id={`column-visibility-${header}`}
               aria-label={`${header} column visibility`}
               checked={columnVisibility[header]}
-              className="size-4 rounded border-border accent-primary"
-              type="checkbox"
               onChange={() => onToggleColumnVisibility(header)}
             />
             <span className="max-w-[12rem] truncate">{header}</span>

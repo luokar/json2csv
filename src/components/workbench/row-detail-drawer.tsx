@@ -141,7 +141,7 @@ export function RowDetailDrawer({
     <Dialog.Root open={isOpen} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/20 animate-in fade-in duration-150" />
-        <Dialog.Content className="fixed inset-y-0 right-0 z-50 flex w-full max-w-lg flex-col border-l border-border bg-background shadow-xl animate-in slide-in-from-right duration-200">
+        <Dialog.Content className="fixed inset-y-0 right-0 z-50 flex w-full max-w-lg flex-col border-l border-border bg-card shadow-geist-float animate-in slide-in-from-right duration-200">
           <div className="flex items-center justify-between border-b border-border px-5 py-4">
             <Dialog.Title className="min-w-0 flex-1 truncate text-base font-semibold text-foreground">
               {rowLabel}

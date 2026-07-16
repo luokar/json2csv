@@ -20,10 +20,11 @@ import {
   type NestedFieldStyle,
 } from "@/components/sidebar/nested-field-rules";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { SelectField, ToggleField } from "@/components/ui/form-fields";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Notice } from "@/components/ui/notice";
-import { SelectField, ToggleField } from "@/components/ui/form-fields";
 import { cn } from "@/lib/utils";
 import type { InspectedPath } from "@/lib/mapping-engine";
 
@@ -240,7 +241,7 @@ export function TransformTabPanel({
           />
           <SelectField
             id="nested-flatten-mode"
-            label="Deeper nesting style"
+            label="Depth override style"
             hint="Optionally switch styles for containers nested inside each selected row."
             registration={nestedFlattenModeRegister}
             options={nestedFlattenModeOptions}
@@ -433,12 +434,11 @@ export function TransformTabPanel({
                 />
               </div>
             </div>
-            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              <input
-                type="checkbox"
+            <label htmlFor="bulk-rename-regex" className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Checkbox
+                id="bulk-rename-regex"
                 checked={bulkUseRegex}
                 onChange={(e) => setBulkUseRegex(e.target.checked)}
-                className="rounded border-border"
               />
               Use regex
             </label>
@@ -557,9 +557,8 @@ export function TransformTabPanel({
                     onDragEnd={resetDragState}
                   >
                     <GripVertical className="size-3 shrink-0 cursor-grab text-muted-foreground" />
-                    <input
-                      type="checkbox"
-                      className="rounded border-border"
+                    <Checkbox
+                      aria-label={`Select ${header} for reordering`}
                       checked={selectedForReorder.has(header)}
                       onChange={(e) => {
                         setSelectedForReorder((prev) => {
@@ -672,11 +671,11 @@ export function TransformTabPanel({
               {filteredVisibilityHeaders.map((header) => (
                 <label
                   key={header}
+                  htmlFor={`transform-column-visibility-${header}`}
                   className="flex items-center gap-2 rounded px-1.5 py-0.5 text-xs hover:bg-muted"
                 >
-                  <input
-                    type="checkbox"
-                    className="rounded border-border"
+                  <Checkbox
+                    id={`transform-column-visibility-${header}`}
                     checked={!hiddenColumns.has(header)}
                     onChange={(e) => {
                       onHiddenColumnsChange(

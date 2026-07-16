@@ -151,7 +151,7 @@ export function GridToolbar({
           Clear
         </Button>
 
-        <div className="flex gap-0.5 rounded-md border border-border bg-muted p-0.5">
+        <div className="flex gap-0.5 rounded-md border border-border bg-secondary/70 p-0.5">
           {(["non-empty", "unique", "edited"] as const).map((preset) => {
             const isActive = activeQuickFilters.has(preset);
             const label = preset === "non-empty" ? "Non-empty" : preset === "unique" ? "Unique" : "Edited";
@@ -164,7 +164,7 @@ export function GridToolbar({
                 className={cn(
                   "rounded-[4px] px-2 py-1 font-mono text-xs font-normal transition-colors",
                   isActive
-                    ? "bg-background text-foreground shadow-sm"
+                    ? "bg-card text-primary shadow-sm"
                     : "text-muted-foreground hover:text-foreground",
                 )}
                 onClick={() => {
@@ -182,7 +182,7 @@ export function GridToolbar({
           })}
         </div>
 
-        <div className="flex gap-0.5 rounded-md border border-border bg-muted p-0.5">
+        <div className="flex gap-0.5 rounded-md border border-border bg-secondary/70 p-0.5">
           {(["compact", "default", "comfortable"] as const).map((d) => (
             <button
               key={d}
@@ -191,7 +191,7 @@ export function GridToolbar({
               className={cn(
                 "rounded-[4px] px-2 py-1 font-mono text-xs font-normal transition-colors",
                 density === d
-                  ? "bg-background text-foreground shadow-sm"
+                  ? "bg-card text-primary shadow-sm"
                   : "text-muted-foreground hover:text-foreground",
               )}
               onClick={() => setDensity(d)}

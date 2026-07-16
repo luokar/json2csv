@@ -1069,8 +1069,8 @@ function App() {
   return (
     <div className="flex min-h-screen flex-col bg-background">
       {/* Top bar */}
-      <header className="relative border-b border-border bg-background">
-        <div aria-hidden className="pointer-events-none absolute inset-y-0 left-0 w-64 bg-[radial-gradient(circle_at_0%_20%,rgba(0,223,216,0.18),transparent_48%),radial-gradient(circle_at_20%_100%,rgba(121,40,202,0.12),transparent_52%)]" />
+      <header className="relative border-b border-border bg-card/95">
+        <div aria-hidden className="pointer-events-none absolute inset-y-0 left-0 w-72 bg-[radial-gradient(circle_at_0%_20%,rgba(15,118,110,0.14),transparent_50%),radial-gradient(circle_at_26%_110%,rgba(217,119,6,0.08),transparent_54%)] dark:opacity-50" />
         <div className="relative mx-auto flex h-16 max-w-[1920px] items-center gap-4 px-4 sm:px-6">
           <div className="flex min-w-0 items-center gap-2.5">
             <Code2 aria-hidden className="size-5 shrink-0" strokeWidth={1.7} />
@@ -1170,8 +1170,8 @@ function App() {
         {/* Main workspace */}
         <main className="flex min-w-0 flex-1 flex-col">
           {/* View tabs */}
-          <div className="border-b border-border bg-background px-4 py-3 sm:px-6">
-            <div className="flex w-fit items-center rounded-md border border-border bg-muted p-0.5 shadow-geist">
+          <div className="border-b border-border bg-card px-4 py-3 sm:px-6">
+            <div className="flex w-fit items-center rounded-md border border-border bg-secondary/70 p-0.5 shadow-geist">
               <WorkbenchNavButton
                 active={activeView === "flat"}
                 label="Table"
@@ -1194,7 +1194,7 @@ function App() {
           </div>
 
           {/* Workbench content */}
-          <div className="min-h-0 flex-1 overflow-auto p-3 sm:p-5">
+          <div className="min-h-0 flex-1 overflow-auto bg-background p-3 sm:p-5">
             {renderWorkbenchCenterPanel()}
           </div>
         </main>
@@ -1212,7 +1212,7 @@ function App() {
             />
           }
         >
-          <div className="min-h-0 flex-1 overflow-y-auto bg-background">
+          <div className="min-h-0 flex-1 overflow-y-auto bg-card">
             <div className={activeSidebarTab === "data" ? undefined : "hidden"}>
               <DataTabPanel
                 activeSample={activeSample}

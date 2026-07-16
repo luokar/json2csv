@@ -228,7 +228,7 @@ export function ExportTabPanel({
           </Button>
           <label
             htmlFor="config-upload"
-            className="inline-flex h-8 cursor-pointer items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+            className="inline-flex h-8 cursor-pointer items-center justify-center gap-2 rounded-lg border border-border bg-card px-3 text-sm font-medium text-foreground shadow-geist transition-colors hover:border-input hover:bg-muted"
           >
             <FileUp className="size-4" />
             Load config
@@ -256,7 +256,7 @@ export function ExportTabPanel({
                 className={cn(
                   "flex-1 rounded-md px-2 py-1 text-xs font-medium transition-colors",
                   snippetTab === tab
-                    ? "bg-background text-foreground shadow-sm"
+                    ? "bg-card text-primary shadow-sm"
                     : "text-muted-foreground hover:text-foreground",
                 )}
                 onClick={() => {

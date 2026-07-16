@@ -8,6 +8,7 @@
 - root-path selection
 - flat mapping controls
 - optional nesting-style changes from a chosen depth
+- per-field flatten or stringify overrides for nested objects and lists
 - bounded flat-row preview
 - bounded CSV preview and full CSV download
 - memory-safe live preview that caps very large inputs to a fixed root budget

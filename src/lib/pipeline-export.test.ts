@@ -14,7 +14,9 @@ describe("pipeline-export", () => {
     flattenMode: "parallel",
     nestedFlattenDepth: 1,
     nestedFlattenMode: "stringify",
+    pathModes: { creator: "parallel" },
     rootPath: "$.records[*]",
+    stringifyPaths: ["metrics"],
   });
 
   it("serializes and parses a pipeline config round-trip", () => {
@@ -42,6 +44,8 @@ describe("pipeline-export", () => {
       expect(parsed.columnOrder).toEqual(["id", "email"]);
       expect(parsed.mappingConfig.nestedFlattenMode).toBe("stringify");
       expect(parsed.mappingConfig.nestedFlattenDepth).toBe(1);
+      expect(parsed.mappingConfig.pathModes).toEqual({ creator: "parallel" });
+      expect(parsed.mappingConfig.stringifyPaths).toEqual(["metrics"]);
     }
   });
 

@@ -427,6 +427,8 @@ describe("App", () => {
 
     await user.click(screen.getByRole("button", { name: /transform/i }));
     expect(screen.getByLabelText(/deeper style starts at level/i)).toBeDisabled();
+    const creatorRule = await screen.findByLabelText(/nesting rule for creator/i);
+    expect(creatorRule).toHaveValue("inherit");
 
     await user.selectOptions(screen.getByLabelText(/deeper nesting style/i), "stringify");
 
@@ -440,6 +442,22 @@ describe("App", () => {
       expect(buttonLabels).toContain("id");
       expect(buttonLabels).toContain("scores");
       expect(buttonLabels).not.toContain("creator.name");
+      expect(screen.getByRole("button", { name: /2 rows/i })).toBeInTheDocument();
+    });
+
+    await user.selectOptions(creatorRule, "flatten");
+
+    await waitFor(() => {
+      const buttonLabels = getFlatPreviewButtonLabels();
+
+      expect(
+        screen.getByRole("button", { name: /^creator\.id$/i }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /^creator\.name$/i }),
+      ).toBeInTheDocument();
+      expect(buttonLabels).not.toContain("creator");
+      expect(buttonLabels).toContain("scores");
       expect(screen.getByRole("button", { name: /2 rows/i })).toBeInTheDocument();
     });
   });

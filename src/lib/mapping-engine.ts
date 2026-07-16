@@ -1611,6 +1611,22 @@ function pickModeForPath(path: string, config: MappingConfig) {
     return "stringify";
   }
 
+  const pathMode = findPathMode(path, config);
+
+  if (pathMode) {
+    return pathMode;
+  }
+
+  const nestedMode = config.nestedFlattenMode;
+
+  if (nestedMode && usesNestedFlattenMode(path, config)) {
+    return nestedMode === "strict_leaf" ? "stringify" : nestedMode;
+  }
+
+  return config.flattenMode === "strict_leaf" ? "stringify" : config.flattenMode;
+}
+
+function findPathMode(path: string, config: MappingConfig) {
   const pathMatch = Object.entries(config.pathModes ?? {}).reduce<PathMatch | null>(
     (bestMatch, [candidatePath, mode]) => {
       if (!doesPathExactlyMatch(path, candidatePath)) {
@@ -1629,22 +1645,16 @@ function pickModeForPath(path: string, config: MappingConfig) {
     null,
   );
 
-  if (pathMatch) {
-    return pathMatch.mode;
-  }
-
-  const nestedMode = config.nestedFlattenMode;
-
-  if (nestedMode && usesNestedFlattenMode(path, config)) {
-    return nestedMode === "strict_leaf" ? "stringify" : nestedMode;
-  }
-
-  return config.flattenMode === "strict_leaf" ? "stringify" : config.flattenMode;
+  return pathMatch?.mode;
 }
 
 function shouldStringifyObject(path: string, config: MappingConfig) {
   if (shouldStringifyPath(path, config)) {
     return true;
+  }
+
+  if (findPathMode(path, config)) {
+    return false;
   }
 
   return usesNestedFlattenMode(path, config) && config.nestedFlattenMode === "stringify";

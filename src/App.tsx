@@ -13,6 +13,7 @@ import { ExportTabPanel } from "@/components/sidebar/export-tab-panel";
 import { InspectTabPanel } from "@/components/sidebar/inspect-tab-panel";
 import { ProfileTabPanel } from "@/components/sidebar/profile-tab-panel";
 import { SidebarTabs } from "@/components/sidebar/sidebar-tabs";
+import type { NestedFieldStyle } from "@/components/sidebar/nested-field-rules";
 import { TransformTabPanel } from "@/components/sidebar/transform-tab-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -244,6 +245,7 @@ function App() {
   const [selectedColumn, setSelectedColumn] = useState<SelectedWorkbenchColumn | null>(null);
   const [selectedRow, setSelectedRow] = useState<SelectedWorkbenchRow | null>(null);
   const [entryKeyAlias, setEntryKeyAlias] = useState<string | null>(null);
+  const [nestedFieldRules, setNestedFieldRules] = useState<Record<string, NestedFieldStyle>>({});
   const columnConfig = useColumnConfigState();
   const {
     columnConfigStack,
@@ -354,7 +356,7 @@ function App() {
     liveValues.sourceMode === "custom" ? resolveStreamableJsonPath(liveValues.rootPath) : null;
   const parsedValues = converterFormSchema.safeParse(liveValues);
   const activeConfig = parsedValues.success
-    ? toMappingConfig(parsedValues.data, entryKeyAlias, headerAliases)
+    ? toMappingConfig(parsedValues.data, entryKeyAlias, headerAliases, nestedFieldRules)
     : undefined;
   const previewSuspendedReason = useMemo(
     () =>
@@ -514,6 +516,7 @@ function App() {
       shouldValidate: true,
     });
     setEntryKeyAlias(null);
+    setNestedFieldRules({});
     setSmartDetectFeedback(null);
   }
 
@@ -529,6 +532,7 @@ function App() {
     form.setValue("sourceMode", sourceMode, { shouldValidate: true });
     form.setValue("rootPath", nextRootPath, { shouldValidate: true });
     setEntryKeyAlias(null);
+    setNestedFieldRules({});
     setSmartDetectFeedback(null);
   }
 
@@ -553,6 +557,7 @@ function App() {
     event.target.value = "";
 
     clearWorkbenchSelection();
+    setNestedFieldRules({});
     form.setValue("sourceMode", "custom", { shouldValidate: true });
     form.setValue("customJson", text, { shouldValidate: true });
 
@@ -573,6 +578,7 @@ function App() {
     clearWorkbenchSelection();
     form.reset(defaultFormValues);
     setEntryKeyAlias(null);
+    setNestedFieldRules({});
     columnConfigStack.reset(initialColumnConfig);
     setSmartDetectFeedback(null);
   }
@@ -648,6 +654,7 @@ function App() {
     if (typeof result.mappingConfig.maxDepth === "number") {
       form.setValue("maxDepth", result.mappingConfig.maxDepth, { shouldValidate: true });
     }
+    setNestedFieldRules(readNestedFieldRules(result.mappingConfig));
     if (result.headerAliases) setHeaderAliases(() => result.headerAliases!);
     if (result.columnOrder) setColumnOrder(result.columnOrder);
   }
@@ -658,6 +665,7 @@ function App() {
       auto?: boolean;
     } = {},
   ) {
+    setNestedFieldRules({});
     form.setValue("rootPath", suggestion.rootPath, { shouldValidate: true });
 
     if (suggestion.flattenMode) {
@@ -1228,7 +1236,9 @@ function App() {
                 previewSuspendedReason={previewSuspendedReason}
                 progress={projection.progress}
                 rootPathError={form.formState.errors.rootPath?.message}
-                rootPathRegister={form.register("rootPath")}
+                rootPathRegister={form.register("rootPath", {
+                  onChange: () => setNestedFieldRules({}),
+                })}
                 sampleSourcePreview={sampleSourcePreview}
                 smartDetectFeedback={smartDetectFeedback}
                 sourceModeOptions={sourceModeOptions}
@@ -1282,6 +1292,8 @@ function App() {
                   value,
                 }))}
                 missingKeyRegister={form.register("onMissingKey")}
+                nestedFieldRules={nestedFieldRules}
+                nestedPaths={discoveredPaths}
                 pathSeparatorRegister={form.register("pathSeparator")}
                 placeholderStrategyOptions={placeholderStrategies.map((value) => ({
                   label: toTitleCase(value),
@@ -1301,6 +1313,19 @@ function App() {
                 hiddenColumns={hiddenColumns}
                 onColumnOrderChange={setColumnOrder}
                 onHiddenColumnsChange={setHiddenColumns}
+                onNestedFieldRuleChange={(path, style) => {
+                  setNestedFieldRules((current) => {
+                    const next = { ...current };
+
+                    if (style === null) {
+                      delete next[path];
+                    } else {
+                      next[path] = style;
+                    }
+
+                    return next;
+                  });
+                }}
                 onHeaderAliasChange={(original, alias) => {
                   setHeaderAliases((prev) => {
                     if (!alias || alias === original) {
@@ -1428,11 +1453,20 @@ function toMappingConfig(
   values: ConverterFormValues,
   entryKeyAlias: string | null,
   userHeaderAliases: Record<string, string>,
+  nestedFieldRules: Record<string, NestedFieldStyle>,
 ): MappingConfig {
   const mergedAliases: Record<string, string> = {
     ...userHeaderAliases,
     ...(entryKeyAlias ? { [objectMapEntryKeyField]: entryKeyAlias } : {}),
   };
+  const pathModes = Object.fromEntries(
+    Object.entries(nestedFieldRules)
+      .filter(([, style]) => style === "flatten")
+      .map(([path]) => [path, "parallel"] as const),
+  );
+  const stringifyPaths = Object.entries(nestedFieldRules)
+    .filter(([, style]) => style === "stringify")
+    .map(([path]) => path);
 
   return createMappingConfig({
     rootPath: values.rootPath,
@@ -1440,6 +1474,7 @@ function toMappingConfig(
     nestedFlattenMode:
       values.nestedFlattenMode === "inherit" ? undefined : values.nestedFlattenMode,
     nestedFlattenDepth: values.nestedFlattenDepth,
+    pathModes,
     pathSeparator: values.pathSeparator,
     arrayIndexSuffix: values.arrayIndexSuffix,
     placeholderStrategy: values.placeholderStrategy,
@@ -1457,7 +1492,22 @@ function toMappingConfig(
     quoteAll: values.quoteAll,
     emptyArrayBehavior: values.emptyArrayBehavior,
     maxDepth: values.maxDepth,
+    stringifyPaths,
   });
+}
+
+function readNestedFieldRules(config: Partial<MappingConfig>) {
+  const rules: Record<string, NestedFieldStyle> = {};
+
+  for (const [path, mode] of Object.entries(config.pathModes ?? {})) {
+    rules[path] = mode === "stringify" || mode === "strict_leaf" ? "stringify" : "flatten";
+  }
+
+  for (const path of config.stringifyPaths ?? []) {
+    rules[path] = "stringify";
+  }
+
+  return rules;
 }
 
 

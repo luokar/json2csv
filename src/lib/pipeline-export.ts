@@ -46,10 +46,12 @@ export function buildPipelineConfig(options: {
       nestedFlattenMode: mappingConfig.nestedFlattenMode,
       onMissingKey: mappingConfig.onMissingKey,
       onTypeMismatch: mappingConfig.onTypeMismatch,
+      pathModes: mappingConfig.pathModes,
       pathSeparator: mappingConfig.pathSeparator,
       placeholderStrategy: mappingConfig.placeholderStrategy,
       quoteAll: mappingConfig.quoteAll,
       strictNaming: mappingConfig.strictNaming,
+      stringifyPaths: mappingConfig.stringifyPaths,
     },
     rootPath,
     source: {

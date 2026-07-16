@@ -109,6 +109,42 @@ describe("mapping engine deep matrix", () => {
     expect(result.records[0]["profile.name"]).toBe("Model One");
   });
 
+  it("lets a path rule flatten an object below a stringify depth boundary", () => {
+    const result = convertJsonToCsvTable(
+      {
+        models: [
+          {
+            creator: { country: "us", name: "OpenAI" },
+            id: "model-1",
+            metrics: { quality: 92, speed: 88 },
+          },
+        ],
+      },
+      {
+        flattenMode: "parallel",
+        headerPolicy: "full_scan",
+        nestedFlattenDepth: 1,
+        nestedFlattenMode: "stringify",
+        pathModes: { creator: "parallel" },
+        rootPath: "$.models",
+      },
+    );
+
+    expect(result.rowCount).toBe(1);
+    expect(result.headers).toEqual([
+      "creator.country",
+      "creator.name",
+      "id",
+      "metrics",
+    ]);
+    expect(result.records[0]).toMatchObject({
+      "creator.country": "us",
+      "creator.name": "OpenAI",
+      id: "model-1",
+      metrics: '{"quality":92,"speed":88}',
+    });
+  });
+
   it("keeps deep arrays in-row by default in strict-leaf mode", () => {
     const result = convertJsonToCsvTable(deepProjectInput, {
       rootPath: "$.projects[*]",

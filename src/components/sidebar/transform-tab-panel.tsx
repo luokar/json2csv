@@ -15,12 +15,17 @@ import {
 } from "lucide-react";
 
 import { InspectorSection } from "@/components/inspector/inspector-section";
+import {
+  NestedFieldRules,
+  type NestedFieldStyle,
+} from "@/components/sidebar/nested-field-rules";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Notice } from "@/components/ui/notice";
 import { SelectField, ToggleField } from "@/components/ui/form-fields";
 import { cn } from "@/lib/utils";
+import type { InspectedPath } from "@/lib/mapping-engine";
 
 interface SelectOption {
   label: string;
@@ -53,10 +58,13 @@ export function TransformTabPanel({
   maxDepthRegister,
   missingKeyOptions,
   missingKeyRegister,
+  nestedFieldRules,
+  nestedPaths,
   onColumnOrderChange,
   onHeaderAliasChange,
   onHeaderAliasRemove,
   onHiddenColumnsChange,
+  onNestedFieldRuleChange,
   pathSeparatorRegister,
   placeholderStrategyOptions,
   placeholderStrategyRegister,
@@ -90,10 +98,13 @@ export function TransformTabPanel({
   maxDepthRegister: UseFormRegisterReturn;
   missingKeyOptions: SelectOption[];
   missingKeyRegister: UseFormRegisterReturn;
+  nestedFieldRules: Record<string, NestedFieldStyle>;
+  nestedPaths: InspectedPath[];
   onColumnOrderChange: (order: string[]) => void;
   onHeaderAliasChange: (original: string, alias: string) => void;
   onHeaderAliasRemove: (original: string) => void;
   onHiddenColumnsChange: (hidden: Set<string>) => void;
+  onNestedFieldRuleChange: (path: string, style: NestedFieldStyle | null) => void;
   pathSeparatorRegister: UseFormRegisterReturn;
   placeholderStrategyOptions: SelectOption[];
   placeholderStrategyRegister: UseFormRegisterReturn;
@@ -346,6 +357,12 @@ export function TransformTabPanel({
           />
         </div>
       </InspectorSection>
+
+      <NestedFieldRules
+        inspectedPaths={nestedPaths}
+        rules={nestedFieldRules}
+        onRuleChange={onNestedFieldRuleChange}
+      />
 
       <InspectorSection
         description="Rename columns in the exported CSV."

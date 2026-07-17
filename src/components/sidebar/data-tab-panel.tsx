@@ -7,6 +7,7 @@ import type { ProjectionProgress } from "@/lib/projection";
 
 import { bufferedJsonEditorServiceProps } from "@/components/buffered-json-editor";
 import { InspectorSection } from "@/components/inspector/inspector-section";
+import { TablePlanList } from "@/components/sidebar/table-plan-list";
 import { Button } from "@/components/ui/button";
 import { FieldError, controlSelectClassName } from "@/components/ui/form-fields";
 import { Input } from "@/components/ui/input";
@@ -15,6 +16,7 @@ import { Notice } from "@/components/ui/notice";
 import { Textarea } from "@/components/ui/textarea";
 import type { MappingSample } from "@/lib/mapping-samples";
 import { mappingSamples } from "@/lib/mapping-samples";
+import type { TablePlan } from "@/lib/table-planner";
 
 interface SmartDetectFeedback {
   detail: string;
@@ -29,9 +31,12 @@ export function DataTabPanel({
   exportNameRegister,
   isBroadRootWarningVisible,
   broadRootColumnCount,
+  hasAnalyzedTablePlans,
+  isAnalyzingTablePlans,
   isProjecting,
   onFileImport,
   onSampleChange,
+  onApplyTablePlan,
   onSmartDetect,
   onSourceModeChange,
   parseError,
@@ -42,6 +47,8 @@ export function DataTabPanel({
   rootPathRegister,
   sampleSourcePreview,
   smartDetectFeedback,
+  tablePlanError,
+  tablePlans,
   sourceModeOptions,
   streamableCustomSelector,
   values,
@@ -55,9 +62,12 @@ export function DataTabPanel({
   exportNameRegister: UseFormRegisterReturn;
   isBroadRootWarningVisible: boolean;
   broadRootColumnCount: number;
+  hasAnalyzedTablePlans: boolean;
+  isAnalyzingTablePlans: boolean;
   isProjecting: boolean;
   onFileImport: (event: ChangeEvent<HTMLInputElement>) => void;
   onSampleChange: (sampleId: string) => void;
+  onApplyTablePlan: (plan: TablePlan) => void;
   onSmartDetect: () => void;
   onSourceModeChange: (mode: "sample" | "custom") => void;
   parseError: string | null;
@@ -68,6 +78,8 @@ export function DataTabPanel({
   rootPathRegister: UseFormRegisterReturn;
   sampleSourcePreview: { text: string; truncated: boolean } | null;
   smartDetectFeedback: SmartDetectFeedback | null;
+  tablePlanError: string | null;
+  tablePlans: TablePlan[];
   sourceModeOptions: ReadonlyArray<{ label: string; value: "sample" | "custom" }>;
   streamableCustomSelector: unknown;
   values: {
@@ -227,15 +239,20 @@ export function DataTabPanel({
               type="button"
               variant="secondary"
               size="sm"
-              disabled={isProjecting}
+              disabled={isAnalyzingTablePlans}
               onClick={onSmartDetect}
             >
-              Auto-detect
+              {isAnalyzingTablePlans ? "Analyzing…" : "Auto-detect"}
             </Button>
             <span className="text-xs text-muted-foreground">
-              Analyze your data for a better row layout.
+              Find useful tables without loading the whole preview.
             </span>
           </div>
+
+          {tablePlanError ? <Notice tone="error">{tablePlanError}</Notice> : null}
+          {hasAnalyzedTablePlans && !tablePlanError && tablePlans.length === 0 ? (
+            <Notice>No useful table boundaries were found at this data location.</Notice>
+          ) : null}
 
           {smartDetectFeedback ? (
             <Notice
@@ -255,6 +272,8 @@ export function DataTabPanel({
               ) : null}
             </Notice>
           ) : null}
+
+          <TablePlanList onApply={onApplyTablePlan} plans={tablePlans} />
         </div>
 
         {isBroadRootWarningVisible ? (

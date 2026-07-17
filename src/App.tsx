@@ -47,6 +47,7 @@ import { useOutputExport } from "@/hooks/use-output-export";
 import { buildDatasetKey } from "@/hooks/use-column-preferences";
 import { useProjectionPreview } from "@/hooks/use-projection-preview";
 import { useStatsPanel } from "@/hooks/use-stats-panel";
+import { useTablePlanAnalysis } from "@/hooks/use-table-plan-analysis";
 import { useTheme } from "@/hooks/use-theme";
 import { parseJsonInput, stringifyJsonInput } from "@/lib/json-input";
 import { resolveStreamableJsonPath } from "@/lib/json-root-stream";
@@ -77,6 +78,7 @@ import {
 import { createRowPreview, createTextPreview } from "@/lib/preview";
 import { projectionFlatRowPreviewLimit, projectionSmallInputRootThreshold } from "@/lib/projection";
 import { detectSmartConfigSuggestion, type SmartConfigSuggestion } from "@/lib/smart-config";
+import type { TablePlan } from "@/lib/table-planner";
 import {
   createGridRowId,
   createWorkbenchRowLabel,
@@ -278,6 +280,7 @@ function App() {
     applyColumnFilter,
   } = useStatsPanel();
   const { theme, setTheme, resolvedTheme } = useTheme();
+  const tablePlanAnalysis = useTablePlanAnalysis();
   const isMobile = !useMediaQuery("(min-width: 1024px)");
 
   useEffect(() => {
@@ -518,6 +521,7 @@ function App() {
     setEntryKeyAlias(null);
     setNestedFieldRules({});
     setSmartDetectFeedback(null);
+    tablePlanAnalysis.clear();
   }
 
   function handleSourceModeChange(sourceMode: SourceMode) {
@@ -534,6 +538,7 @@ function App() {
     setEntryKeyAlias(null);
     setNestedFieldRules({});
     setSmartDetectFeedback(null);
+    tablePlanAnalysis.clear();
   }
 
   async function handleFileImport(event: ChangeEvent<HTMLInputElement>) {
@@ -544,6 +549,7 @@ function App() {
     }
 
     const text = await file.text();
+    tablePlanAnalysis.clear();
     const importedPreviewSuspendedReason = describeLargeObjectRootPreviewSuspension(
       "custom",
       "$",
@@ -581,6 +587,7 @@ function App() {
     setNestedFieldRules({});
     columnConfigStack.reset(initialColumnConfig);
     setSmartDetectFeedback(null);
+    tablePlanAnalysis.clear();
   }
 
   function handleExportConfig() {
@@ -686,45 +693,35 @@ function App() {
   }
 
   function handleSmartDetect() {
-    if (previewSuspendedReason) {
-      setEntryKeyAlias(null);
-      setSmartDetectFeedback({
-        detail:
-          "Auto-detect is not available for very large object-root JSON. Set a narrower data location first, then try again.",
-        previewHeaders: [],
-        tone: "info",
-      });
-      return;
-    }
+    setSmartDetectFeedback(null);
+    tablePlanAnalysis.analyze({
+      customJson: liveValues.customJson,
+      rootPath: liveValues.rootPath,
+      sampleJson: activeSample.json,
+      sourceMode: liveValues.sourceMode,
+    });
+  }
 
-    const resolvedInput =
-      liveValues.sourceMode === "custom"
-        ? parseJsonInput(liveValues.customJson)
-        : { error: null, value: activeSample.json };
+  function handleApplyTablePlan(plan: TablePlan) {
+    const rules = Object.fromEntries(
+      Object.entries(plan.pathModes).map(([path, mode]) => [
+        path,
+        mode === "stringify" ? "stringify" : "flatten",
+      ] as const),
+    ) as Record<string, NestedFieldStyle>;
 
-    if (resolvedInput.value === undefined) {
-      setSmartDetectFeedback({
-        detail: `Auto-detect needs valid JSON before it can analyze your data.${resolvedInput.error ? ` ${resolvedInput.error}` : ""}`,
-        previewHeaders: [],
-        tone: "error",
-      });
-      return;
-    }
-
-    const suggestion = detectSmartConfigSuggestion(resolvedInput.value);
-
-    if (!suggestion) {
-      setEntryKeyAlias(null);
-      setSmartDetectFeedback({
-        detail:
-          "Auto-detect did not find a better row layout for your data.",
-        previewHeaders: [],
-        tone: "info",
-      });
-      return;
-    }
-
-    applySmartSuggestion(suggestion);
+    clearWorkbenchSelection();
+    form.setValue("rootPath", plan.rootPath, { shouldValidate: true });
+    form.setValue("flattenMode", plan.flattenMode, { shouldValidate: true });
+    form.setValue("nestedFlattenMode", "inherit", { shouldValidate: true });
+    setNestedFieldRules(rules);
+    setEntryKeyAlias(plan.entryKeyAlias ?? null);
+    setSmartDetectFeedback({
+      detail: `Using ${plan.label}: ${plan.summary}`,
+      previewHeaders: plan.previewHeaders,
+      tone: "success",
+    });
+    tablePlanAnalysis.clear();
   }
 
   const configErrors = parsedValues.success
@@ -1218,6 +1215,7 @@ function App() {
                 activeSample={activeSample}
                 broadRootColumnCount={broadRootColumnCount}
                 customJsonOnChange={(value) => {
+                  tablePlanAnalysis.clear();
                   form.setValue("customJson", value, { shouldValidate: true });
                 }}
                 discoveredPathCount={discoveredPaths.length}
@@ -1225,8 +1223,11 @@ function App() {
                 exportNameMaxLength={exportNameMaxLength}
                 exportNameRegister={form.register("exportName")}
                 formatProgressDetail={formatProjectionProgressDetail}
+                hasAnalyzedTablePlans={tablePlanAnalysis.hasAnalyzed}
+                isAnalyzingTablePlans={tablePlanAnalysis.isAnalyzing}
                 isBroadRootWarningVisible={isBroadRootWarningVisible}
                 isProjecting={projection.isProjecting}
+                onApplyTablePlan={handleApplyTablePlan}
                 onFileImport={handleFileImport}
                 onSampleChange={handleSampleChange}
                 onSmartDetect={handleSmartDetect}
@@ -1237,12 +1238,17 @@ function App() {
                 progress={projection.progress}
                 rootPathError={form.formState.errors.rootPath?.message}
                 rootPathRegister={form.register("rootPath", {
-                  onChange: () => setNestedFieldRules({}),
+                  onChange: () => {
+                    setNestedFieldRules({});
+                    tablePlanAnalysis.clear();
+                  },
                 })}
                 sampleSourcePreview={sampleSourcePreview}
                 smartDetectFeedback={smartDetectFeedback}
                 sourceModeOptions={sourceModeOptions}
                 streamableCustomSelector={streamableCustomSelector}
+                tablePlanError={tablePlanAnalysis.error}
+                tablePlans={tablePlanAnalysis.plans}
                 values={liveValues}
               />
             </div>

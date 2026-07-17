@@ -79,6 +79,17 @@ const nestedModelsJson = JSON.stringify({
 });
 
 const largeObjectRootJson = `{"blob":"${"x".repeat(600_000)}"}`;
+const largeStructuredObjectJson = JSON.stringify({
+  blob: "x".repeat(600_000),
+  media: {
+    imageEditing: [{ id: "media-2" }],
+    textToImage: [{ id: "media-1" }],
+  },
+  models: [
+    { id: "model-1", metrics: { evaluations: [{ score: 91 }] } },
+    { id: "model-2", metrics: { evaluations: [{ score: 92 }] } },
+  ],
+});
 
 async function switchToCustomMode(
   user: ReturnType<typeof userEvent.setup>,
@@ -315,7 +326,7 @@ describe("App", () => {
     });
   });
 
-  it("smart-detect preserves complex multi-collection roots by switching to stringify at $", async () => {
+  it("smart-detect offers separate tables for a multi-collection root", async () => {
     const user = userEvent.setup();
 
     render(<App />);
@@ -334,12 +345,16 @@ describe("App", () => {
 
     await user.click(screen.getByRole("button", { name: /^auto-detect$/i }));
 
+    const useMovesButton = await screen.findByRole("button", { name: /use moves/i });
+    expect(screen.getByRole("button", { name: /use game indices/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /use damage relations/i })).toBeInTheDocument();
+
+    await user.click(useMovesButton);
+
     await waitFor(() => {
-      expect(screen.getByLabelText(/data location/i)).toHaveValue("$");
-      expect(screen.getByLabelText(/nesting style/i)).toHaveValue("stringify");
-      expect(
-        screen.getByText(/keep the current data location and switch nesting style to text/i),
-      ).toBeInTheDocument();
+      expect(screen.getByLabelText(/data location/i)).toHaveValue("$.moves[*]");
+      expect(screen.getByLabelText(/nesting style/i)).toHaveValue("parallel");
+      expect(screen.getByRole("button", { name: /2 rows/i })).toBeInTheDocument();
     });
   });
 
@@ -385,6 +400,35 @@ describe("App", () => {
     expect(
       screen.queryByText(/parsing and rebuilding the preview in the background/i),
     ).not.toBeInTheDocument();
+  });
+
+  it("finds and applies table plans while a large object-root preview is suspended", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await switchToCustomMode(user, { waitForWorkbench: false });
+    fireEvent.change(screen.getByLabelText(/your json/i), {
+      target: { value: largeStructuredObjectJson },
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getAllByText(/preview is paused for large object-root json/i).length,
+      ).toBeGreaterThan(0);
+    });
+
+    await user.click(screen.getByRole("button", { name: /^auto-detect$/i }));
+
+    const useModelsButton = await screen.findByRole("button", { name: /use models/i });
+    expect(screen.getByRole("button", { name: /use media/i })).toBeInTheDocument();
+    await user.click(useModelsButton);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/data location/i)).toHaveValue("$.models[*]");
+      expect(screen.getByRole("button", { name: /2 rows/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^metrics\.evaluations$/i })).toBeInTheDocument();
+    });
   });
 
   it("pivots arrays into indexed columns from the config form", async () => {
